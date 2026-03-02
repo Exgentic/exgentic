@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2025, The Exgentic organization and its contributors.
+
+name: DCO Check
+
+on:
+  pull_request:
+    branches:
+      - "**"
+
+jobs:
+  dco:
+    name: DCO Sign-off
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check DCO sign-off
+        uses: tisonkun/actions-dco@v1.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
