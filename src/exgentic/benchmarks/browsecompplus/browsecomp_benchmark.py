@@ -87,7 +87,7 @@ class BrowseCompPlusSession(Session):
         settings: ExgenticSettings,
         instance: Dict[str, Any],
         searcher_params: Dict[str, Any],
-        eval_model_id: str = "openai/Azure/gpt-4.1",
+        judge_model: str = "openai/Azure/gpt-4.1",
         max_interactions: Optional[int] = 100,
         session_id: str | None = None,
     ) -> None:
@@ -103,7 +103,7 @@ class BrowseCompPlusSession(Session):
         self._registry = ActionsHandler(logger=self.logger)
         self.set_action_types()
         self._response = None
-        self.evaluator = self.get_evaluator(eval_model_id)
+        self.evaluator = self.get_evaluator(judge_model)
         self.retrieved_docids = set()
         self.tool_call_count = defaultdict(lambda: 0)
         self.model_usage = None
@@ -391,6 +391,9 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
     full_doc_max_tokens: int = 2048
     max_interactions: Optional[int] = 100
 
+    # bcp evaluation params
+    judge_model: str = "openai/Azure/gpt-4.1"
+
     def model_post_init(self, __context) -> None:
         # Initialize dataset and task lookup
         self._ensure_dataset()
@@ -478,6 +481,7 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
             self._get_searcher_params(),
             max_interactions=self.max_interactions,
             session_id=session_id,
+            judge_model=self.judge_model
         )
         proxy = executer.get_proxy()
         return proxy  # type: ignore[return-value]
