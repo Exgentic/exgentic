@@ -33,6 +33,11 @@ def _otel_enabled() -> bool:
     return bool(get_settings().otel_enabled)
 
 
+def _otel_record_content() -> bool:
+    """Check if OTEL content recording is enabled via settings."""
+    return bool(get_settings().otel_record_content)
+
+
 class TraceLogger(CustomLogger):
     def __init__(self, file_path: str | None = None) -> None:
         super().__init__()
@@ -129,23 +134,26 @@ class TraceLogger(CustomLogger):
     def _create_llm_span(
         self, name: str, start_time: Optional[Any] = None
     ) -> Optional[Any]:
-        """Create span for LLM call.
+        """Create span for LLM call with CLIENT span kind.
 
         Args:
             name: Name of the span
             start_time: Optional datetime when the span started
         """
+        from opentelemetry.trace import SpanKind
+
         parent_ctx = self._get_parent_context()
 
-        # Create span with start_time if provided
         if start_time:
             # Convert datetime to nanoseconds since epoch for OTEL
             start_time_ns = int(start_time.timestamp() * 1_000_000_000)
             span = self._tracer.start_span(
-                name, context=parent_ctx, start_time=start_time_ns
+                name, context=parent_ctx, start_time=start_time_ns, kind=SpanKind.CLIENT
             )
         else:
-            span = self._tracer.start_span(name, context=parent_ctx)
+            span = self._tracer.start_span(
+                name, context=parent_ctx, kind=SpanKind.CLIENT
+            )
 
         span_ctx = span.get_span_context()
 
@@ -347,6 +355,17 @@ class TraceLogger(CustomLogger):
         # Note: LiteLLM doesn't typically expose server details, skip for now
 
         # ===== RECOMMENDED REQUEST ATTRIBUTES =====
+        # ===== RECOMMENDED REQUEST ATTRIBUTES =====
+        # gen_ai.conversation.id (Recommended) - get from context if available
+        try:
+            from ...core.context import try_get_context
+
+            ctx = try_get_context()
+            if ctx and ctx.session_id:
+                span.set_attribute("gen_ai.conversation.id", ctx.session_id)
+        except Exception:
+            pass
+
         if optional_params.get("max_tokens") is not None:
             span.set_attribute(
                 "gen_ai.request.max_tokens", optional_params["max_tokens"]
@@ -382,48 +401,75 @@ class TraceLogger(CustomLogger):
                 span.set_attribute("gen_ai.request.stop_sequences", [stop])
 
         # ===== RECOMMENDED RESPONSE ATTRIBUTES =====
-        if response_obj and isinstance(response_obj, dict):
+        if response_obj:
+            # Helper function to safely get attribute from dict or object
+            def safe_get(obj, key, default=None):
+                if isinstance(obj, dict):
+                    return obj.get(key, default)
+                return getattr(obj, key, default)
+
+            # Get span context for logging
+            span_ctx = span.get_span_context()
+            span_id_hex = format(span_ctx.span_id, "016x")
+
             # gen_ai.response.id (Recommended)
-            response_id = response_obj.get("id")
+            response_id = safe_get(response_obj, "id")
             if response_id:
                 span.set_attribute("gen_ai.response.id", response_id)
+                if self._otel_logger:
+                    self._otel_logger.log_attribute_set(
+                        "gen_ai.response.id", response_id, span_id_hex
+                    )
 
             # gen_ai.response.model (Recommended)
-            response_model = response_obj.get("model")
+            response_model = safe_get(response_obj, "model")
             if response_model:
                 span.set_attribute("gen_ai.response.model", response_model)
+                if self._otel_logger:
+                    self._otel_logger.log_attribute_set(
+                        "gen_ai.response.model", response_model, span_id_hex
+                    )
 
             # gen_ai.usage.input_tokens and gen_ai.usage.output_tokens (Recommended)
-            usage = response_obj.get("usage", {})
+            usage = safe_get(response_obj, "usage")
             if usage:
-                if usage.get("prompt_tokens") is not None:
-                    span.set_attribute(
-                        "gen_ai.usage.input_tokens", usage["prompt_tokens"]
-                    )
-                if usage.get("completion_tokens") is not None:
-                    span.set_attribute(
-                        "gen_ai.usage.output_tokens", usage["completion_tokens"]
-                    )
+                prompt_tokens = safe_get(usage, "prompt_tokens")
+                if prompt_tokens is not None:
+                    span.set_attribute("gen_ai.usage.input_tokens", prompt_tokens)
+                    if self._otel_logger:
+                        self._otel_logger.log_attribute_set(
+                            "gen_ai.usage.input_tokens", prompt_tokens, span_id_hex
+                        )
+
+                completion_tokens = safe_get(usage, "completion_tokens")
+                if completion_tokens is not None:
+                    span.set_attribute("gen_ai.usage.output_tokens", completion_tokens)
+                    if self._otel_logger:
+                        self._otel_logger.log_attribute_set(
+                            "gen_ai.usage.output_tokens", completion_tokens, span_id_hex
+                        )
 
             # gen_ai.response.finish_reasons (Recommended)
-            choices = response_obj.get("choices", [])
+            choices = safe_get(response_obj, "choices", [])
             if choices:
-                finish_reasons = [
-                    choice.get("finish_reason")
-                    for choice in choices
-                    if choice.get("finish_reason")
-                ]
+                finish_reasons = []
+                for choice in choices:
+                    finish_reason = safe_get(choice, "finish_reason")
+                    if finish_reason:
+                        finish_reasons.append(finish_reason)
                 if finish_reasons:
                     span.set_attribute("gen_ai.response.finish_reasons", finish_reasons)
+                    if self._otel_logger:
+                        self._otel_logger.log_attribute_set(
+                            "gen_ai.response.finish_reasons",
+                            finish_reasons,
+                            span_id_hex,
+                        )
 
         # ===== OPT-IN ATTRIBUTES (for content recording) =====
         # Note: These are opt-in and may contain sensitive data
-        # Only include if explicitly enabled via environment variable
-        record_content = os.environ.get(
-            "EXGENTIC_OTEL_RECORD_CONTENT", "false"
-        ).lower() in {"1", "true", "yes", "on"}
-
-        if record_content:
+        # Only include if explicitly enabled via settings
+        if _otel_record_content():
             # gen_ai.input.messages (Opt-In) - structured format
             messages = kwargs.get("messages")
             if messages:
@@ -436,37 +482,42 @@ class TraceLogger(CustomLogger):
                     pass  # Skip if serialization fails
 
             # gen_ai.output.messages (Opt-In) - structured format
-            if response_obj and isinstance(response_obj, dict):
-                choices = response_obj.get("choices", [])
+            if response_obj:
+                # Helper function already defined above in the response attributes section
+                def safe_get(obj, key, default=None):
+                    if isinstance(obj, dict):
+                        return obj.get(key, default)
+                    return getattr(obj, key, default)
+
+                choices = safe_get(response_obj, "choices", [])
                 if choices:
                     output_messages = []
                     for choice in choices:
-                        message = choice.get("message", {})
+                        message = safe_get(choice, "message")
                         if message:
                             output_msg = {
-                                "role": message.get("role", "assistant"),
+                                "role": safe_get(message, "role", "assistant"),
                                 "parts": [],
                             }
-                            content = message.get("content")
+                            content = safe_get(message, "content")
                             if content:
                                 output_msg["parts"].append(
                                     {"type": "text", "content": content}
                                 )
                             # Include tool calls if present
-                            tool_calls = message.get("tool_calls")
+                            tool_calls = safe_get(message, "tool_calls")
                             if tool_calls:
                                 for tc in tool_calls:
+                                    func = safe_get(tc, "function", {})
                                     output_msg["parts"].append(
                                         {
                                             "type": "tool_call",
-                                            "id": tc.get("id"),
-                                            "name": tc.get("function", {}).get("name"),
-                                            "arguments": tc.get("function", {}).get(
-                                                "arguments"
-                                            ),
+                                            "id": safe_get(tc, "id"),
+                                            "name": safe_get(func, "name"),
+                                            "arguments": safe_get(func, "arguments"),
                                         }
                                     )
-                            finish_reason = choice.get("finish_reason")
+                            finish_reason = safe_get(choice, "finish_reason")
                             if finish_reason:
                                 output_msg["finish_reason"] = finish_reason
                             output_messages.append(output_msg)

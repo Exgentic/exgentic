@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-from typing import Dict, Optional, cast
+from typing import Dict, Optional, cast, Any, Union, Sequence
 from pathlib import Path
 from datetime import datetime
+import json
 
 from opentelemetry import trace, context
 from opentelemetry.util.types import AttributeValue
-from opentelemetry.trace import Tracer
+from opentelemetry.trace import Tracer, SpanKind
 from opentelemetry.sdk.trace import Span
 from opentelemetry.trace.status import Status, StatusCode
 
@@ -16,13 +17,21 @@ from ...utils.otel import (
     init_tracing_from_env,
     flush_traces,
     get_session_logger,
-    write_attribute,
     safe_repr,
 )
+from ...utils.settings import get_settings
 from ...core.orchestrator.observer import Observer
 from ...core.context import get_context, set_context, OtelContext
 from ...interfaces.registry import get_agent_entries, get_benchmark_entries
 
+# Type for span attributes that includes arrays
+SpanAttributeValue = Union[
+    AttributeValue,
+    Sequence[str],
+    Sequence[bool],
+    Sequence[int],
+    Sequence[float],
+]
 
 tracer = init_tracing_from_env()
 
@@ -34,7 +43,7 @@ class SessionSpanManager:
         self.session_id = session_id
         self._tracer = tracer
         self._span_stack: list[Span] = []
-        self._heritable_attributes: Dict[str, AttributeValue] = {}
+        self._heritable_attributes: Dict[str, SpanAttributeValue] = {}
 
         # Initialize session logger
         self._logger = get_session_logger(session_root, __name__)
@@ -61,7 +70,7 @@ class SessionSpanManager:
 
         # Apply heritable attributes to new span
         for k, v in self._heritable_attributes.items():
-            write_attribute(span, k, v)
+            span.set_attribute(k, v)
 
         # Log span start
         span_ctx = span.get_span_context()
@@ -142,15 +151,15 @@ class SessionSpanManager:
             operation="write",
         )
 
-    def set_attribute(self, key: str, value: AttributeValue) -> None:
+    def set_attribute(self, key: str, value: SpanAttributeValue) -> None:
         if self.current_span is None:
             raise (AttributeError("No current span"))
-        write_attribute(self.current_span, key, value)
+        self.current_span.set_attribute(key, value)
         span_ctx = self.current_span.get_span_context()
         self._logger.log_attribute_set(key, value, format(span_ctx.span_id, "016x"))
 
     def set_attributes(
-        self, attributes: Optional[Dict[str, AttributeValue]] = None, **kwargs
+        self, attributes: Optional[Dict[str, SpanAttributeValue]] = None, **kwargs
     ) -> None:
         if attributes is None:
             attributes = {}
@@ -158,13 +167,13 @@ class SessionSpanManager:
         for k, v in attributes.items():
             self.set_attribute(k, v)
 
-    def set_heritable_attribute(self, key: str, value: AttributeValue) -> None:
+    def set_heritable_attribute(self, key: str, value: SpanAttributeValue) -> None:
         self._heritable_attributes[key] = value
         if self.current_span:
             self.set_attribute(key, value)
 
     def set_heritable_attributes(
-        self, attributes: Optional[Dict[str, AttributeValue]] = None, **kwargs
+        self, attributes: Optional[Dict[str, SpanAttributeValue]] = None, **kwargs
     ) -> None:
         if attributes:
             self._heritable_attributes.update(attributes)
@@ -204,29 +213,79 @@ class OtelTracingObserver(Observer):
 
     def __init__(self):
         super().__init__()
-        self._run_attributes: Dict[str, AttributeValue] = {}
+        self._run_attributes: Dict[str, SpanAttributeValue] = {}
         self._span_managers: Dict[str, SessionSpanManager] = {}
         self._session_step_counters: Dict[str, int] = {}
+        self._session_agents: Dict[str, Any] = {}  # Store agent instances by session_id
+        self._session_actions: Dict[
+            str, list
+        ] = {}  # Store session actions for tool definitions
 
     def _get_span_manager(self, session_id: str) -> SessionSpanManager:
         return self._span_managers[session_id]
 
+    def _get_action_description(self, session, action_name: str) -> Optional[str]:
+        """Look up action description from session.actions by name."""
+        for action_type in session.actions:
+            if action_type.name == action_name:
+                return action_type.description
+        return None
+
+    def _get_tool_definitions(self, session_id: str) -> str:
+        """Generate gen_ai.tool.definitions JSON from session actions."""
+        actions = self._session_actions.get(session_id, [])
+        tool_definitions = []
+
+        for action_type in actions:
+            tool_def = {
+                "type": "function",
+                "function": {
+                    "name": action_type.name,
+                    "description": action_type.description,
+                },
+            }
+
+            # Add parameters schema if available
+            try:
+                schema = action_type.arguments.model_json_schema()
+                # Convert to OpenAI function calling format
+                tool_def["function"]["parameters"] = {
+                    "type": "object",
+                    "properties": schema.get("properties", {}),
+                    "required": schema.get("required", []),
+                }
+            except Exception:
+                pass
+
+            tool_definitions.append(tool_def)
+
+        try:
+            return json.dumps(tool_definitions)
+        except Exception:
+            return "[]"
+
     def on_run_start(self, run_config) -> None:
         bench_entry = get_benchmark_entries().get(run_config.benchmark)
         agent_entry = get_agent_entries().get(run_config.agent)
-        bench_name = (
-            bench_entry.display_name
-            if bench_entry is not None
-            else run_config.benchmark
-        )
-        agent_name = (
-            agent_entry.display_name if agent_entry is not None else run_config.agent
-        )
+
+        # Extract model name from run_config
+        model_name = run_config.model or (run_config.agent_kwargs or {}).get("model")
+
         self._run_attributes = {
-            "benchmark.name": bench_name,
-            "benchmark.agent.name": agent_name,
-            "run.id": get_run_id(),
+            "exgentic.benchmark.slug_name": bench_entry.slug_name
+            if bench_entry is not None
+            else run_config.benchmark,
+            "exgentic.benchmark.subset": run_config.subset,
+            "exgentic.benchmark.agent.name": agent_entry.slug_name
+            if agent_entry is not None
+            else run_config.agent,
+            "exgentic.agent.slug": run_config.agent,
+            "exgentic.run.id": get_run_id(),
         }
+
+        # Store model name for use in invoke_agent spans
+        if model_name:
+            self._run_attributes["gen_ai.request.model"] = model_name
 
     def on_session_start(self, session, agent, observation) -> None:
         span_manager = SessionSpanManager(
@@ -234,67 +293,98 @@ class OtelTracingObserver(Observer):
         )
         self._span_managers[session.session_id] = span_manager
         self._session_step_counters[session.session_id] = 0
+        self._session_agents[session.session_id] = agent  # Store agent instance
+        self._session_actions[
+            session.session_id
+        ] = session.actions  # Store actions for tool definitions
 
         # Start root session span
-        bench_name = self._run_attributes.get("benchmark.name", "unknown-benchmark")
-        span_manager.start_span(f"{bench_name} session")
+        bench_name = self._run_attributes.get(
+            "exgentic.benchmark.slug_name", "unknown_benchmark"
+        )
+        subset = self._run_attributes.get("exgentic.benchmark.subset", "subset")
+        span_manager.start_span(f"{bench_name} {subset} session")
 
         span_manager.set_heritable_attributes(self._run_attributes)
 
         # Set session-level attributes
+        # gen_ai.conversation.id is the primary correlation attribute (heritable)
         span_manager.set_heritable_attribute(
-            "session.id",
+            "gen_ai.conversation.id",
             session.session_id,
         )
-        span_manager.set_attribute("session.task_id", session.task_id)
-        span_manager.set_attribute(
-            "session.task",
-            session.task,
+        # Also keep exgentic.session.id for backwards compatibility
+        span_manager.set_heritable_attribute(
+            "exgentic.session.id",
+            session.session_id,
         )
-        span_manager.set_attribute("session.path", safe_repr(session.paths.root))
+        span_manager.set_attribute("exgentic.session.task_id", session.task_id)
+
+        # Only record task content if otel_record_content is enabled
+        if get_settings().otel_record_content:
+            span_manager.set_attribute(
+                "exgentic.session.task",
+                session.task,
+            )
+
         for action in session.actions:
             span_manager.set_attribute(
-                f"session.action.{action.name}.name", action.name
+                f"exgentic.session.action.{action.name}.name", action.name
             )
             span_manager.set_attribute(
-                f"session.action.{action.name}.description", action.description
+                f"exgentic.session.action.{action.name}.description", action.description
             )
             span_manager.set_attribute(
-                f"session.action.{action.name}.is_message", action.is_message
+                f"exgentic.session.action.{action.name}.is_message", action.is_message
             )
             span_manager.set_attribute(
-                f"session.action.{action.name}.is_finish", action.is_finish
+                f"exgentic.session.action.{action.name}.is_finish", action.is_finish
             )
         for k, v in session.context.items():
-            span_manager.set_attribute(f"context.{k}", v)
-        span_manager.set_attribute("session.agent.id", agent.agent_id)
+            span_manager.set_attribute(f"exgentic.context.{k}", v)
+        span_manager.set_attribute("exgentic.session.agent.id", agent.agent_id)
         span_manager.set_attribute(
-            "session.agent.path", safe_repr(agent.paths.agent_dir)
+            "exgentic.session.agent.path", safe_repr(agent.paths.agent_dir)
         )
 
-        # Start first step span for initial observation
-        span_manager.start_span("step execute")
-        span_manager.set_heritable_attribute(
-            "step.index", self._session_step_counters[session.session_id]
+        # Record initial observation as execute_tool span
+        span_manager.start_span(
+            "execute_tool initial_observation", kind=SpanKind.CLIENT
+        )
+        span_manager.current_span.set_attribute("gen_ai.operation.name", "execute_tool")
+        span_manager.current_span.set_attribute(
+            "gen_ai.tool.name", "initial_observation"
+        )
+        span_manager.current_span.set_attribute(
+            "gen_ai.tool.description", "Initial observation from benchmark"
         )
 
-        # Record initial observation
-        span_manager.start_span("observation get")
         self._record_observation(session.session_id, observation)
-        span_manager.end_current_span()  # end observation span
-        span_manager.end_current_span()  # end step span
+        span_manager.end_current_span()  # end initial observation span
 
-        # Increment step counter and start next step span for first action
+        # Increment step counter and start first invoke_agent span
         self._session_step_counters[session.session_id] += 1
         self._start_next_step(session.session_id)
 
     def _start_next_step(self, session_id: str) -> None:
-        """Start a new step span and action span"""
+        """Start invoke_agent span for next step"""
         span_manager = self._get_span_manager(session_id)
         step_index = self._session_step_counters[session_id]
-        span_manager.start_span("step execute")  # step span
-        span_manager.set_heritable_attribute("step.index", step_index)
-        span_manager.start_span("agent react")  # nested agent span
+
+        # Create invoke_agent span with semantic conventions
+        agent_name = self._run_attributes.get(
+            "exgentic.benchmark.agent.name", "unknown"
+        )
+        span_manager.start_span(f"invoke_agent {agent_name}", kind=SpanKind.CLIENT)
+
+        # Set step index as exgentic attribute on invoke_agent span
+        span_manager.current_span.set_attribute("exgentic.step.index", step_index)
+
+        # Set tool definitions (semantic convention)
+        tool_definitions = self._get_tool_definitions(session_id)
+        span_manager.current_span.set_attribute(
+            "gen_ai.tool.definitions", tool_definitions
+        )
 
     def _record_observation(self, session_id: str, observation) -> None:
         """Record observation details on the current span."""
@@ -302,46 +392,129 @@ class OtelTracingObserver(Observer):
         observation_list = (
             observation.to_observation_list() if observation is not None else []
         )
-        observation_repr = safe_repr(observation_list[0]) if observation_list else ""
 
-        span_manager.set_attribute("observation.repr", observation_repr)
-        span_manager.set_attribute("observation", safe_repr(observation))
-        span_manager.set_attributes(
-            {
-                f"observation.{i}": safe_repr(obs)
-                for i, obs in enumerate(observation_list)
-            }
-        )
+        # Only record observation content if otel_record_content is enabled
+        if get_settings().otel_record_content:
+            observation_repr = (
+                safe_repr(observation_list[0]) if observation_list else ""
+            )
+            result_str = str(observation_list[0].result) if observation_list else ""
+            span_manager.current_span.set_attribute("gen_ai.tool.result", result_str)
+
+            span_manager.set_attribute("exgentic.observation.repr", observation_repr)
+            span_manager.set_attribute("exgentic.observation", safe_repr(observation))
+            span_manager.set_attributes(
+                {
+                    f"exgentic.observation.{i}": safe_repr(obs)
+                    for i, obs in enumerate(observation_list)
+                }
+            )
 
     def _record_action(self, session_id: str, action) -> None:
         """Record action details on the current span."""
         span_manager = self._get_span_manager(session_id)
-        action_list = action.to_action_list() if action is not None else []
-        action_repr = safe_repr(action_list[0]) if action_list else ""
 
-        span_manager.set_attribute("action.repr", action_repr)
-        span_manager.set_attribute("action", safe_repr(action))
-        span_manager.set_attributes(
-            {f"action.{i}": safe_repr(act) for i, act in enumerate(action_list)}
-        )
+        # Only record action content if otel_record_content is enabled
+        if get_settings().otel_record_content:
+            action_list = action.to_action_list() if action is not None else []
+            action_repr = safe_repr(action_list[0]) if action_list else ""
+
+            span_manager.set_attribute("exgentic.action.repr", action_repr)
+            span_manager.set_attribute("exgentic.action", safe_repr(action))
+            span_manager.set_attributes(
+                {
+                    f"exgentic.action.{i}": safe_repr(act)
+                    for i, act in enumerate(action_list)
+                }
+            )
 
     def on_react_success(self, session, action) -> None:
         span_manager = self._get_span_manager(session.session_id)
+        agent = self._session_agents.get(session.session_id)
+
+        # Set semantic convention attributes for invoke_agent span
+        span_manager.current_span.set_attribute("gen_ai.operation.name", "invoke_agent")
+        agent_name = self._run_attributes.get(
+            "exgentic.benchmark.agent.name", "unknown"
+        )
+        span_manager.current_span.set_attribute("gen_ai.agent.name", agent_name)
+
+        # Recommended attributes
+        if agent:
+            span_manager.current_span.set_attribute("gen_ai.agent.id", agent.agent_id)
+
+        # Model name is already set as heritable attribute from on_run_start
+        # No need to set it again here - it propagates from _run_attributes
+
+        # Record action with exgentic namespace
         self._record_action(session.session_id, action)
-        span_manager.end_current_span()  # end agent span
-        span_manager.start_span("observation get")
+        span_manager.end_current_span()  # end invoke_agent span
+
+        # Create execute_tool span with semantic conventions
+        action_list = action.to_action_list() if action else []
+        tool_name = action_list[0].name if action_list else "unknown"
+        span_manager.start_span(f"execute_tool {tool_name}", kind=SpanKind.CLIENT)
+
+        # Set required semantic convention attributes
+        span_manager.current_span.set_attribute("gen_ai.operation.name", "execute_tool")
+        span_manager.current_span.set_attribute("gen_ai.tool.name", tool_name)
+
+        # Set recommended attributes
+        if action_list:
+            first_action = action_list[0]
+            span_manager.current_span.set_attribute("gen_ai.tool.id", first_action.id)
+
+            # Get tool description from session.actions
+            tool_desc = self._get_action_description(session, tool_name)
+            if tool_desc:
+                span_manager.current_span.set_attribute(
+                    "gen_ai.tool.description", tool_desc
+                )
+
+            # Set tool parameters as JSON
+            if get_settings().otel_record_content:
+                try:
+                    params_json = first_action.arguments.model_dump_json()
+                    span_manager.current_span.set_attribute(
+                        "gen_ai.tool.parameters", params_json
+                    )
+                except Exception:
+                    pass
 
     def on_react_error(self, session, error) -> None:
         span_manager = self._get_span_manager(session.session_id)
+        agent = self._session_agents.get(session.session_id)
+
+        # Set semantic convention attributes for invoke_agent span before recording error
+        span_manager.current_span.set_attribute("gen_ai.operation.name", "invoke_agent")
+        agent_name = self._run_attributes.get(
+            "exgentic.benchmark.agent.name", "unknown"
+        )
+        span_manager.current_span.set_attribute("gen_ai.agent.name", agent_name)
+
+        if agent:
+            span_manager.current_span.set_attribute("gen_ai.agent.id", agent.agent_id)
+            if (
+                hasattr(agent, "model_name")
+                and agent.model_name
+                and agent.model_name != "unknown"
+            ):
+                span_manager.current_span.set_attribute(
+                    "gen_ai.request.model", agent.model_name
+                )
+
         span_manager.record_exception(error)
-        span_manager.end_current_span()  # end agent span
-        span_manager.start_span("observation get")
+        span_manager.end_current_span()  # end invoke_agent span
+
+        # Create execute_tool span (even on error, we still need to track the step)
+        span_manager.start_span("execute_tool error_recovery", kind=SpanKind.CLIENT)
+        span_manager.current_span.set_attribute("gen_ai.operation.name", "execute_tool")
+        span_manager.current_span.set_attribute("gen_ai.tool.name", "error_recovery")
 
     def on_step_success(self, session, observation) -> None:
         span_manager = self._get_span_manager(session.session_id)
         self._record_observation(session.session_id, observation)
-        span_manager.end_current_span()  # end observation span
-        span_manager.end_current_span()  # end step span
+        span_manager.end_current_span()  # end execute_tool span
 
         self._session_step_counters[session.session_id] += 1
         self._start_next_step(session.session_id)
@@ -349,8 +522,7 @@ class OtelTracingObserver(Observer):
     def on_step_error(self, session, error) -> None:
         span_manager = self._get_span_manager(session.session_id)
         span_manager.record_exception(error)
-        span_manager.end_current_span()  # end observation span
-        span_manager.end_current_span()  # end step span
+        span_manager.end_current_span()  # end execute_tool span
 
         self._session_step_counters[session.session_id] += 1
         self._start_next_step(session.session_id)
@@ -358,24 +530,36 @@ class OtelTracingObserver(Observer):
     def on_session_success(self, session, score, agent) -> None:
         span_manager = self._get_span_manager(session.session_id)
 
-        # Close waiting action span
-        span_manager.update_current_span_name("session close")
+        # Close waiting invoke_agent span (rename to session_close)
+        span_manager.update_current_span_name("session_close")
         span_manager.end_current_span()
 
-        # Close final step span
-        span_manager.update_current_span_name("session close")
-        span_manager.end_current_span()
-
-        # Add final session attributes
-        span_manager.set_attribute("score.success", score.success)
-        span_manager.set_attribute("score", score.score)
-        span_manager.set_attribute("score.is_finished", score.is_finished)
+        # Add final session attributes (with exgentic. prefix)
+        span_manager.set_attribute("exgentic.score.success", score.success)
+        span_manager.set_attribute("exgentic.score", score.score)
+        span_manager.set_attribute("exgentic.score.is_finished", score.is_finished)
         span_manager.set_attribute(
-            "session.steps", self._session_step_counters[session.session_id]
+            "exgentic.session.steps", self._session_step_counters[session.session_id]
         )
-        span_manager.set_attribute("agent.agent_cost", agent.get_cost())
-        span_manager.set_attribute("session.cost", session.get_cost())
-        span_manager.set_attribute("session.task_id", session.task_id)
+
+        # Convert cost objects to JSON strings for OTEL compatibility
+        try:
+            agent_cost = agent.get_cost()
+            span_manager.set_attribute(
+                "exgentic.agent.agent_cost", json.dumps(agent_cost, default=str)
+            )
+        except Exception:
+            pass
+
+        try:
+            session_cost = session.get_cost()
+            span_manager.set_attribute(
+                "exgentic.session.cost", json.dumps(session_cost, default=str)
+            )
+        except Exception:
+            pass
+
+        span_manager.set_attribute("exgentic.session.task_id", session.task_id)
 
         # Close session span
         span_manager.end_current_span()
@@ -386,17 +570,28 @@ class OtelTracingObserver(Observer):
         # Clean up
         del self._span_managers[session.session_id]
         del self._session_step_counters[session.session_id]
+        del self._session_agents[session.session_id]
+        del self._session_actions[session.session_id]
 
     def on_session_error(self, session, error) -> None:
         span_manager = self._get_span_manager(session.session_id)
 
-        span_manager.end_current_span()  # Close observation/action span
-        span_manager.end_current_span()  # Close step span
+        # Close execute_tool/invoke_agent span
+        span_manager.end_current_span()
 
         # Record error on session span
         span_manager.record_exception(error)
-        span_manager.set_attribute("session.cost", session.get_cost())
-        span_manager.set_attribute("session.task_id", session.task_id)
+
+        # Convert cost object to JSON string for OTEL compatibility
+        try:
+            session_cost = session.get_cost()
+            span_manager.set_attribute(
+                "exgentic.session.cost", json.dumps(session_cost, default=str)
+            )
+        except Exception:
+            pass
+
+        span_manager.set_attribute("exgentic.session.task_id", session.task_id)
 
         span_manager.end_current_span()  # Close session span
 
@@ -406,3 +601,9 @@ class OtelTracingObserver(Observer):
         # Clean up
         del self._span_managers[session.session_id]
         del self._session_step_counters[session.session_id]
+        if session.session_id in self._session_agents:
+            del self._session_agents[session.session_id]
+        if session.session_id in self._session_actions:
+            del self._session_actions[session.session_id]
+
+# Made with Bob

@@ -265,7 +265,7 @@ The Exgentic stops a session when it reaches either limit and records a `limit_r
 
 ### 🔍 OpenTelemetry Tracing
 
-Enable distributed tracing for your agent evaluations:
+Agent trajectories can be recorded as OTel traces and emitted to a collector server. Exgentic traces follow the OTel semantic conventions for GenAI. For more information see [`OTEL_SEMANTIC_CONVENTIONS.md`](./OTEL_SEMANTIC_CONVENTIONS.md). Enable OTel distributed tracing for your agent evaluations:
 
 1. **Install dependencies:**
    ```bash
@@ -277,12 +277,18 @@ Enable distributed tracing for your agent evaluations:
 
 3. **Configure environment variables:**
    ```bash
-   export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+   export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 # typical for self-hosted Jaeger server
    export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf  # or 'grpc'
    export EXGENTIC_OTEL_ENABLED=true
    ```
 
-4. **View traces:**
+4. **Content Recording:**
+  LLM inputs and outputs are not emitted to OTel by default. To enable, set the environment variable:
+   ```bash
+   export EXGENTIC_OTEL_RECORD_CONTENT=true
+   ```
+
+5. **View traces:**
    OTEL logs are written to `<session_root>/otel.log`
 
 ---

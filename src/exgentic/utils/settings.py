@@ -49,6 +49,7 @@ class ExgenticSettings(BaseSettings):
     litellm_cache_dir: str = ".litellm_cache"
     dotenv_path: str = str(DOTENV_PATH)
     otel_enabled: bool = False
+    otel_record_content: bool = False
 
     _litellm_cache_configured: bool = False
 

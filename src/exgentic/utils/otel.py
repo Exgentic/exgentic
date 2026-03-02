@@ -150,48 +150,6 @@ def safe_kv(v: Any) -> Any:
         return str(v)
 
 
-def sanitize_attribute(
-    name: str, value: AttributeValue
-) -> Tuple[str, Optional[AttributeValue]]:
-    """Sanitize attribute name and value for JSON encoding."""
-    if not isinstance(name, str):
-        raise TypeError(f"Attribute name must be a string. Got type {type(name)}")
-    sanitized = safe_kv(value)
-    if isinstance(sanitized, float) and (
-        math.isnan(sanitized) or math.isinf(sanitized)
-    ):
-        # Note: logger warnings are handled at session level
-        return name, None
-    return name, sanitized
-
-
-def write_attribute(
-    span: Span,
-    name: str,
-    value: AttributeValue,
-    namespace=OTEL_SPAN_ATTRIBUTE_NAMESPACE,
-) -> None:
-    """Write a single attribute to a span with optional namespace prefix."""
-    key, val = sanitize_attribute(name, value)
-    if val is None:
-        return
-    span.set_attribute(f"{namespace}.{key}", val)
-
-
-def write_attributes(
-    span: Span,
-    attributes: Optional[Dict[str, Any]] = None,
-    namespace=OTEL_SPAN_ATTRIBUTE_NAMESPACE,
-    **kwargs,
-) -> None:
-    """Write multiple attributes to a span."""
-    if attributes is None:
-        attributes = {}
-    attributes.update(kwargs)
-    for k, v in attributes.items():
-        write_attribute(span, k, v, namespace)
-
-
 def get_session_logger(session_root: Path, name: str) -> "OtelLogger":
     """Get a session-specific OTEL logger.
 
