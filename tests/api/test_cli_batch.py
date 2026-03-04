@@ -99,7 +99,7 @@ def test_batch_extract_writes_csv(tmp_path):
     runner = CliRunner()
     config_path = _write_config(tmp_path / "extract.json", run_id="run-extract")
 
-    results_path = tmp_path / "outputs" / "run-extract" / "results.json"
+    results_path = tmp_path / "run-extract" / "results.json"
     results_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "benchmark_name": "Test Benchmark",
