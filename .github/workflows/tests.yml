@@ -37,7 +37,7 @@ jobs:
 
       - name: Setup benchmark
         run: |
-          exgentic setup --benchmark tau2
+          exgentic setup tau2
 
       - name: Run tests
         run: |
