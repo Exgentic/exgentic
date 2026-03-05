@@ -20,8 +20,21 @@ from ...observers.logging import close_logger
 from ...adapters.agents.code_agent import CodeAgentInstance
 from ...core.types import ActionType
 from ...utils.cost import CostReport, LiteLLMCostReport
+from ...core.context import get_context
 
 settings = get_settings()
+
+
+class ContextInjectingLiteLLMModel(LiteLLMModel):
+    """Wrapper around LiteLLMModel that injects context into litellm_metadata."""
+    
+    def generate(self, *args, **kwargs):
+        """Inject context into litellm_metadata before calling the model."""
+        # Use 'metadata' parameter instead of 'litellm_metadata'
+        # LiteLLM passes 'metadata' to callbacks in litellm_params.metadata
+        kwargs.setdefault('metadata', {})['context'] = get_context()
+        
+        return super().generate(*args, **kwargs)
 
 
 class SmolagentBaseAgentInstance(CodeAgentInstance):
@@ -89,7 +102,7 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
     def get_internal_model(self):
         if self._model is None:
             temperature = self.model_settings.temperature
-            self._model = LiteLLMModel(
+            self._model = ContextInjectingLiteLLMModel(
                 model_id=self.model_id,
                 temperature=temperature if temperature is not None else 1.0,
                 max_tokens=self.model_settings.max_tokens,

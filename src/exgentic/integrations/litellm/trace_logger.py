@@ -15,11 +15,12 @@ import os
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union, Sequence
+import warnings
 
 from litellm.integrations.custom_logger import CustomLogger
 
-from ...core.context import ENV_OTEL_TRACE_ID, ENV_OTEL_SPAN_ID
+from ...core.context import Context
 from ...utils.settings import get_settings
 
 
@@ -35,7 +36,7 @@ def _otel_enabled() -> bool:
 
 def _otel_record_content() -> bool:
     """Check if OTEL content recording is enabled via settings."""
-    return bool(get_settings().otel_record_content)
+    return get_settings().otel_record_content
 
 
 class TraceLogger(CustomLogger):
@@ -44,6 +45,7 @@ class TraceLogger(CustomLogger):
         self._file_path = file_path
         self._tracer = None
         self._otel_logger = None
+        self._context = None
 
     @staticmethod
     def _ensure_context() -> None:
@@ -57,33 +59,25 @@ class TraceLogger(CustomLogger):
         except RuntimeError:
             pass
 
-    def _init_otel(self) -> None:
-        """Initialize OTEL tracer and logger."""
+    def _init_otel(self, kwargs) -> None:
+        import threading
         from ...utils.otel import init_tracing_from_env, get_session_logger
+        ctx = self.get_context(kwargs)
+        if ctx is None or ctx.session_id is None or ctx.otel_context is None:
+            # no otel context means tracing cannot be initialized
+            warnings.warn(f"No OTEL context found for TraceLogger, skipping OTEL initialization. context={ctx}")
+            return
 
         # Initialize the TracerProvider (use simple processor for subprocess)
         self._tracer = init_tracing_from_env(
             service_name="exgentic-litellm", use_simple_processor=True
         )
 
-        # Get session logger from ContextVar (initialize from env in subprocesses).
-        try:
-            self._ensure_context()
-            from ...core.context import try_get_context
+        base = Path(ctx.output_dir) / ctx.run_id
+        session_root = base / "sessions" / ctx.session_id
+        self._otel_logger = get_session_logger(session_root, f"{__name__} | pid={os.getpid()} tid={threading.get_native_id()}")
 
-            ctx = try_get_context()
-            if ctx is not None:
-                base = Path(ctx.output_dir) / ctx.run_id
-                if ctx.session_id:
-                    session_root = base / "sessions" / ctx.session_id
-                    self._otel_logger = get_session_logger(session_root, __name__)
-        except Exception:
-            pass
-
-    # Removed async __call__ - it was preventing sync callbacks from being invoked!
-    # LiteLLM only calls sync log_success_event for sync completion() calls
-
-    def _get_parent_context(self) -> Any:
+    def _get_parent_context(self, kwargs) -> Any:
         """Reconstruct parent span context from environment variables or ContextVar.
 
         For proxy subprocess: reads from environment variables
@@ -92,25 +86,10 @@ class TraceLogger(CustomLogger):
         from opentelemetry import trace, context
         from opentelemetry.trace import SpanContext, TraceFlags, NonRecordingSpan
 
-        trace_id_hex = None
-        span_id_hex = None
+        ctx = self.get_context(kwargs)
 
-        # First, try to read from environment variables (proxy subprocess case)
-        trace_id_hex = os.environ.get(ENV_OTEL_TRACE_ID)
-        span_id_hex = os.environ.get(ENV_OTEL_SPAN_ID)
-
-        # If not in env vars, try to read from Context ContextVar (same process case)
-        if not trace_id_hex or not span_id_hex:
-            try:
-                self._ensure_context()
-                from ...core.context import try_get_context
-
-                ctx = try_get_context()
-                if ctx and ctx.otel_context:
-                    trace_id_hex = ctx.otel_context.trace_id
-                    span_id_hex = ctx.otel_context.span_id
-            except Exception:
-                pass
+        trace_id_hex = ctx.otel_context.trace_id
+        span_id_hex = ctx.otel_context.span_id
 
         if not trace_id_hex or not span_id_hex:
             return context.get_current()
@@ -118,8 +97,7 @@ class TraceLogger(CustomLogger):
         trace_id = int(trace_id_hex, 16)
         span_id = int(span_id_hex, 16)
 
-        if self._otel_logger:
-            self._otel_logger.log_context_read(trace_id_hex, span_id_hex)
+        self._otel_logger.log_context_read(trace_id_hex, span_id_hex)
 
         span_context = SpanContext(
             trace_id=trace_id,
@@ -132,7 +110,7 @@ class TraceLogger(CustomLogger):
         return trace.set_span_in_context(parent_span)
 
     def _create_llm_span(
-        self, name: str, start_time: Optional[Any] = None
+        self, kwargs, name: str, start_time: Optional[Any] = None
     ) -> Optional[Any]:
         """Create span for LLM call with CLIENT span kind.
 
@@ -142,7 +120,7 @@ class TraceLogger(CustomLogger):
         """
         from opentelemetry.trace import SpanKind
 
-        parent_ctx = self._get_parent_context()
+        parent_ctx = self._get_parent_context(kwargs)
 
         if start_time:
             # Convert datetime to nanoseconds since epoch for OTEL
@@ -157,23 +135,34 @@ class TraceLogger(CustomLogger):
 
         span_ctx = span.get_span_context()
 
-        if self._otel_logger:
-            self._otel_logger.log_span_start(
-                span_name=name,
-                span_id=format(span_ctx.span_id, "016x"),
-                trace_id=format(span_ctx.trace_id, "032x"),
-                start_time=start_time,
-            )
+        self._otel_logger.log_span_start(
+            span_name=name,
+            span_id=format(span_ctx.span_id, "016x"),
+            trace_id=format(span_ctx.trace_id, "032x"),
+            start_time=start_time,
+        )
 
         return span
+    
+    def _set_attribute(self, span: Any, key: str, value: Any) -> None:
+        span.set_attribute(key, value)
+        span_ctx = span.get_span_context()
+        self._otel_logger.log_attribute_set(key, value, format(span_ctx.span_id, "016x"))
 
     @staticmethod
     def _metadata_context(kwargs: Dict[str, Any]):
         from ...core.context import Context
 
-        metadata = kwargs.get("litellm_metadata") or kwargs.get(
-            "litellm_params", {}
-        ).get("litellm_metadata", {})
+        # Check multiple locations where metadata might be stored
+        # 1. Direct litellm_metadata parameter
+        metadata = kwargs.get("litellm_metadata")
+        if not metadata:
+            # 2. litellm_params.litellm_metadata
+            metadata = kwargs.get("litellm_params", {}).get("litellm_metadata")
+        if not metadata:
+            # 3. litellm_params.metadata (for 'metadata' parameter)
+            metadata = kwargs.get("litellm_params", {}).get("metadata")
+        
         context = metadata.get("context") if isinstance(metadata, dict) else None
         return context if isinstance(context, Context) else None
 
@@ -222,7 +211,7 @@ class TraceLogger(CustomLogger):
         if file_path:
             return file_path
 
-        ctx = self.get_context(kwargs)
+        ctx = self.get_context(kwargs) # TODO: this is redundant
         if ctx is not None:
             return self._context_log_path(ctx)
 
@@ -266,286 +255,282 @@ class TraceLogger(CustomLogger):
         Span name format: {gen_ai.operation.name} {gen_ai.request.model}
         Span kind: CLIENT
         """
-        if not _otel_enabled():
-            return
-
-        # Lazy initialize OTEL if not already done
-        if self._tracer is None:
-            self._init_otel()
-
-        # Lazy import GenAI semantic conventions
-        from opentelemetry.trace import Status, StatusCode
-
-        optional_params = kwargs.get("optional_params", {}) or {}
-        litellm_params = kwargs.get("litellm_params", {}) or {}
-
-        # ===== DETERMINE OPERATION TYPE =====
-        # Required attribute: gen_ai.operation.name
-        operation = "chat" if kwargs.get("messages") else "text_completion"
-
-        # ===== CREATE SPAN WITH PROPER NAME =====
-        # Span name format: {gen_ai.operation.name} {gen_ai.request.model}
-        model = kwargs.get("model", "unknown")
-        span_name = f"{operation} {model}"
-        span = self._create_llm_span(span_name, start_time=start_time)
-
-        # ===== SET SPAN STATUS =====
-        if status == "success":
-            span.set_status(Status(StatusCode.OK))
-        else:
-            span.set_status(Status(StatusCode.ERROR))
-            # Conditionally Required: error.type if operation ended in error
-            error_info = kwargs.get("exception") or response_obj.get("error")
-            if error_info:
-                if isinstance(error_info, dict):
-                    error_type = (
-                        error_info.get("type")
-                        or error_info.get("code")
-                        or "unknown_error"
-                    )
-                elif isinstance(error_info, Exception):
-                    error_type = type(error_info).__name__
-                else:
-                    error_type = str(error_info)
-                span.set_attribute("error.type", error_type)
-
-        # ===== REQUIRED ATTRIBUTES =====
-        # gen_ai.operation.name (Required)
-        span.set_attribute("gen_ai.operation.name", operation)
-
-        # gen_ai.provider.name (Required) - maps LiteLLM provider to standard names
-        provider = litellm_params.get("custom_llm_provider", "unknown")
-        if provider is None:
-            provider = "unknown"
-        # Map common LiteLLM providers to standard GenAI provider names
-        provider_mapping = {
-            "openai": "openai",
-            "azure": "azure.ai.openai",
-            "anthropic": "anthropic",
-            "bedrock": "aws.bedrock",
-            "vertex_ai": "gcp.vertex_ai",
-            "gemini": "gcp.gemini",
-            "cohere": "cohere",
-            "groq": "groq",
-            "mistral": "mistral_ai",
-            "deepseek": "deepseek",
-            "perplexity": "perplexity",
-            "watsonx": "ibm.watsonx.ai",
-            "xai": "x_ai",
-        }
-        standard_provider = provider_mapping.get(provider.lower(), provider)
-        span.set_attribute("gen_ai.provider.name", standard_provider)
-
-        # ===== CONDITIONALLY REQUIRED ATTRIBUTES =====
-        # gen_ai.request.model (Conditionally Required if available)
-        if model:
-            span.set_attribute("gen_ai.request.model", model)
-
-        # gen_ai.request.choice.count (Conditionally Required if available and !=1)
-        n = optional_params.get("n")
-        if n is not None and n != 1:
-            span.set_attribute("gen_ai.request.choice.count", n)
-
-        # gen_ai.request.seed (Conditionally Required if applicable and request includes seed)
-        seed = optional_params.get("seed")
-        if seed is not None:
-            span.set_attribute("gen_ai.request.seed", seed)
-
-        # server.port (Conditionally Required if server.address is set)
-        # Note: LiteLLM doesn't typically expose server details, skip for now
-
-        # ===== RECOMMENDED REQUEST ATTRIBUTES =====
-        # ===== RECOMMENDED REQUEST ATTRIBUTES =====
-        # gen_ai.conversation.id (Recommended) - get from context if available
+        
         try:
-            from ...core.context import try_get_context
+            if not _otel_enabled():
+                return
 
-            ctx = try_get_context()
-            if ctx and ctx.session_id:
-                span.set_attribute("gen_ai.conversation.id", ctx.session_id)
-        except Exception:
-            pass
+            # Lazy initialize OTEL if not already done
+            if self._tracer is None:
+                self._init_otel(kwargs)        
+            ctx = self.get_context(kwargs)
+            
+            # Lazy import GenAI semantic conventions
+            from opentelemetry.trace import Status, StatusCode
 
-        if optional_params.get("max_tokens") is not None:
-            span.set_attribute(
-                "gen_ai.request.max_tokens", optional_params["max_tokens"]
-            )
+            optional_params = kwargs.get("optional_params", {}) or {}
+            litellm_params = kwargs.get("litellm_params", {}) or {}
 
-        if optional_params.get("temperature") is not None:
-            span.set_attribute(
-                "gen_ai.request.temperature", optional_params["temperature"]
-            )
-
-        if optional_params.get("top_p") is not None:
-            span.set_attribute("gen_ai.request.top_p", optional_params["top_p"])
-
-        if optional_params.get("top_k") is not None:
-            span.set_attribute("gen_ai.request.top_k", float(optional_params["top_k"]))
-
-        if optional_params.get("frequency_penalty") is not None:
-            span.set_attribute(
-                "gen_ai.request.frequency_penalty", optional_params["frequency_penalty"]
-            )
-
-        if optional_params.get("presence_penalty") is not None:
-            span.set_attribute(
-                "gen_ai.request.presence_penalty", optional_params["presence_penalty"]
-            )
-
-        # gen_ai.request.stop_sequences (Recommended)
-        stop = optional_params.get("stop")
-        if stop is not None:
-            if isinstance(stop, list):
-                span.set_attribute("gen_ai.request.stop_sequences", stop)
+            # ===== DETERMINE OPERATION TYPE =====
+            # Required attribute: gen_ai.operation.name
+            operation = "chat" if kwargs.get("messages") else "text_completion"
+            
+            # ===== CREATE SPAN WITH PROPER NAME =====
+            # Span name format: {gen_ai.operation.name} {gen_ai.request.model}
+            model = kwargs.get("model", "unknown")
+            span_name = f"{operation} {model}"
+            span = self._create_llm_span(kwargs, span_name, start_time=start_time)
+            
+            # ===== SET SPAN STATUS =====
+            if status == "success":
+                span.set_status(Status(StatusCode.OK))
             else:
-                span.set_attribute("gen_ai.request.stop_sequences", [stop])
-
-        # ===== RECOMMENDED RESPONSE ATTRIBUTES =====
-        if response_obj:
-            # Helper function to safely get attribute from dict or object
-            def safe_get(obj, key, default=None):
-                if isinstance(obj, dict):
-                    return obj.get(key, default)
-                return getattr(obj, key, default)
-
-            # Get span context for logging
-            span_ctx = span.get_span_context()
-            span_id_hex = format(span_ctx.span_id, "016x")
-
-            # gen_ai.response.id (Recommended)
-            response_id = safe_get(response_obj, "id")
-            if response_id:
-                span.set_attribute("gen_ai.response.id", response_id)
-                if self._otel_logger:
-                    self._otel_logger.log_attribute_set(
-                        "gen_ai.response.id", response_id, span_id_hex
-                    )
-
-            # gen_ai.response.model (Recommended)
-            response_model = safe_get(response_obj, "model")
-            if response_model:
-                span.set_attribute("gen_ai.response.model", response_model)
-                if self._otel_logger:
-                    self._otel_logger.log_attribute_set(
-                        "gen_ai.response.model", response_model, span_id_hex
-                    )
-
-            # gen_ai.usage.input_tokens and gen_ai.usage.output_tokens (Recommended)
-            usage = safe_get(response_obj, "usage")
-            if usage:
-                prompt_tokens = safe_get(usage, "prompt_tokens")
-                if prompt_tokens is not None:
-                    span.set_attribute("gen_ai.usage.input_tokens", prompt_tokens)
-                    if self._otel_logger:
-                        self._otel_logger.log_attribute_set(
-                            "gen_ai.usage.input_tokens", prompt_tokens, span_id_hex
+                span.set_status(Status(StatusCode.ERROR))
+                # Conditionally Required: error.type if operation ended in error
+                error_info = kwargs.get("exception") or response_obj.get("error")
+                if error_info:
+                    if isinstance(error_info, dict):
+                        error_type = (
+                            error_info.get("type")
+                            or error_info.get("code")
+                            or "unknown_error"
                         )
+                    elif isinstance(error_info, Exception):
+                        error_type = type(error_info).__name__
+                    else:
+                        error_type = str(error_info)
+                    self._set_attribute(span, "error.type", error_type)
 
-                completion_tokens = safe_get(usage, "completion_tokens")
-                if completion_tokens is not None:
-                    span.set_attribute("gen_ai.usage.output_tokens", completion_tokens)
-                    if self._otel_logger:
-                        self._otel_logger.log_attribute_set(
-                            "gen_ai.usage.output_tokens", completion_tokens, span_id_hex
-                        )
+            # ===== REQUIRED ATTRIBUTES =====
+            # gen_ai.operation.name (Required)
+            self._set_attribute(span, "gen_ai.operation.name", operation)
 
-            # gen_ai.response.finish_reasons (Recommended)
-            choices = safe_get(response_obj, "choices", [])
-            if choices:
-                finish_reasons = []
-                for choice in choices:
-                    finish_reason = safe_get(choice, "finish_reason")
-                    if finish_reason:
-                        finish_reasons.append(finish_reason)
-                if finish_reasons:
-                    span.set_attribute("gen_ai.response.finish_reasons", finish_reasons)
-                    if self._otel_logger:
-                        self._otel_logger.log_attribute_set(
-                            "gen_ai.response.finish_reasons",
-                            finish_reasons,
-                            span_id_hex,
-                        )
+            # gen_ai.provider.name (Required) - maps LiteLLM provider to standard names
+            provider = litellm_params.get("custom_llm_provider", "unknown")
+            if provider is None:
+                provider = "unknown"
+            # Map common LiteLLM providers to standard GenAI provider names
+            provider_mapping = {
+                "openai": "openai",
+                "azure": "azure.ai.openai",
+                "anthropic": "anthropic",
+                "bedrock": "aws.bedrock",
+                "vertex_ai": "gcp.vertex_ai",
+                "gemini": "gcp.gemini",
+                "cohere": "cohere",
+                "groq": "groq",
+                "mistral": "mistral_ai",
+                "deepseek": "deepseek",
+                "perplexity": "perplexity",
+                "watsonx": "ibm.watsonx.ai",
+                "xai": "x_ai",
+            }
+            standard_provider = provider_mapping.get(provider.lower(), provider)
+            self._set_attribute(span, "gen_ai.provider.name", standard_provider)
 
-        # ===== OPT-IN ATTRIBUTES (for content recording) =====
-        # Note: These are opt-in and may contain sensitive data
-        # Only include if explicitly enabled via settings
-        if _otel_record_content():
-            # gen_ai.input.messages (Opt-In) - structured format
-            messages = kwargs.get("messages")
-            if messages:
-                # Convert to GenAI message format
-                try:
-                    span.set_attribute(
-                        "gen_ai.input.messages", json.dumps(messages, default=str)
-                    )
-                except Exception:
-                    pass  # Skip if serialization fails
+            # ===== CONDITIONALLY REQUIRED ATTRIBUTES =====
+            # gen_ai.request.model (Conditionally Required if available)
+            if model:
+                self._set_attribute(span, "gen_ai.request.model", model)
 
-            # gen_ai.output.messages (Opt-In) - structured format
+            # gen_ai.request.choice.count (Conditionally Required if available and !=1)
+            n = optional_params.get("n")
+            if n is not None and n != 1:
+                self._set_attribute(span, "gen_ai.request.choice.count", n)
+
+            # gen_ai.request.seed (Conditionally Required if applicable and request includes seed)
+            seed = optional_params.get("seed")
+            if seed is not None:
+                self._set_attribute(span, "gen_ai.request.seed", seed)
+
+            # server.port (Conditionally Required if server.address is set)
+            # Note: LiteLLM doesn't typically expose server details, skip for now
+
+            # ===== RECOMMENDED REQUEST ATTRIBUTES =====
+            self._set_attribute(span, "gen_ai.conversation.id", ctx.session_id)
+
+            if optional_params.get("max_tokens") is not None:
+                self._set_attribute(span,
+                    "gen_ai.request.max_tokens", optional_params["max_tokens"]
+                )
+
+            if optional_params.get("temperature") is not None:
+                self._set_attribute(span,
+                    "gen_ai.request.temperature", optional_params["temperature"]
+                )
+
+            if optional_params.get("top_p") is not None:
+                self._set_attribute(span, "gen_ai.request.top_p", optional_params["top_p"])
+
+            if optional_params.get("top_k") is not None:
+                self._set_attribute(span, "gen_ai.request.top_k", float(optional_params["top_k"]))
+
+            if optional_params.get("frequency_penalty") is not None:
+                self._set_attribute(span,
+                    "gen_ai.request.frequency_penalty", optional_params["frequency_penalty"]
+                )
+
+            if optional_params.get("presence_penalty") is not None:
+                self._set_attribute(span,
+                    "gen_ai.request.presence_penalty", optional_params["presence_penalty"]
+                )
+
+            # gen_ai.request.stop_sequences (Recommended)
+            stop = optional_params.get("stop")
+            if stop is not None:
+                if isinstance(stop, list):
+                    self._set_attribute(span, "gen_ai.request.stop_sequences", stop)
+                else:
+                    self._set_attribute(span, "gen_ai.request.stop_sequences", [stop])
+
+            # ===== RECOMMENDED RESPONSE ATTRIBUTES =====
             if response_obj:
-                # Helper function already defined above in the response attributes section
+                # Helper function to safely get attribute from dict or object
                 def safe_get(obj, key, default=None):
                     if isinstance(obj, dict):
                         return obj.get(key, default)
                     return getattr(obj, key, default)
 
+                # Get span context for logging
+                span_ctx = span.get_span_context()
+                span_id_hex = format(span_ctx.span_id, "016x")
+
+                # gen_ai.response.id (Recommended)
+                response_id = safe_get(response_obj, "id")
+                if response_id:
+                    self._set_attribute(span, "gen_ai.response.id", response_id)
+                    if self._otel_logger:
+                        self._otel_logger.log_attribute_set(
+                            "gen_ai.response.id", response_id, span_id_hex
+                        )
+
+                # gen_ai.response.model (Recommended)
+                response_model = safe_get(response_obj, "model")
+                if response_model:
+                    self._set_attribute(span, "gen_ai.response.model", response_model)
+                    if self._otel_logger:
+                        self._otel_logger.log_attribute_set(
+                            "gen_ai.response.model", response_model, span_id_hex
+                        )
+
+                # gen_ai.usage.input_tokens and gen_ai.usage.output_tokens (Recommended)
+                usage = safe_get(response_obj, "usage")
+                if usage:
+                    prompt_tokens = safe_get(usage, "prompt_tokens")
+                    if prompt_tokens is not None:
+                        self._set_attribute(span, "gen_ai.usage.input_tokens", prompt_tokens)
+                        if self._otel_logger:
+                            self._otel_logger.log_attribute_set(
+                                "gen_ai.usage.input_tokens", prompt_tokens, span_id_hex
+                            )
+
+                    completion_tokens = safe_get(usage, "completion_tokens")
+                    if completion_tokens is not None:
+                        self._set_attribute(span, "gen_ai.usage.output_tokens", completion_tokens)
+                        if self._otel_logger:
+                            self._otel_logger.log_attribute_set(
+                                "gen_ai.usage.output_tokens", completion_tokens, span_id_hex
+                            )
+
+                # gen_ai.response.finish_reasons (Recommended)
                 choices = safe_get(response_obj, "choices", [])
                 if choices:
-                    output_messages = []
+                    finish_reasons = []
                     for choice in choices:
-                        message = safe_get(choice, "message")
-                        if message:
-                            output_msg = {
-                                "role": safe_get(message, "role", "assistant"),
-                                "parts": [],
-                            }
-                            content = safe_get(message, "content")
-                            if content:
-                                output_msg["parts"].append(
-                                    {"type": "text", "content": content}
-                                )
-                            # Include tool calls if present
-                            tool_calls = safe_get(message, "tool_calls")
-                            if tool_calls:
-                                for tc in tool_calls:
-                                    func = safe_get(tc, "function", {})
-                                    output_msg["parts"].append(
-                                        {
-                                            "type": "tool_call",
-                                            "id": safe_get(tc, "id"),
-                                            "name": safe_get(func, "name"),
-                                            "arguments": safe_get(func, "arguments"),
-                                        }
-                                    )
-                            finish_reason = safe_get(choice, "finish_reason")
-                            if finish_reason:
-                                output_msg["finish_reason"] = finish_reason
-                            output_messages.append(output_msg)
-
-                    if output_messages:
-                        try:
-                            span.set_attribute(
-                                "gen_ai.output.messages",
-                                json.dumps(output_messages, default=str),
+                        finish_reason = safe_get(choice, "finish_reason")
+                        if finish_reason:
+                            finish_reasons.append(finish_reason)
+                    if finish_reasons:
+                        self._set_attribute(span, "gen_ai.response.finish_reasons", finish_reasons)
+                        if self._otel_logger:
+                            self._otel_logger.log_attribute_set(
+                                "gen_ai.response.finish_reasons",
+                                finish_reasons,
+                                span_id_hex,
                             )
-                        except Exception:
-                            pass  # Skip if serialization fails
 
-        # ===== END SPAN =====
-        if end_time:
-            end_time_ns = int(end_time.timestamp() * 1_000_000_000)
-            span.end(end_time=end_time_ns)
-        else:
-            span.end()
+            # ===== OPT-IN ATTRIBUTES (for content recording) =====
+            # Note: These are opt-in and may contain sensitive data
+            # Only include if explicitly enabled via settings
+            if _otel_record_content():
+                # gen_ai.input.messages (Opt-In) - structured format
+                messages = kwargs.get("messages")
+                if messages:
+                    # Convert to GenAI message format
+                    try:
+                        self._set_attribute(span,
+                            "gen_ai.input.messages", json.dumps(messages, default=str)
+                        )
+                    except Exception:
+                        pass  # Skip if serialization fails
 
-        span_ctx = span.get_span_context()
-        if self._otel_logger:
-            self._otel_logger.log_span_end(
-                span_name=span_name,
-                span_id=format(span_ctx.span_id, "016x"),
-                status=status,
-                end_time=end_time,
-            )
+                # gen_ai.output.messages (Opt-In) - structured format
+                if response_obj:
+                    # Helper function already defined above in the response attributes section
+                    def safe_get(obj, key, default=None):
+                        if isinstance(obj, dict):
+                            return obj.get(key, default)
+                        return getattr(obj, key, default)
+
+                    choices = safe_get(response_obj, "choices", [])
+                    if choices:
+                        output_messages = []
+                        for choice in choices:
+                            message = safe_get(choice, "message")
+                            if message:
+                                output_msg = {
+                                    "role": safe_get(message, "role", "assistant"),
+                                    "parts": [],
+                                }
+                                content = safe_get(message, "content")
+                                if content:
+                                    output_msg["parts"].append(
+                                        {"type": "text", "content": content}
+                                    )
+                                # Include tool calls if present
+                                tool_calls = safe_get(message, "tool_calls")
+                                if tool_calls:
+                                    for tc in tool_calls:
+                                        func = safe_get(tc, "function", {})
+                                        output_msg["parts"].append(
+                                            {
+                                                "type": "tool_call",
+                                                "id": safe_get(tc, "id"),
+                                                "name": safe_get(func, "name"),
+                                                "arguments": safe_get(func, "arguments"),
+                                            }
+                                        )
+                                finish_reason = safe_get(choice, "finish_reason")
+                                if finish_reason:
+                                    output_msg["finish_reason"] = finish_reason
+                                output_messages.append(output_msg)
+
+                        if output_messages:
+                            try:
+                                self._set_attribute(span,
+                                    "gen_ai.output.messages",
+                                    json.dumps(output_messages, default=str),
+                                )
+                            except Exception:
+                                pass  # Skip if serialization fails
+
+            # ===== END SPAN =====
+            if end_time:
+                end_time_ns = int(end_time.timestamp() * 1_000_000_000)
+                span.end(end_time=end_time_ns)
+            else:
+                span.end()
+
+            span_ctx = span.get_span_context()
+            if self._otel_logger:
+                self._otel_logger.log_span_end(
+                    span_name=span_name,
+                    span_id=format(span_ctx.span_id, "016x"),
+                    status=status,
+                    end_time=end_time,
+                )
+        except Exception as e:
+            pass
 
     def log_success_event(
         self, kwargs: Dict[str, Any], response_obj: Dict[str, Any], start_time, end_time

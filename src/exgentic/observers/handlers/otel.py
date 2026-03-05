@@ -5,6 +5,8 @@ from typing import Dict, Optional, cast, Any, Union, Sequence
 from pathlib import Path
 from datetime import datetime
 import json
+import os
+import threading
 
 from opentelemetry import trace, context
 from opentelemetry.util.types import AttributeValue
@@ -17,21 +19,12 @@ from ...utils.otel import (
     init_tracing_from_env,
     flush_traces,
     get_session_logger,
-    safe_repr,
+    to_otel_attribute_value
 )
 from ...utils.settings import get_settings
 from ...core.orchestrator.observer import Observer
 from ...core.context import get_context, set_context, OtelContext
 from ...interfaces.registry import get_agent_entries, get_benchmark_entries
-
-# Type for span attributes that includes arrays
-SpanAttributeValue = Union[
-    AttributeValue,
-    Sequence[str],
-    Sequence[bool],
-    Sequence[int],
-    Sequence[float],
-]
 
 tracer = init_tracing_from_env()
 
@@ -43,10 +36,10 @@ class SessionSpanManager:
         self.session_id = session_id
         self._tracer = tracer
         self._span_stack: list[Span] = []
-        self._heritable_attributes: Dict[str, SpanAttributeValue] = {}
+        self._heritable_attributes: Dict[str, AttributeValue] = {}
 
         # Initialize session logger
-        self._logger = get_session_logger(session_root, __name__)
+        self._logger = get_session_logger(session_root, f"{__name__} | pid={os.getpid()} tid={threading.get_native_id()}")
         self._logger.info(
             f"SessionSpanManager initialized for session {self.session_id}"
         )
@@ -90,10 +83,6 @@ class SessionSpanManager:
             depth=len(self._span_stack),
             start_time=start_time,
         )
-
-        # Update context with new span
-        self._update_otel_context()
-
         return span
 
     def end_current_span(self) -> None:
@@ -117,9 +106,6 @@ class SessionSpanManager:
             end_time=end_time,
         )
 
-        # Update context with parent span (or None if stack is empty)
-        self._update_otel_context()
-
     @property
     def current_span(self) -> Optional[Span]:
         return self._span_stack[-1] if self._span_stack else None
@@ -139,7 +125,7 @@ class SessionSpanManager:
             span_id=format(span_ctx.span_id, "016x"),
         )
 
-    def _update_otel_context(self) -> None:
+    def update_tracing_context(self) -> None:
         """Update the global Context with current OTEL span context."""
         otel_context = self.get_otel_context()
         ctx = get_context()
@@ -151,7 +137,7 @@ class SessionSpanManager:
             operation="write",
         )
 
-    def set_attribute(self, key: str, value: SpanAttributeValue) -> None:
+    def set_attribute(self, key: str, value: AttributeValue) -> None:
         if self.current_span is None:
             raise (AttributeError("No current span"))
         self.current_span.set_attribute(key, value)
@@ -159,7 +145,7 @@ class SessionSpanManager:
         self._logger.log_attribute_set(key, value, format(span_ctx.span_id, "016x"))
 
     def set_attributes(
-        self, attributes: Optional[Dict[str, SpanAttributeValue]] = None, **kwargs
+        self, attributes: Optional[Dict[str, AttributeValue]] = None, **kwargs
     ) -> None:
         if attributes is None:
             attributes = {}
@@ -167,13 +153,13 @@ class SessionSpanManager:
         for k, v in attributes.items():
             self.set_attribute(k, v)
 
-    def set_heritable_attribute(self, key: str, value: SpanAttributeValue) -> None:
+    def set_heritable_attribute(self, key: str, value: AttributeValue) -> None:
         self._heritable_attributes[key] = value
         if self.current_span:
             self.set_attribute(key, value)
 
     def set_heritable_attributes(
-        self, attributes: Optional[Dict[str, SpanAttributeValue]] = None, **kwargs
+        self, attributes: Optional[Dict[str, AttributeValue]] = None, **kwargs
     ) -> None:
         if attributes:
             self._heritable_attributes.update(attributes)
@@ -213,7 +199,7 @@ class OtelTracingObserver(Observer):
 
     def __init__(self):
         super().__init__()
-        self._run_attributes: Dict[str, SpanAttributeValue] = {}
+        self._run_attributes: Dict[str, AttributeValue] = {}
         self._span_managers: Dict[str, SessionSpanManager] = {}
         self._session_step_counters: Dict[str, int] = {}
         self._session_agents: Dict[str, Any] = {}  # Store agent instances by session_id
@@ -286,14 +272,13 @@ class OtelTracingObserver(Observer):
         # Store model name for use in invoke_agent spans
         if model_name:
             self._run_attributes["gen_ai.request.model"] = model_name
-
-    def on_session_start(self, session, agent, observation) -> None:
+    
+    def on_session_creation(self, session) -> None:
         span_manager = SessionSpanManager(
             session.session_id, self.paths.session(session.session_id).root
         )
         self._span_managers[session.session_id] = span_manager
         self._session_step_counters[session.session_id] = 0
-        self._session_agents[session.session_id] = agent  # Store agent instance
         self._session_actions[
             session.session_id
         ] = session.actions  # Store actions for tool definitions
@@ -304,6 +289,7 @@ class OtelTracingObserver(Observer):
         )
         subset = self._run_attributes.get("exgentic.benchmark.subset", "subset")
         span_manager.start_span(f"{bench_name} {subset} session")
+        span_manager.update_tracing_context() # pass otel context to trace_logger
 
         span_manager.set_heritable_attributes(self._run_attributes)
 
@@ -341,11 +327,20 @@ class OtelTracingObserver(Observer):
                 f"exgentic.session.action.{action.name}.is_finish", action.is_finish
             )
         for k, v in session.context.items():
-            span_manager.set_attribute(f"exgentic.context.{k}", v)
+            otel_value = to_otel_attribute_value(v)
+            if otel_value is not None:
+                span_manager.set_attribute(f"exgentic.context.{k}", otel_value)
+
+    def on_session_start(self, session, agent, observation) -> None:
+        self._session_agents[session.session_id] = agent  # Store agent instance
+        span_manager = self._span_managers[session.session_id]
+
         span_manager.set_attribute("exgentic.session.agent.id", agent.agent_id)
-        span_manager.set_attribute(
-            "exgentic.session.agent.path", safe_repr(agent.paths.agent_dir)
-        )
+        agent_path_otel = to_otel_attribute_value(agent.paths.agent_dir)
+        if agent_path_otel is not None:
+            span_manager.set_attribute(
+                "exgentic.session.agent.path", agent_path_otel
+            )
 
         # Record initial observation as execute_tool span
         span_manager.start_span(
@@ -395,20 +390,10 @@ class OtelTracingObserver(Observer):
 
         # Only record observation content if otel_record_content is enabled
         if get_settings().otel_record_content:
-            observation_repr = (
-                safe_repr(observation_list[0]) if observation_list else ""
-            )
-            result_str = str(observation_list[0].result) if observation_list else ""
-            span_manager.current_span.set_attribute("gen_ai.tool.result", result_str)
-
-            span_manager.set_attribute("exgentic.observation.repr", observation_repr)
-            span_manager.set_attribute("exgentic.observation", safe_repr(observation))
-            span_manager.set_attributes(
-                {
-                    f"exgentic.observation.{i}": safe_repr(obs)
-                    for i, obs in enumerate(observation_list)
-                }
-            )
+            observation_otel = to_otel_attribute_value(observation_list)
+            if observation_otel is not None:
+                span_manager.current_span.set_attribute("gen_ai.tool.result", observation_otel)
+                span_manager.set_attribute("exgentic.observation", observation_otel)
 
     def _record_action(self, session_id: str, action) -> None:
         """Record action details on the current span."""
@@ -417,16 +402,9 @@ class OtelTracingObserver(Observer):
         # Only record action content if otel_record_content is enabled
         if get_settings().otel_record_content:
             action_list = action.to_action_list() if action is not None else []
-            action_repr = safe_repr(action_list[0]) if action_list else ""
-
-            span_manager.set_attribute("exgentic.action.repr", action_repr)
-            span_manager.set_attribute("exgentic.action", safe_repr(action))
-            span_manager.set_attributes(
-                {
-                    f"exgentic.action.{i}": safe_repr(act)
-                    for i, act in enumerate(action_list)
-                }
-            )
+            action_otel = to_otel_attribute_value(action_list)
+            if action_otel is not None:
+                span_manager.set_attribute("exgentic.action", action_otel)
 
     def on_react_success(self, session, action) -> None:
         span_manager = self._get_span_manager(session.session_id)
@@ -452,7 +430,7 @@ class OtelTracingObserver(Observer):
 
         # Create execute_tool span with semantic conventions
         action_list = action.to_action_list() if action else []
-        tool_name = action_list[0].name if action_list else "unknown"
+        tool_name = action_list[0].name if action_list and action_list[0] else "unknown"
         span_manager.start_span(f"execute_tool {tool_name}", kind=SpanKind.CLIENT)
 
         # Set required semantic convention attributes

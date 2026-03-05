@@ -12,7 +12,11 @@ import math
 from datetime import datetime
 import json
 from pathlib import Path
-from typing import Optional, Any, Dict, Tuple
+from typing import Optional, Any, Dict, Tuple, Any, Sequence, Optional, Union, Mapping
+from decimal import Decimal
+from datetime import date, datetime
+from pathlib import PurePath
+import base64
 
 from opentelemetry.util.types import AttributeValue
 from opentelemetry import trace
@@ -126,28 +130,154 @@ def flush_traces(timeout_millis: int = 30000) -> bool:
         return False
 
 
-def safe_repr(item) -> str:
-    return repr(item) if hasattr(item, "__repr__") else ""
+_Primitive = (str, bool, int, float)
 
+def _to_primitive_number(x: Any) -> Optional[Union[int, float]]:
+    """Convert numeric-ish types to plain Python int/float."""
+    if isinstance(x, bool):
+        # bool is a subclass of int; do not coerce.
+        return None
+    if isinstance(x, (int, float)):
+        return x
+    if isinstance(x, Decimal):
+        # Prefer float for AttributeValue; fall back to string elsewhere if needed.
+        return float(x)
+    return None
 
-def safe_kv(v: Any) -> Any:
-    """Sanitize value for OTEL attributes (primitives or arrays of primitives only) other objects will be stringified."""
-    if isinstance(v, (str, int, float, bool)):
-        return v
-    if isinstance(v, (list, tuple)):
-        out = []
-        for x in v:
-            if not isinstance(x, (str, int, float, bool)):
-                try:
-                    x = str(json.dumps(x, ensure_ascii=False))
-                except Exception:
-                    x = str(x)
-            out.append(x)
-        return out
+def _canonical_attr_type(x: Any) -> Optional[type]:
+    """Return which primitive type x maps to, or None if not primitive."""
+    if isinstance(x, bool):
+        return bool
+    if isinstance(x, int) and not isinstance(x, bool):
+        return int
+    if isinstance(x, float):
+        return float
+    if isinstance(x, str):
+        return str
+    return None
+
+def _json_default(o: Any) -> Any:
+    """Safe fallback for json.dumps(default=...)."""
+    # Pydantic v2
+    if hasattr(o, "model_dump"):
+        try:
+            return o.model_dump()
+        except Exception:
+            pass
+    # Pydantic v1
+    if hasattr(o, "dict"):
+        try:
+            return o.dict()
+        except Exception:
+            pass
+    # dataclasses
     try:
-        return str(json.dumps(v, ensure_ascii=False))
+        from dataclasses import is_dataclass, asdict
+        if is_dataclass(o):
+            return asdict(o)
     except Exception:
-        return str(v)
+        pass
+    # Datetime/Date
+    if isinstance(o, (datetime, date)):
+        return o.isoformat()
+    # Paths
+    if isinstance(o, (PurePath, )):
+        return str(o)
+    # Bytes-like → base64 wrapper so it round-trips
+    if isinstance(o, (bytes, bytearray, memoryview)):
+        return {"__bytes_b64__": base64.b64encode(bytes(o)).decode("ascii")}
+    # Fallback: repr as string
+    return str(o)
+
+def _to_homogeneous_sequence(seq: Sequence[Any]) -> Optional[Sequence[Union[str, bool, int, float]]]:
+    """
+    Try to coerce a sequence into a homogeneous list of primitives allowed by AttributeValue.
+    Returns list on success, None on failure.
+    """
+    arr = list(seq)
+
+    primed = []
+    for v in arr:
+        if v is None:
+            # None in arrays is not portably supported; bail to JSON outside.  [2](https://opentelemetry.io/docs/specs/otel/common/)
+            return None
+        if isinstance(v, _Primitive):
+            primed.append(v)
+            continue
+        # Try numeric coercion (Decimal)
+        num = _to_primitive_number(v)
+        if num is not None:
+            primed.append(num)
+            continue
+        # Datetimes/paths/bytes -> string
+        if isinstance(v, (datetime, date, PurePath, bytes, bytearray, memoryview)):
+            primed.append(str(_json_default(v)))
+            continue
+        # Not representable as primitive
+        return None
+
+    # Check homogeneity (bool must not mix with ints)
+    types = { _canonical_attr_type(x) for x in primed }
+    if None in types:
+        return None
+    if len(types) == 1:
+        return primed
+    # Allow implicit upcast to float when mixing int/float
+    if types == {int, float}:
+        return [float(x) for x in primed]
+    # Mixed types like str+int or bool+int are not allowed for attribute arrays.  [2](https://opentelemetry.io/docs/specs/otel/common/)
+    return None
+
+def to_otel_attribute_value(value: Any, *, prefer_json: bool = True) -> Optional[AttributeValue]:
+    """
+    Convert an arbitrary value into an OpenTelemetry-Python AttributeValue for spans.
+
+    Returns:
+        - A valid AttributeValue (str|bool|int|float|homogeneous Sequence thereof) on success.
+        - None if the attribute should be skipped (e.g., value is None).
+    """
+    # 1) None: skip (undefined/strongly discouraged).  [3](https://opentelemetry-python.readthedocs.io/en/latest/api/trace.span.html)
+    if value is None:
+        return None
+
+    # 2) Accepted primitives
+    if isinstance(value, _Primitive):
+        return bool(value) if isinstance(value, bool) else value  # type: ignore[return-value]
+
+    # 3) Numeric-like -> int/float
+    num = _to_primitive_number(value)
+    if num is not None:
+        return num  # type: ignore[return-value]
+
+    # 4) datetime/date -> ISO string; Path -> str; bytes -> base64 string
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, (PurePath, )):
+        return str(value)
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return base64.b64encode(bytes(value)).decode("ascii")
+
+    # 5) Sequences -> attempt homogeneous primitive array; else JSON
+    from collections.abc import Sequence as _Seq, Mapping as _Map
+    if isinstance(value, _Seq) and not isinstance(value, (str, bytes, bytearray, memoryview)):
+        coerced = _to_homogeneous_sequence(value)
+        if coerced is not None:
+            return coerced  # type: ignore[return-value]
+        if prefer_json:
+            try:
+                return json.dumps(value, default=_json_default, ensure_ascii=False, sort_keys=True)
+            except Exception:
+                return str(value)
+
+    # 6) Mappings/objects -> JSON string
+    if isinstance(value, Mapping) or hasattr(value, "__dict__") or hasattr(value, "model_dump"):
+        try:
+            return json.dumps(value, default=_json_default, ensure_ascii=False, sort_keys=True)
+        except Exception:
+            return str(value)
+
+    # 7) Fallback: string
+    return str(value)
 
 
 def get_session_logger(session_root: Path, name: str) -> "OtelLogger":

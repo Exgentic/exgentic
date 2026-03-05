@@ -23,6 +23,8 @@ from ...core.types import ActionType, RetryStrategy, ModelSettings
 from ...core.agent import Agent
 from ...core.agent_instance import AgentInstance
 from ...adapters.agents.mcp_agent import MCPAgentInstance
+from ...core.context import get_context
+
 
 from agents import Agent as OpenAIAgent, Runner
 from agents.extensions.models.litellm_model import LitellmModel
@@ -65,6 +67,8 @@ class RetryingLitellmModel(LitellmModel):
         self._retry_strategy = retry_strategy
 
     async def _fetch_response(self, *args, **kwargs):
+        # Inject context into metadata for OTEL tracing
+        kwargs.setdefault('metadata', {})['context'] = get_context
         for attempt in range(self._num_retries + 1):
             try:
                 return await super()._fetch_response(*args, **kwargs)
