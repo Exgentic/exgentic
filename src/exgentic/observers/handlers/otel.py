@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-from typing import Dict, Optional, cast, Any, Union, Sequence
+from typing import Dict, Optional, cast, Any
 from pathlib import Path
 from datetime import datetime
 import json
@@ -19,7 +19,7 @@ from ...utils.otel import (
     init_tracing_from_env,
     flush_traces,
     get_session_logger,
-    to_otel_attribute_value
+    to_otel_attribute_value,
 )
 from ...utils.settings import get_settings
 from ...core.orchestrator.observer import Observer
@@ -39,7 +39,10 @@ class SessionSpanManager:
         self._heritable_attributes: Dict[str, AttributeValue] = {}
 
         # Initialize session logger
-        self._logger = get_session_logger(session_root, f"{__name__} | pid={os.getpid()} tid={threading.get_native_id()}")
+        self._logger = get_session_logger(
+            session_root,
+            f"{__name__} | pid={os.getpid()} tid={threading.get_native_id()}",
+        )
         self._logger.info(
             f"SessionSpanManager initialized for session {self.session_id}"
         )
@@ -272,7 +275,7 @@ class OtelTracingObserver(Observer):
         # Store model name as heritable attribute
         if model_name:
             self._run_attributes["gen_ai.request.model"] = model_name
-    
+
     def on_session_creation(self, session) -> None:
         span_manager = SessionSpanManager(
             session.session_id, self.paths.session(session.session_id).root
@@ -289,7 +292,7 @@ class OtelTracingObserver(Observer):
         )
         subset = self._run_attributes.get("exgentic.benchmark.subset", "subset")
         span_manager.start_span(f"{bench_name} {subset} session")
-        span_manager.update_tracing_context() # pass otel context to trace_logger
+        span_manager.update_tracing_context()  # pass otel context to trace_logger
 
         span_manager.set_heritable_attributes(self._run_attributes)
 
@@ -338,9 +341,7 @@ class OtelTracingObserver(Observer):
         span_manager.set_attribute("exgentic.session.agent.id", agent.agent_id)
         agent_path_otel = to_otel_attribute_value(agent.paths.agent_dir)
         if agent_path_otel is not None:
-            span_manager.set_attribute(
-                "exgentic.session.agent.path", agent_path_otel
-            )
+            span_manager.set_attribute("exgentic.session.agent.path", agent_path_otel)
 
         # Record initial observation as execute_tool span
         span_manager.start_span(
@@ -371,7 +372,9 @@ class OtelTracingObserver(Observer):
         if get_settings().otel_record_content:
             observation_otel = to_otel_attribute_value(observation_list)
             if observation_otel is not None:
-                span_manager.current_span.set_attribute("gen_ai.tool.result", observation_otel)
+                span_manager.current_span.set_attribute(
+                    "gen_ai.tool.result", observation_otel
+                )
 
     def on_react_success(self, session, action) -> None:
         span_manager = self._get_span_manager(session.session_id)
@@ -507,5 +510,6 @@ class OtelTracingObserver(Observer):
             del self._session_agents[session.session_id]
         if session.session_id in self._session_actions:
             del self._session_actions[session.session_id]
+
 
 # Made with Bob

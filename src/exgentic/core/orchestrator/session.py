@@ -41,7 +41,7 @@ def run_session(
     )
     with session_scope(session.session_id, task_id=session.task_id):
         tracker.on_session_creation(session)
-        
+
         agent_instance = agent.assign(
             task=session.task,
             context=session.context,

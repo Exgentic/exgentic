@@ -481,7 +481,7 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
             self._get_searcher_params(),
             max_interactions=self.max_interactions,
             session_id=session_id,
-            judge_model=self.judge_model
+            judge_model=self.judge_model,
         )
         proxy = executer.get_proxy()
         return proxy  # type: ignore[return-value]

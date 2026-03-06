@@ -68,7 +68,7 @@ class RetryingLitellmModel(LitellmModel):
 
     async def _fetch_response(self, *args, **kwargs):
         # Inject context into metadata for OTEL tracing
-        kwargs.setdefault('metadata', {})['context'] = get_context
+        kwargs.setdefault("metadata", {})["context"] = get_context
         for attempt in range(self._num_retries + 1):
             try:
                 return await super()._fetch_response(*args, **kwargs)

@@ -7,22 +7,19 @@ Utility functions for OpenTelemetry initialization and logging.
 This module provides OTEL setup functions and structured logging for OTEL operations.
 """
 
-import os
-import math
-from datetime import datetime
-import json
-from pathlib import Path
-from typing import Optional, Any, Dict, Tuple, Any, Sequence, Optional, Union, Mapping
-from decimal import Decimal
-from datetime import date, datetime
-from pathlib import PurePath
 import base64
+import json
+import os
+from datetime import date, datetime
+from decimal import Decimal
+from pathlib import Path, PurePath
+from typing import Any, Dict, Mapping, Optional, Sequence, Union
 
 from opentelemetry.util.types import AttributeValue
 from opentelemetry import trace
 from opentelemetry.trace import Tracer
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import Span, TracerProvider
+from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor
 from opentelemetry.sdk.trace.id_generator import IdGenerator
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
@@ -132,6 +129,7 @@ def flush_traces(timeout_millis: int = 30000) -> bool:
 
 _Primitive = (str, bool, int, float)
 
+
 def _to_primitive_number(x: Any) -> Optional[Union[int, float]]:
     """Convert numeric-ish types to plain Python int/float."""
     if isinstance(x, bool):
@@ -144,6 +142,7 @@ def _to_primitive_number(x: Any) -> Optional[Union[int, float]]:
         return float(x)
     return None
 
+
 def _canonical_attr_type(x: Any) -> Optional[type]:
     """Return which primitive type x maps to, or None if not primitive."""
     if isinstance(x, bool):
@@ -155,6 +154,7 @@ def _canonical_attr_type(x: Any) -> Optional[type]:
     if isinstance(x, str):
         return str
     return None
+
 
 def _json_default(o: Any) -> Any:
     """Safe fallback for json.dumps(default=...)."""
@@ -173,6 +173,7 @@ def _json_default(o: Any) -> Any:
     # dataclasses
     try:
         from dataclasses import is_dataclass, asdict
+
         if is_dataclass(o):
             return asdict(o)
     except Exception:
@@ -181,7 +182,7 @@ def _json_default(o: Any) -> Any:
     if isinstance(o, (datetime, date)):
         return o.isoformat()
     # Paths
-    if isinstance(o, (PurePath, )):
+    if isinstance(o, (PurePath,)):
         return str(o)
     # Bytes-like → base64 wrapper so it round-trips
     if isinstance(o, (bytes, bytearray, memoryview)):
@@ -189,7 +190,10 @@ def _json_default(o: Any) -> Any:
     # Fallback: repr as string
     return str(o)
 
-def _to_homogeneous_sequence(seq: Sequence[Any]) -> Optional[Sequence[Union[str, bool, int, float]]]:
+
+def _to_homogeneous_sequence(
+    seq: Sequence[Any]
+) -> Optional[Sequence[Union[str, bool, int, float]]]:
     """
     Try to coerce a sequence into a homogeneous list of primitives allowed by AttributeValue.
     Returns list on success, None on failure.
@@ -217,7 +221,7 @@ def _to_homogeneous_sequence(seq: Sequence[Any]) -> Optional[Sequence[Union[str,
         return None
 
     # Check homogeneity (bool must not mix with ints)
-    types = { _canonical_attr_type(x) for x in primed }
+    types = {_canonical_attr_type(x) for x in primed}
     if None in types:
         return None
     if len(types) == 1:
@@ -228,7 +232,10 @@ def _to_homogeneous_sequence(seq: Sequence[Any]) -> Optional[Sequence[Union[str,
     # Mixed types like str+int or bool+int are not allowed for attribute arrays.  [2](https://opentelemetry.io/docs/specs/otel/common/)
     return None
 
-def to_otel_attribute_value(value: Any, *, prefer_json: bool = True) -> Optional[AttributeValue]:
+
+def to_otel_attribute_value(
+    value: Any, *, prefer_json: bool = True
+) -> Optional[AttributeValue]:
     """
     Convert an arbitrary value into an OpenTelemetry-Python AttributeValue for spans.
 
@@ -252,27 +259,38 @@ def to_otel_attribute_value(value: Any, *, prefer_json: bool = True) -> Optional
     # 4) datetime/date -> ISO string; Path -> str; bytes -> base64 string
     if isinstance(value, (datetime, date)):
         return value.isoformat()
-    if isinstance(value, (PurePath, )):
+    if isinstance(value, (PurePath,)):
         return str(value)
     if isinstance(value, (bytes, bytearray, memoryview)):
         return base64.b64encode(bytes(value)).decode("ascii")
 
     # 5) Sequences -> attempt homogeneous primitive array; else JSON
-    from collections.abc import Sequence as _Seq, Mapping as _Map
-    if isinstance(value, _Seq) and not isinstance(value, (str, bytes, bytearray, memoryview)):
+    from collections.abc import Sequence as _Seq
+
+    if isinstance(value, _Seq) and not isinstance(
+        value, (str, bytes, bytearray, memoryview)
+    ):
         coerced = _to_homogeneous_sequence(value)
         if coerced is not None:
             return coerced  # type: ignore[return-value]
         if prefer_json:
             try:
-                return json.dumps(value, default=_json_default, ensure_ascii=False, sort_keys=True)
+                return json.dumps(
+                    value, default=_json_default, ensure_ascii=False, sort_keys=True
+                )
             except Exception:
                 return str(value)
 
     # 6) Mappings/objects -> JSON string
-    if isinstance(value, Mapping) or hasattr(value, "__dict__") or hasattr(value, "model_dump"):
+    if (
+        isinstance(value, Mapping)
+        or hasattr(value, "__dict__")
+        or hasattr(value, "model_dump")
+    ):
         try:
-            return json.dumps(value, default=_json_default, ensure_ascii=False, sort_keys=True)
+            return json.dumps(
+                value, default=_json_default, ensure_ascii=False, sort_keys=True
+            )
         except Exception:
             return str(value)
 

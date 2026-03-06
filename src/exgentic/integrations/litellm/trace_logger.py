@@ -15,12 +15,11 @@ import os
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional, Union, Sequence
+from typing import Any, Dict, Optional
 import warnings
 
 from litellm.integrations.custom_logger import CustomLogger
 
-from ...core.context import Context
 from ...utils.settings import get_settings
 
 
@@ -62,10 +61,13 @@ class TraceLogger(CustomLogger):
     def _init_otel(self, kwargs) -> None:
         import threading
         from ...utils.otel import init_tracing_from_env, get_session_logger
+
         ctx = self.get_context(kwargs)
         if ctx is None or ctx.session_id is None or ctx.otel_context is None:
             # no otel context means tracing cannot be initialized
-            warnings.warn(f"No OTEL context found for TraceLogger, skipping OTEL initialization. context={ctx}")
+            warnings.warn(
+                f"No OTEL context found for TraceLogger, skipping OTEL initialization. context={ctx}"
+            )
             return
 
         # Initialize the TracerProvider (use simple processor for subprocess)
@@ -75,7 +77,10 @@ class TraceLogger(CustomLogger):
 
         base = Path(ctx.output_dir) / ctx.run_id
         session_root = base / "sessions" / ctx.session_id
-        self._otel_logger = get_session_logger(session_root, f"{__name__} | pid={os.getpid()} tid={threading.get_native_id()}")
+        self._otel_logger = get_session_logger(
+            session_root,
+            f"{__name__} | pid={os.getpid()} tid={threading.get_native_id()}",
+        )
 
     def _get_parent_context(self, kwargs) -> Any:
         """Reconstruct parent span context from environment variables or ContextVar.
@@ -143,11 +148,13 @@ class TraceLogger(CustomLogger):
         )
 
         return span
-    
+
     def _set_attribute(self, span: Any, key: str, value: Any) -> None:
         span.set_attribute(key, value)
         span_ctx = span.get_span_context()
-        self._otel_logger.log_attribute_set(key, value, format(span_ctx.span_id, "016x"))
+        self._otel_logger.log_attribute_set(
+            key, value, format(span_ctx.span_id, "016x")
+        )
 
     @staticmethod
     def _metadata_context(kwargs: Dict[str, Any]):
@@ -162,7 +169,7 @@ class TraceLogger(CustomLogger):
         if not metadata:
             # 3. litellm_params.metadata (for 'metadata' parameter)
             metadata = kwargs.get("litellm_params", {}).get("metadata")
-        
+
         context = metadata.get("context") if isinstance(metadata, dict) else None
         return context if isinstance(context, Context) else None
 
@@ -211,7 +218,7 @@ class TraceLogger(CustomLogger):
         if file_path:
             return file_path
 
-        ctx = self.get_context(kwargs) # TODO: this is redundant
+        ctx = self.get_context(kwargs)  # TODO: this is redundant
         if ctx is not None:
             return self._context_log_path(ctx)
 
@@ -255,16 +262,16 @@ class TraceLogger(CustomLogger):
         Span name format: {gen_ai.operation.name} {gen_ai.request.model}
         Span kind: CLIENT
         """
-        
+
         try:
             if not _otel_enabled():
                 return
 
             # Lazy initialize OTEL if not already done
             if self._tracer is None:
-                self._init_otel(kwargs)        
+                self._init_otel(kwargs)
             ctx = self.get_context(kwargs)
-            
+
             # Lazy import GenAI semantic conventions
             from opentelemetry.trace import Status, StatusCode
 
@@ -274,13 +281,13 @@ class TraceLogger(CustomLogger):
             # ===== DETERMINE OPERATION TYPE =====
             # Required attribute: gen_ai.operation.name
             operation = "chat" if kwargs.get("messages") else "text_completion"
-            
+
             # ===== CREATE SPAN WITH PROPER NAME =====
             # Span name format: {gen_ai.operation.name} {gen_ai.request.model}
             model = kwargs.get("model", "unknown")
             span_name = f"{operation} {model}"
             span = self._create_llm_span(kwargs, span_name, start_time=start_time)
-            
+
             # ===== SET SPAN STATUS =====
             if status == "success":
                 span.set_status(Status(StatusCode.OK))
@@ -350,29 +357,37 @@ class TraceLogger(CustomLogger):
             self._set_attribute(span, "gen_ai.conversation.id", ctx.session_id)
 
             if optional_params.get("max_tokens") is not None:
-                self._set_attribute(span,
-                    "gen_ai.request.max_tokens", optional_params["max_tokens"]
+                self._set_attribute(
+                    span, "gen_ai.request.max_tokens", optional_params["max_tokens"]
                 )
 
             if optional_params.get("temperature") is not None:
-                self._set_attribute(span,
-                    "gen_ai.request.temperature", optional_params["temperature"]
+                self._set_attribute(
+                    span, "gen_ai.request.temperature", optional_params["temperature"]
                 )
 
             if optional_params.get("top_p") is not None:
-                self._set_attribute(span, "gen_ai.request.top_p", optional_params["top_p"])
+                self._set_attribute(
+                    span, "gen_ai.request.top_p", optional_params["top_p"]
+                )
 
             if optional_params.get("top_k") is not None:
-                self._set_attribute(span, "gen_ai.request.top_k", float(optional_params["top_k"]))
+                self._set_attribute(
+                    span, "gen_ai.request.top_k", float(optional_params["top_k"])
+                )
 
             if optional_params.get("frequency_penalty") is not None:
-                self._set_attribute(span,
-                    "gen_ai.request.frequency_penalty", optional_params["frequency_penalty"]
+                self._set_attribute(
+                    span,
+                    "gen_ai.request.frequency_penalty",
+                    optional_params["frequency_penalty"],
                 )
 
             if optional_params.get("presence_penalty") is not None:
-                self._set_attribute(span,
-                    "gen_ai.request.presence_penalty", optional_params["presence_penalty"]
+                self._set_attribute(
+                    span,
+                    "gen_ai.request.presence_penalty",
+                    optional_params["presence_penalty"],
                 )
 
             # gen_ai.request.stop_sequences (Recommended)
@@ -418,7 +433,9 @@ class TraceLogger(CustomLogger):
                 if usage:
                     prompt_tokens = safe_get(usage, "prompt_tokens")
                     if prompt_tokens is not None:
-                        self._set_attribute(span, "gen_ai.usage.input_tokens", prompt_tokens)
+                        self._set_attribute(
+                            span, "gen_ai.usage.input_tokens", prompt_tokens
+                        )
                         if self._otel_logger:
                             self._otel_logger.log_attribute_set(
                                 "gen_ai.usage.input_tokens", prompt_tokens, span_id_hex
@@ -426,10 +443,14 @@ class TraceLogger(CustomLogger):
 
                     completion_tokens = safe_get(usage, "completion_tokens")
                     if completion_tokens is not None:
-                        self._set_attribute(span, "gen_ai.usage.output_tokens", completion_tokens)
+                        self._set_attribute(
+                            span, "gen_ai.usage.output_tokens", completion_tokens
+                        )
                         if self._otel_logger:
                             self._otel_logger.log_attribute_set(
-                                "gen_ai.usage.output_tokens", completion_tokens, span_id_hex
+                                "gen_ai.usage.output_tokens",
+                                completion_tokens,
+                                span_id_hex,
                             )
 
                 # gen_ai.response.finish_reasons (Recommended)
@@ -441,7 +462,9 @@ class TraceLogger(CustomLogger):
                         if finish_reason:
                             finish_reasons.append(finish_reason)
                     if finish_reasons:
-                        self._set_attribute(span, "gen_ai.response.finish_reasons", finish_reasons)
+                        self._set_attribute(
+                            span, "gen_ai.response.finish_reasons", finish_reasons
+                        )
                         if self._otel_logger:
                             self._otel_logger.log_attribute_set(
                                 "gen_ai.response.finish_reasons",
@@ -457,8 +480,10 @@ class TraceLogger(CustomLogger):
                 tools = kwargs.get("tools")
                 if tools:
                     try:
-                        self._set_attribute(span,
-                            "gen_ai.tool.definitions", json.dumps(tools, default=str)
+                        self._set_attribute(
+                            span,
+                            "gen_ai.tool.definitions",
+                            json.dumps(tools, default=str),
                         )
                     except Exception:
                         pass  # Skip if serialization fails
@@ -468,8 +493,10 @@ class TraceLogger(CustomLogger):
                 if messages:
                     # Convert to GenAI message format
                     try:
-                        self._set_attribute(span,
-                            "gen_ai.input.messages", json.dumps(messages, default=str)
+                        self._set_attribute(
+                            span,
+                            "gen_ai.input.messages",
+                            json.dumps(messages, default=str),
                         )
                     except Exception:
                         pass  # Skip if serialization fails
@@ -507,7 +534,9 @@ class TraceLogger(CustomLogger):
                                                 "type": "tool_call",
                                                 "id": safe_get(tc, "id"),
                                                 "name": safe_get(func, "name"),
-                                                "arguments": safe_get(func, "arguments"),
+                                                "arguments": safe_get(
+                                                    func, "arguments"
+                                                ),
                                             }
                                         )
                                 finish_reason = safe_get(choice, "finish_reason")
@@ -517,7 +546,8 @@ class TraceLogger(CustomLogger):
 
                         if output_messages:
                             try:
-                                self._set_attribute(span,
+                                self._set_attribute(
+                                    span,
                                     "gen_ai.output.messages",
                                     json.dumps(output_messages, default=str),
                                 )
@@ -539,7 +569,7 @@ class TraceLogger(CustomLogger):
                     status=status,
                     end_time=end_time,
                 )
-        except Exception as e:
+        except Exception:
             pass
 
     def log_success_event(

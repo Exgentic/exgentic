@@ -27,13 +27,13 @@ settings = get_settings()
 
 class ContextInjectingLiteLLMModel(LiteLLMModel):
     """Wrapper around LiteLLMModel that injects context into litellm_metadata."""
-    
+
     def generate(self, *args, **kwargs):
         """Inject context into litellm_metadata before calling the model."""
         # Use 'metadata' parameter instead of 'litellm_metadata'
         # LiteLLM passes 'metadata' to callbacks in litellm_params.metadata
-        kwargs.setdefault('metadata', {})['context'] = get_context()
-        
+        kwargs.setdefault("metadata", {})["context"] = get_context()
+
         return super().generate(*args, **kwargs)
 
 
