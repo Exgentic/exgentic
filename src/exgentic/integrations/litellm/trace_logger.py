@@ -453,6 +453,16 @@ class TraceLogger(CustomLogger):
             # Note: These are opt-in and may contain sensitive data
             # Only include if explicitly enabled via settings
             if _otel_record_content():
+                # gen_ai.tool.definitions (Opt-In)
+                tools = kwargs.get("tools")
+                if tools:
+                    try:
+                        self._set_attribute(span,
+                            "gen_ai.tool.definitions", json.dumps(tools, default=str)
+                        )
+                    except Exception:
+                        pass  # Skip if serialization fails
+
                 # gen_ai.input.messages (Opt-In) - structured format
                 messages = kwargs.get("messages")
                 if messages:
