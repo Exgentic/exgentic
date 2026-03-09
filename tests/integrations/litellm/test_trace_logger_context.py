@@ -7,9 +7,9 @@ import os
 from pathlib import Path
 
 from exgentic.core.context import (
-    Context,
-    ENV_OTEL_TRACE_ID,
     ENV_OTEL_SPAN_ID,
+    ENV_OTEL_TRACE_ID,
+    Context,
     init_context_from_env,
 )
 from exgentic.integrations.litellm.trace_logger import TraceLogger

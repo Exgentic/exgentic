@@ -3,15 +3,16 @@
 
 """Thread-safe search service with semaphore for concurrency control."""
 
-import threading
-import json
-import logging
 import argparse
 import atexit
-from typing import Optional
+import json
+import logging
 import os
-import psutil
+import threading
 import time
+from typing import Optional
+
+import psutil
 
 
 class SearchService:
@@ -51,9 +52,7 @@ class SearchService:
                     elif hasattr(searcher, "shutdown"):
                         searcher.shutdown()
 
-                    if hasattr(searcher, "searcher") and hasattr(
-                        searcher.searcher, "close"
-                    ):
+                    if hasattr(searcher, "searcher") and hasattr(searcher.searcher, "close"):
                         searcher.searcher.close()
 
                 except Exception as e:
@@ -82,16 +81,12 @@ class SearchService:
             logger.info(
                 f"Reusing cached searcher: {searcher_type} (PID: {os.getpid()}, Thread: {threading.get_ident()})"
             )
-            return ThreadSafeSearcherWrapper(
-                self._searchers[cache_key], self._search_semaphore
-            )
+            return ThreadSafeSearcherWrapper(self._searchers[cache_key], self._search_semaphore)
 
         # Create new searcher (with lock)
         with self._cache_lock:
             if cache_key in self._searchers:
-                return ThreadSafeSearcherWrapper(
-                    self._searchers[cache_key], self._search_semaphore
-                )
+                return ThreadSafeSearcherWrapper(self._searchers[cache_key], self._search_semaphore)
 
             process = psutil.Process(os.getpid())
             mem_before = process.memory_info().rss / 1024 / 1024
@@ -106,7 +101,8 @@ class SearchService:
 
             mem_after = process.memory_info().rss / 1024 / 1024
             logger.info(
-                f"Searcher model loaded: {searcher_type} (after: {mem_after:.1f} MB, delta: {mem_after - mem_before:.1f} MB)"
+                f"Searcher model loaded: {searcher_type} "
+                f"(after: {mem_after:.1f} MB, delta: {mem_after - mem_before:.1f} MB)"
             )
 
             return ThreadSafeSearcherWrapper(searcher, self._search_semaphore)

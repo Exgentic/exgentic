@@ -2,19 +2,18 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, ConfigDict
 
 from ..utils.paths import SessionPaths, get_run_paths
 from ..utils.settings import ExecuterName
-
 from .session import Session
 from .types import SessionIndex
 
 
 class Benchmark(BaseModel, ABC):
-    """Benchmark interface - controls evaluation execution and provides sessions"""
+    """Benchmark interface - controls evaluation execution and provides sessions."""
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
@@ -72,4 +71,4 @@ class Benchmark(BaseModel, ABC):
 
     def close(self) -> None:
         """Optional cleanup hook."""
-        return None
+        return

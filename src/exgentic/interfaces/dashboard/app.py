@@ -26,7 +26,8 @@ def create_ui() -> None:
         """
         <link rel="preconnect" href="https://fonts.googleapis.com">
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap"
+              rel="stylesheet">
         <style>
             :root {
                 font-family: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -215,12 +216,7 @@ def create_ui() -> None:
     dark.disable()
 
     with ui.row().classes("w-full items-center justify-between"):
-        logo_path = (
-            ASSETS_DIR.parent.parent
-            / "misc"
-            / "assets"
-            / "exgentic_banner_black_no_background.png"
-        )
+        logo_path = ASSETS_DIR.parent.parent / "misc" / "assets" / "exgentic_banner_black_no_background.png"
         if logo_path.is_file():
             ui.image(logo_path).classes("app-logo").props("fit=contain")
         with ui.tabs() as main_tabs:

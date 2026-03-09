@@ -1,18 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-from ..context import session_scope, agent_scope, benchmark_scope
+from ..context import agent_scope, benchmark_scope, session_scope
 from ..types import SessionConfig, SessionIndex
 from .controller import Controller
 from .observer import Observer
 from .termination import (
     AgentError,
-    AgentTermination,
+    AgentTerminationError,
     BenchmarkError,
-    BenchmarkTermination,
-    RunCancel,
-    SessionCancel,
-    SessionLimitReached,
+    BenchmarkTerminationError,
+    RunCancelError,
+    SessionCancelError,
+    SessionLimitReachedError,
 )
 from .tracker import Tracker
 
@@ -36,9 +36,7 @@ def run_session(
         tracker = Tracker(observers=observers, controllers=controllers)
 
     session_id = session_config.get_session_id()
-    session = benchmark.create_session(
-        SessionIndex(task_id=str(session_config.task_id), session_id=session_id)
-    )
+    session = benchmark.create_session(SessionIndex(task_id=str(session_config.task_id), session_id=session_id))
     with session_scope(session.session_id, task_id=session.task_id):
         tracker.on_session_creation(session)
 
@@ -84,17 +82,17 @@ def run_session(
                 )
 
             if session.done():
-                raise BenchmarkTermination()
-            raise AgentTermination()
+                raise BenchmarkTerminationError()
+            raise AgentTerminationError()
 
         except KeyboardInterrupt:
             _close_session_agent(session, agent_instance)
-            tracker.on_session_error(session, RunCancel())
+            tracker.on_session_error(session, RunCancelError())
             raise
         except AgentError as exc:
             _close_session_agent(session, agent_instance)
             tracker.on_session_error(session, exc)
-        except SessionLimitReached as exc:
+        except SessionLimitReachedError as exc:
             with benchmark_scope():
                 tracker.on_session_scoring(session)
             _close_session_agent(session, agent_instance)
@@ -111,7 +109,7 @@ def run_session(
                 "actions": exc.actions,
             }
             tracker.on_session_success(session, score, agent_instance)
-        except (AgentTermination, BenchmarkTermination):
+        except (AgentTerminationError, BenchmarkTerminationError):
             with benchmark_scope():
                 tracker.on_session_scoring(session)
             _close_session_agent(session, agent_instance)
@@ -123,10 +121,10 @@ def run_session(
         except BenchmarkError as exc:
             agent_instance.close()
             tracker.on_session_error(session, exc)
-        except SessionCancel as exc:
+        except SessionCancelError as exc:
             _close_session_agent(session, agent_instance)
             tracker.on_session_error(session, exc)
-        except RunCancel as exc:
+        except RunCancelError as exc:
             _close_session_agent(session, agent_instance)
             tracker.on_session_error(session, exc)
             raise

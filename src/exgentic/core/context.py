@@ -6,17 +6,16 @@ from __future__ import annotations
 import contextvars
 import os
 import shutil
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-import threading
 from typing import Iterator
 
-from ..utils.settings import get_settings
 from ..utils.paths import sanitize_path_component
-
+from ..utils.settings import get_settings
 
 # ---------------------------------------------------------------------------
 # Role enum
@@ -178,9 +177,7 @@ def get_context() -> Context:
     """Return the current Context. Raises RuntimeError if none is set."""
     ctx = _CONTEXT.get()
     if ctx is None:
-        raise RuntimeError(
-            "No context set. Use run_scope() or init_context_from_env()."
-        )
+        raise RuntimeError("No context set. Use run_scope() or init_context_from_env().")
     return ctx
 
 
@@ -305,18 +302,10 @@ def _resolve_context(
     overwrite_run: bool,
 ) -> Context:
     settings = get_settings()
-    resolved_run_id = (
-        run_id
-        or os.environ.get(_ENV_RUN_ID)
-        or datetime.now().isoformat().replace(":", "--")
-    )
+    resolved_run_id = run_id or os.environ.get(_ENV_RUN_ID) or datetime.now().isoformat().replace(":", "--")
     resolved_run_id = sanitize_path_component(resolved_run_id)
-    resolved_output_dir = (
-        output_dir or os.environ.get(_ENV_OUTPUT_DIR) or settings.output_dir
-    )
-    resolved_cache_dir = (
-        cache_dir or os.environ.get(_ENV_CACHE_DIR) or settings.cache_dir
-    )
+    resolved_output_dir = output_dir or os.environ.get(_ENV_OUTPUT_DIR) or settings.output_dir
+    resolved_cache_dir = cache_dir or os.environ.get(_ENV_CACHE_DIR) or settings.cache_dir
     if overwrite_run:
         run_root = Path(resolved_output_dir) / resolved_run_id
         if run_root.exists():

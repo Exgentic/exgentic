@@ -2,7 +2,7 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 import hashlib
-from typing import Dict, Any
+from typing import Any, Dict
 
 from ...utils.disk_cache import DiskCacheSessionMixin
 

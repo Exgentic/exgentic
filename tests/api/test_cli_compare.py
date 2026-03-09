@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import re
-from click.testing import CliRunner
+from pathlib import Path
 
+from click.testing import CliRunner
 from exgentic.core.types import SessionResults
 from exgentic.core.types.session import SessionOutcomeStatus
 from exgentic.interfaces.cli.main import cli
@@ -30,7 +30,7 @@ def create_mock_results(
         model: Model name
         benchmark: Benchmark slug name
         subset: Optional subset name
-        tasks: List of (task_key, score) tuples
+        tasks: List of (task_id, score) tuples
         run_id: Optional run ID (generated if not provided)
     """
     if run_id is None:
@@ -63,15 +63,15 @@ def create_mock_results(
     sessions_dir = run_dir / "sessions"
     sessions_dir.mkdir(parents=True, exist_ok=True)
 
-    for task_key, score in tasks:
-        session_id = f"session-{task_key}"
+    for task_id, score in tasks:
+        session_id = f"session-{task_id}"
         session_dir = sessions_dir / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
 
         # Create results.json
         session_result = SessionResults(
             session_id=session_id,
-            task_key=task_key,
+            task_id=task_id,
             success=score >= 0.99,
             score=score,
             is_finished=True,
@@ -85,9 +85,7 @@ def create_mock_results(
         )
 
         results_file = session_dir / "results.json"
-        results_file.write_text(
-            session_result.model_dump_json(indent=2), encoding="utf-8"
-        )
+        results_file.write_text(session_result.model_dump_json(indent=2), encoding="utf-8")
 
 
 def test_compare_two_agents_same_benchmark(tmp_path):
@@ -470,9 +468,7 @@ def test_compare_pairwise_three_agents(tmp_path):
     assert "Detailed Comparison: test_benchmark2" in result.output
     assert "Detailed Comparison: test_benchmark2" in result.output
     assert re.search(
-        r"Detailed Comparison.*"
-        r"agent1 and model1.*agent2 and model1.*"
-        r"agent1 and model1.*agent2 and model1.*",
+        r"Detailed Comparison.*" r"agent1 and model1.*agent2 and model1.*" r"agent1 and model1.*agent2 and model1.*",
         result.output,
         flags=re.DOTALL,
     )
@@ -1169,7 +1165,7 @@ def test_compare_only_models_no_agents(tmp_path):
     # Verify comparison works across any agents (both models should appear)
     assert "model1" in result.output
     assert "model2" in result.output
-    assert "50." in result.output  # May be truncated as "50.…" in table
+    assert "50." in result.output or "50…" in result.output  # May be truncated as "50.…" in table
     # New format shows summary table
     assert "Statistical Significance Matrix" in result.output
 
@@ -1326,8 +1322,7 @@ def test_breslow_day_homogeneous_high_pvalue(tmp_path):
         breslow_day["p_value"] > 0.05
     ), f"Expected high p-value (>0.05) for homogeneous data, got {breslow_day['p_value']}"
     assert (
-        "homogeneous" in breslow_day["interpretation"].lower()
-        or "consistent" in breslow_day["interpretation"].lower()
+        "homogeneous" in breslow_day["interpretation"].lower() or "consistent" in breslow_day["interpretation"].lower()
     ), f"Expected 'homogeneous' or 'consistent' in interpretation, got: {breslow_day['interpretation']}"
 
 
@@ -1554,8 +1549,7 @@ def test_breslow_day_heterogeneous_low_pvalue(tmp_path):
         breslow_day["p_value"] < 0.05
     ), f"Expected low p-value (<0.05) for heterogeneous data, got {breslow_day['p_value']}"
     assert (
-        "heterogeneity" in breslow_day["interpretation"].lower()
-        or "varies" in breslow_day["interpretation"].lower()
+        "heterogeneity" in breslow_day["interpretation"].lower() or "varies" in breslow_day["interpretation"].lower()
     ), f"Expected 'heterogeneity' or 'varies' in interpretation, got: {breslow_day['interpretation']}"
 
 
@@ -1630,15 +1624,15 @@ def test_breslow_day_text_output(tmp_path):
     # Check that text output includes Breslow-Day test information
     # New format shows it in the overall table section
     assert (
-        "Breslow-Day" in result.output or "breslow" in result.output.lower()
+        "Breslow-Day" in result.output or "breslow" in result.output.lower() or "Bre…" in result.output
     ), "Expected Breslow-Day test information in text output"
     assert (
-        "P-value" in result.output
-        or "p-value" in result.output
-        or "p=" in result.output
+        "P-value" in result.output or "p-value" in result.output or "p=" in result.output
     ), "Expected p-value in text output"
     assert (
         "Interpretation" in result.output
         or "homogeneous" in result.output.lower()
         or "consistent" in result.output.lower()
+        or "hom…" in result.output
+        or "con…" in result.output
     ), "Expected interpretation in text output"

@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 import requests
-
 from exgentic.integrations.litellm import LitellmProxy
 
 

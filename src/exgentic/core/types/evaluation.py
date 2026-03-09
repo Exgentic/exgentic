@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, StrictStr, model_validator
 
@@ -18,7 +18,7 @@ from ..context import try_get_context
 from .model_settings import ModelSettings
 
 
-def _validate_kwargs(kind: str, cls: type, kwargs: Dict[str, Any]) -> None:
+def _validate_kwargs(kind: str, cls: type, kwargs: dict[str, Any]) -> None:
     if not isinstance(cls, type) or not issubclass(cls, BaseModel):
         return
     cls.model_validate(kwargs)
@@ -28,8 +28,8 @@ def _compute_run_id(
     *,
     benchmark: str,
     agent: str,
-    benchmark_kwargs: Dict[str, Any],
-    agent_kwargs: Dict[str, Any],
+    benchmark_kwargs: dict[str, Any],
+    agent_kwargs: dict[str, Any],
 ) -> str:
     payload = {
         "benchmark": {
@@ -61,8 +61,8 @@ class BaseEvaluationConfig(BaseModel):
     cache_dir: Optional[str] = None
     run_id: Optional[str] = None
     model: Optional[str] = None
-    benchmark_kwargs: Optional[Dict[str, Any]] = None
-    agent_kwargs: Optional[Dict[str, Any]] = None
+    benchmark_kwargs: Optional[dict[str, Any]] = None
+    agent_kwargs: Optional[dict[str, Any]] = None
 
     @model_validator(mode="before")
     @classmethod
@@ -81,9 +81,7 @@ class BaseEvaluationConfig(BaseModel):
 
         subset = payload.get("subset")
         if subset is not None and benchmark:
-            benchmark_kwargs = apply_subset_kwargs(
-                str(benchmark), str(subset), dict(benchmark_kwargs)
-            )
+            benchmark_kwargs = apply_subset_kwargs(str(benchmark), str(subset), dict(benchmark_kwargs))
         else:
             benchmark_kwargs = dict(benchmark_kwargs)
 
@@ -97,17 +95,12 @@ class BaseEvaluationConfig(BaseModel):
             elif isinstance(model_cfg, dict):
                 agent_kwargs["model_settings"] = ModelSettings(**model_cfg)
             else:
-                raise ValueError(
-                    "agent.model_settings must be a ModelSettings or dict."
-                )
+                raise ValueError("agent.model_settings must be a ModelSettings or dict.")
 
         model = payload.get("model")
         if model is not None:
             if "model" in agent_kwargs and agent_kwargs["model"] != model:
-                raise ValueError(
-                    "Conflicting model selection: "
-                    f"model={agent_kwargs['model']} but model={model}"
-                )
+                raise ValueError("Conflicting model selection: " f"model={agent_kwargs['model']} but model={model}")
             agent_kwargs["model"] = model
 
         if benchmark:
@@ -129,7 +122,7 @@ class BaseEvaluationConfig(BaseModel):
             )
         return payload
 
-    def canonical_payload(self) -> Dict[str, Any]:
+    def canonical_payload(self) -> dict[str, Any]:
         return self.model_dump(mode="json", exclude_none=False)
 
     def fingerprint(self) -> str:
@@ -153,6 +146,6 @@ class BaseEvaluationConfig(BaseModel):
 
     @classmethod
     def from_file(cls, path: str):
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
         return cls.model_validate(payload)

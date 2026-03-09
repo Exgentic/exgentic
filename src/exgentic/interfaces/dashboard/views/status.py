@@ -7,7 +7,6 @@ from typing import Any
 
 from nicegui import ui
 
-
 _STATUS_ORDER = [
     "success",
     "unsuccessful",
@@ -31,9 +30,7 @@ _STATUS_COLORS = {
 }
 
 
-def _status_from_outcome(
-    success: Any, is_finished: Any, error_source: Any = None
-) -> str:
+def _status_from_outcome(success: Any, is_finished: Any, error_source: Any = None) -> str:
     if success is True:
         return "success"
     if is_finished is True:

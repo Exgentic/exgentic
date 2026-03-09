@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-from ...core.orchestrator.observer import Observer
 from ...core.context import get_context
+from ...core.orchestrator.observer import Observer
 from ..logging import configure_warnings_logging
 
 

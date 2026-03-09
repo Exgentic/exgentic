@@ -1,26 +1,26 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
+import functools
+import logging
+from abc import abstractmethod
+from typing import Any, Callable, ClassVar, Dict, List, Type
+
+from rich.console import Console
 from smolagents import LiteLLMModel
 from smolagents.models import is_rate_limit_error
 from smolagents.monitoring import AgentLogger, LogLevel
-from rich.console import Console
-from smolagents.tools import tool, Tool
-from smolagents.utils import Retrying, AgentError
-import functools
-from abc import abstractmethod
-from typing import Any, Callable, Dict, List, Type, ClassVar
-import logging
-from ...utils.settings import get_settings
-from ...core.types import ModelSettings, RetryStrategy
-from ...core.agent import Agent
-from ...core.agent_instance import AgentInstance
-from ...observers.logging import close_logger
+from smolagents.tools import Tool, tool
+from smolagents.utils import AgentError, Retrying
 
 from ...adapters.agents.code_agent import CodeAgentInstance
-from ...core.types import ActionType
-from ...utils.cost import CostReport, LiteLLMCostReport
+from ...core.agent import Agent
+from ...core.agent_instance import AgentInstance
 from ...core.context import get_context
+from ...core.types import ActionType, ModelSettings, RetryStrategy
+from ...observers.logging import close_logger
+from ...utils.cost import CostReport, LiteLLMCostReport
+from ...utils.settings import get_settings
 
 settings = get_settings()
 
@@ -76,9 +76,7 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
                                 console=Console(),
                                 level=LogLevel.ERROR,
                             )
-                        raise AgentError(
-                            "Agent interrupted (session closed).", agent_logger
-                        ) from exc
+                        raise AgentError("Agent interrupted (session closed).", agent_logger) from exc
                     raise
 
             return wrapper
@@ -111,11 +109,7 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
             num_retries = self.model_settings.num_retries or 0
             max_attempts = num_retries + 1 if num_retries > 0 else 1
             retry_strategy = self.model_settings.retry_strategy.value
-            exponential_base = (
-                2.0
-                if retry_strategy == RetryStrategy.EXPONENTIAL_BACKOFF.value
-                else 1.0
-            )
+            exponential_base = 2.0 if retry_strategy == RetryStrategy.EXPONENTIAL_BACKOFF.value else 1.0
             log_level = logging._nameToLevel.get(settings.log_level, logging.INFO)
             self._model.retryer = Retrying(
                 max_attempts=max_attempts,

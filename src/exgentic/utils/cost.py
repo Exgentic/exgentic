@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-from typing import Any, Optional, Self, TypeVar, Sequence
+from typing import Any, Optional, Self, Sequence, TypeVar
 
 from litellm.cost_calculator import cost_per_token
 from pydantic import BaseModel, computed_field
-
 
 name_map = {"claude-3-5-haiku": "claude-3-5-haiku-20241022"}
 
@@ -20,9 +19,7 @@ def litellm_cost_per_token(model_name: str):
     return cost_per_token(model=model_name, prompt_tokens=1, completion_tokens=1)
 
 
-def litellm_tokens_cost(
-    input_tokens: int, output_tokens: int, model_name: str
-) -> TokensCost:
+def litellm_tokens_cost(input_tokens: int, output_tokens: int, model_name: str) -> TokensCost:
     for src, dst in name_map.items():
         model_name = model_name.replace(src, dst)
 
@@ -68,17 +65,15 @@ class CostReport(BaseModel):
 
 
 class UpdatableCostReport(CostReport):
-    """
-    A simple accumulator that supports adding arbitrary cost amounts.
-    """
+    """A simple accumulator that supports adding arbitrary cost amounts."""
 
     def add_cost(self, new_cost: float) -> None:
         self._total_cost += new_cost
 
 
 class LLMCostReport(CostReport):
-    """
-    Represents a cost report for LLM usage.
+    """Represents a cost report for LLM usage.
+
     Usage:
         # Explicit definition
         report = CostReport(model_name="gpt-4", input_tokens=100, output_tokens=50, input_cost=0.02, output_cost=0.03)
@@ -121,7 +116,7 @@ class LLMCostReport(CostReport):
         self.output_cost += output_cost
 
     def accumulate_from(self, other: Self) -> None:
-        """Accumulate costs and tokens from other"""
+        """Accumulate costs and tokens from other."""
         self.input_tokens += int(other.input_tokens)
         self.output_tokens += int(other.output_tokens)
         self.input_cost += float(other.input_cost)
@@ -129,8 +124,7 @@ class LLMCostReport(CostReport):
 
 
 class LiteLLMCostReport(LLMCostReport):
-    """
-    Specialized cost report that calculates costs using LiteLLM pricing.
+    """Specialized cost report that calculates costs using LiteLLM pricing.
 
     Additional Features:
         - Auto-calculates cost if not provided.
@@ -153,13 +147,9 @@ class LiteLLMCostReport(LLMCostReport):
             self.input_cost = cost_data.input_cost
 
     @classmethod
-    def from_token_counts(
-        cls, model_name, input_tokens, output_tokens
-    ) -> "LiteLLMCostReport":
+    def from_token_counts(cls, model_name, input_tokens, output_tokens) -> "LiteLLMCostReport":
         """Create a report from token counts, auto-calculating costs."""
-        cost_data = cls.get_litellm_tokens_cost(
-            input_tokens, output_tokens, model_name=model_name
-        )
+        cost_data = cls.get_litellm_tokens_cost(input_tokens, output_tokens, model_name=model_name)
         return cls(
             model_name=model_name,
             input_tokens=input_tokens,
@@ -170,9 +160,7 @@ class LiteLLMCostReport(LLMCostReport):
 
     def update_cost_from_tokens(self, new_input_tokens, new_output_tokens):
         """Update cost based on new token counts."""
-        new_cost_data = LiteLLMCostReport.get_litellm_tokens_cost(
-            new_input_tokens, new_output_tokens, self.model_name
-        )
+        new_cost_data = LiteLLMCostReport.get_litellm_tokens_cost(new_input_tokens, new_output_tokens, self.model_name)
         self.update_cost(
             new_input_tokens,
             new_output_tokens,
@@ -181,9 +169,7 @@ class LiteLLMCostReport(LLMCostReport):
         )
 
     @classmethod
-    def get_litellm_tokens_cost(
-        cls, input_tokens, output_tokens, model_name
-    ) -> TokensCost:
+    def get_litellm_tokens_cost(cls, input_tokens, output_tokens, model_name) -> TokensCost:
         """Fetch cost data from LiteLLM pricing API."""
         if input_tokens == 0 and output_tokens == 0:
             return TokensCost(input_cost=0, output_cost=0, total_cost=0)
@@ -194,8 +180,7 @@ T = TypeVar("T", bound=CostReport)
 
 
 def accumulate_reports(reports: Sequence[T]) -> T:
-    """
-    Accumulate a sequence of same-typed cost reports into a single report of the same type.
+    """Accumulate a sequence of same-typed cost reports into a single report of the same type.
 
     Behavior:
       - Enforces that all items are of the same concrete type.
@@ -223,9 +208,7 @@ def accumulate_reports(reports: Sequence[T]) -> T:
     # Preserve model_name if consistent; otherwise use 'mixed'
     first_model_name = first.model_name
     same_model_name = all(r.model_name == first_model_name for r in reports)
-    acc_report = first_type.initialize_empty(
-        model_name=first_model_name if same_model_name else "mixed"
-    )
+    acc_report = first_type.initialize_empty(model_name=first_model_name if same_model_name else "mixed")
 
     # Fold via the type's own accumulation logic
     for r in reports:

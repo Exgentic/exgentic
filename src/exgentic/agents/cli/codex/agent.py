@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 import os
-from typing import Any, ClassVar, Dict, List
+from typing import Any, ClassVar
 
-from ....core.types import ActionType
-from ....core.types import ModelSettings
+from ....core.types import ActionType, ModelSettings
 from ..base import ProxyBackedAgent, ProxyBackedMCPAgentInstance
 from .cli import CodexCLI, CodexCLIConfig, ExecutionBackend
 
@@ -19,8 +18,8 @@ class CodexAgentInstance(ProxyBackedMCPAgentInstance):
         self,
         session_id: str,
         task: str,
-        context: Dict[str, Any],
-        actions: List[ActionType],
+        context: dict[str, Any],
+        actions: list[ActionType],
         model_id: str,
         max_steps: int = 150,
         runner: ExecutionBackend = ExecutionBackend.PROCESS,
@@ -43,9 +42,7 @@ class CodexAgentInstance(ProxyBackedMCPAgentInstance):
         return "Codex CLI"
 
     def _build_cli(self) -> CodexCLI:
-        return CodexCLI(
-            env=os.environ.copy(), log_path=self._codex_log, logger=self.logger
-        )
+        return CodexCLI(env=os.environ.copy(), log_path=self._codex_log, logger=self.logger)
 
     def _run_cli(
         self,

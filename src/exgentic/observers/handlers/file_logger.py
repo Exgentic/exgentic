@@ -11,13 +11,13 @@ from ...core.orchestrator.termination import (
     BenchmarkError,
     InvalidActionError,
     InvalidObservationError,
-    RunCancel,
-    SessionCancel,
+    RunCancelError,
+    SessionCancelError,
 )
-from ...core.types import Action, Observation, SessionScore, SessionResults
+from ...core.types import Action, Observation, SessionResults, SessionScore
+from ...interfaces.registry import get_agent_entries, get_benchmark_entries
 from ..logging import get_logger
 from .session_ledger import SessionLedger
-from ...interfaces.registry import get_agent_entries, get_benchmark_entries
 
 
 class FileLoggerObserver(Observer):
@@ -52,14 +52,8 @@ class FileLoggerObserver(Observer):
         run_id = self._run_id
         bench_entry = get_benchmark_entries().get(run_config.benchmark)
         agent_entry = get_agent_entries().get(run_config.agent)
-        bench_name = (
-            bench_entry.display_name
-            if bench_entry is not None
-            else run_config.benchmark
-        )
-        agent_name = (
-            agent_entry.display_name if agent_entry is not None else run_config.agent
-        )
+        bench_name = bench_entry.display_name if bench_entry is not None else run_config.benchmark
+        agent_name = agent_entry.display_name if agent_entry is not None else run_config.agent
         model_value = run_config.model or (run_config.agent_kwargs or {}).get("model")
         model_names = [str(model_value)] if model_value else None
         models_text = ", ".join(model_names) if model_names else ""
@@ -90,9 +84,7 @@ class FileLoggerObserver(Observer):
         self._ensure_logger()
         session_id = session.session_id
         session_number = self._ledger.register(session_id)
-        self._logger.info(
-            "▶️  Starting Session %s (logs: %s)", session_number, session.paths.root
-        )
+        self._logger.info("▶️  Starting Session %s (logs: %s)", session_number, session.paths.root)
         if isinstance(observation, Observation):
             self._logger.info("⏺️  Recorded Start Session %s", session_number)
 
@@ -116,8 +108,7 @@ class FileLoggerObserver(Observer):
         if observation is not None and not isinstance(observation, Observation):
             self._set_reason(
                 session,
-                "terminated by illegal observation returned from session: "
-                f"{observation}",
+                "terminated by illegal observation returned from session: " f"{observation}",
             )
             self._log_error("step", session, InvalidObservationError(observation))
             return
@@ -139,8 +130,7 @@ class FileLoggerObserver(Observer):
         if isinstance(error, InvalidObservationError):
             self._set_reason(
                 session,
-                "terminated by illegal observation returned from session: "
-                f"{error.observation}",
+                "terminated by illegal observation returned from session: " f"{error.observation}",
             )
         else:
             self._set_reason(session, "terminated by session exception")
@@ -152,7 +142,7 @@ class FileLoggerObserver(Observer):
             error_source = "agent"
         elif isinstance(error, BenchmarkError):
             error_source = "benchmark"
-        if isinstance(error, (SessionCancel, RunCancel, KeyboardInterrupt)):
+        if isinstance(error, (SessionCancelError, RunCancelError, KeyboardInterrupt)):
             self._set_reason(session, "cancelled by user", overwrite=True)
             error_source = "cancelled"
         else:
@@ -194,9 +184,7 @@ class FileLoggerObserver(Observer):
         self._ensure_logger()
         session_id = session.session_id
         session_number = self._ledger.get_number(session_id)
-        self._logger.info(
-            "⏳ Scoring Session %s (logs: %s)", session_number, session.paths.root
-        )
+        self._logger.info("⏳ Scoring Session %s (logs: %s)", session_number, session.paths.root)
 
     def _log_save(self) -> None:
         self._ensure_logger()
@@ -227,8 +215,7 @@ class FileLoggerObserver(Observer):
         task_id = session.task_id
         task_id_str = f" | task_id: {task_id}" if task_id else ""
         self._logger.info(
-            "%s Completed Session %s | status: %s | score: %s | steps: %s | time: %.1fs%s\n"
-            "logs: %s",
+            "%s Completed Session %s | status: %s | score: %s | steps: %s | time: %.1fs%s\n" "logs: %s",
             success_emoji,
             session_number,
             status,
@@ -274,8 +261,7 @@ class FileLoggerObserver(Observer):
             session_number,
         )
         self._logger.info(
-            "%s Completed Session %s | status: %s | score: %s | steps: %s | time: %.1fs%s\n"
-            "logs: %s",
+            "%s Completed Session %s | status: %s | score: %s | steps: %s | time: %.1fs%s\n" "logs: %s",
             success_emoji,
             session_number,
             status,
@@ -317,9 +303,7 @@ class FileLoggerObserver(Observer):
             return self._session_reasons.pop(session_id, "ended")
 
     @staticmethod
-    def _success_emoji(
-        success: bool, value: float | None, is_finished: bool | None
-    ) -> str:
+    def _success_emoji(success: bool, value: float | None, is_finished: bool | None) -> str:
         if success:
             if value is not None and value == 1.0:
                 return "✅"

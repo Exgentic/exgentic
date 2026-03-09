@@ -5,7 +5,9 @@ import json
 import re
 from pathlib import Path
 from typing import Any, Dict, Optional
+
 from pydantic import Field
+
 from ...core.types import SessionScore as BaseSessionScore
 from ...utils.paths import SessionPaths
 
@@ -46,9 +48,7 @@ def _parse_agent(paths: SessionPaths) -> Dict[str, Any]:
     if not log_path.exists():
         return {"commands": None, "edit_commands": None, "call_submit": False}
     content = log_path.read_text()
-    commands = re.findall(
-        r"\| command: (.+?)(?=\n(?:INFO|ERROR|\[LiteLM\])|$)", content, re.DOTALL
-    )
+    commands = re.findall(r"\| command: (.+?)(?=\n(?:INFO|ERROR|\[LiteLM\])|$)", content, re.DOTALL)
     edit_cmds = [c for c in commands if _is_edit_cmd(c)]
     return {
         "commands": commands or None,
@@ -91,9 +91,7 @@ def _parse_harness_files(paths: SessionPaths, patch: Dict) -> tuple:
     }
     evaluation = {"grading": None, "resolved": None, "test_results": {}}
 
-    container["required"] = bool(
-        patch.get("generated") and patch.get("structurally_valid")
-    )
+    container["required"] = bool(patch.get("generated") and patch.get("structurally_valid"))
     if not container["required"]:
         return container, evaluation
 
@@ -102,9 +100,7 @@ def _parse_harness_files(paths: SessionPaths, patch: Dict) -> tuple:
             try:
                 phase = path.parts[-3]
                 if phase in BUILD_PHASES:
-                    container[BUILD_PHASES[phase]] = (
-                        path.read_text().strip().endswith("Image built successfully!")
-                    )
+                    container[BUILD_PHASES[phase]] = path.read_text().strip().endswith("Image built successfully!")
             except IndexError:
                 pass
 
@@ -122,17 +118,14 @@ def _parse_harness_files(paths: SessionPaths, patch: Dict) -> tuple:
                 evaluation["grading"] = True
             if re.search(r"Container .* removed\.", content):
                 container["removed"] = True
-            if (
-                container.get("applying_patch")
-                and container.get("patch_applied") is None
-            ):
+            if container.get("applying_patch") and container.get("patch_applied") is None:
                 container["patch_applied"] = True
 
         elif path.name == "report.json":
             try:
                 report = json.loads(path.read_text())
                 if len(report) == 1:
-                    data = list(report.values())[0]
+                    data = next(iter(report.values()))
                     container["patch_exists"] = data["patch_exists"]
                     container["patch_applied"] = data["patch_successfully_applied"]
                     evaluation["resolved"] = data["resolved"]
@@ -157,17 +150,13 @@ def _apply_harness_data(score: SessionScore, hd: Any, instance_id: str):
     if hd.harness_report:
         submitted = set(hd.harness_report.get("submitted_ids", []))
         if submitted != {instance_id}:
-            raise ValueError(
-                f"Instance ID mismatch in harness report: expected {{'{instance_id}'}}, got {submitted}"
-            )
+            raise ValueError(f"Instance ID mismatch in harness report: expected {{'{instance_id}'}}, got {submitted}")
         if hd.harness_report.get("resolved_instances", 0) > 0:
             score.evaluation["resolved"] = True
     score.success = hd.error is None
 
 
-def _build_summary(
-    score: SessionScore, num_actions: int, max_interactions: int
-) -> Dict[str, Any]:
+def _build_summary(score: SessionScore, num_actions: int, max_interactions: int) -> Dict[str, Any]:
     c, e, a, p = score.container, score.evaluation, score.agent, score.patch
     f2p = e.get("test_results", {}).get("FAIL_TO_PASS", {})
     p2p = e.get("test_results", {}).get("PASS_TO_PASS", {})
@@ -178,9 +167,7 @@ def _build_summary(
         "num_edit_commands": len(a.get("edit_commands") or []),
         "agent_call_submit": 1 if a.get("call_submit") else 0,
         "patch_non_empty": 1 if p.get("generated") else 0,
-        "container_status": -1
-        if not c.get("required")
-        else (1 if c.get("started") else 0),
+        "container_status": -1 if not c.get("required") else (1 if c.get("started") else 0),
         "fail_to_pass_rate": f2p.get("rate") if isinstance(f2p, dict) else None,
         "pass_to_pass_rate": p2p.get("rate") if isinstance(p2p, dict) else None,
         "score": final,
@@ -190,13 +177,7 @@ def _build_summary(
 def _is_edit_cmd(cmd: str) -> bool:
     c = cmd.lower()
     return (
-        (
-            "python" in c
-            and any(
-                p in c
-                for p in ["write_text", "write_bytes", ".write(", "replace(", "open("]
-            )
-        )
+        ("python" in c and any(p in c for p in ["write_text", "write_bytes", ".write(", "replace(", "open("]))
         or "git apply" in c
         or "sed -i" in c
         or bool(FILE_OPS_RE.search(c))

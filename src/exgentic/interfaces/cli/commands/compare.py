@@ -5,16 +5,16 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, NamedTuple, Union, Optional
+from typing import Any, NamedTuple, Optional, Tuple, Union
 
 import rich_click as click
 from rich.console import Console
 from rich.progress import (
+    BarColumn,
     Progress,
     SpinnerColumn,
-    TextColumn,
-    BarColumn,
     TaskProgressColumn,
+    TextColumn,
 )
 from rich.table import Table
 from scipy import stats
@@ -44,11 +44,9 @@ class BenchmarkStats(NamedTuple):
     num_tasks: int
     is_significant: bool
     winner: str
-    success1: List[bool]  # For Breslow-Day test
-    success2: List[bool]  # For Breslow-Day test
-    breslow_day_pvalue: Optional[
-        float
-    ] = 0  # Breslow-Day test p-value (if multiple benchmarks)
+    success1: list[bool]  # For Breslow-Day test
+    success2: list[bool]  # For Breslow-Day test
+    breslow_day_pvalue: Optional[float] = 0  # Breslow-Day test p-value (if multiple benchmarks)
     breslow_day_interpretation: Optional[str] = ""  # Breslow-Day test interpretation
 
 
@@ -57,15 +55,15 @@ class PairwiseComparison(NamedTuple):
 
     setup1_label: str
     setup2_label: str
-    per_benchmark: Dict[str, BenchmarkStats]  # benchmark_name -> stats
+    per_benchmark: dict[str, BenchmarkStats]  # benchmark_name -> stats
     aggregate_stats: Optional[BenchmarkStats]  # Overall stats across benchmarks
 
 
-# Type alias for composite key: either a string (task_key) or tuple (task_key, setup_info)
+# Type alias for composite key: either a string (task_id) or tuple (task_id, setup_info)
 CompositeKey = Union[str, Tuple[str, str]]
 
 
-def _parse_benchmark_spec(benchmark_spec: str) -> Tuple[str, str | None, int | None]:
+def _parse_benchmark_spec(benchmark_spec: str) -> tuple[str, str | None, int | None]:
     """Parse benchmark specification in format 'benchmark', 'benchmark/subset', or 'benchmark/subset=limit'.
 
     Examples:
@@ -86,7 +84,7 @@ def _parse_benchmark_spec(benchmark_spec: str) -> Tuple[str, str | None, int | N
         except ValueError:
             raise click.ClickException(
                 f"Invalid limit value in benchmark spec: {limit_str}. Must be an integer."
-            )
+            ) from None
 
     # Check for subset (/subset)
     if "/" in benchmark_spec:
@@ -101,17 +99,24 @@ def _load_run_results(
     model: str | None,
     benchmark: str,
     subset: str | None = None,
-    agent_kwargs: Dict[str, Any] | None = None,
-    benchmark_kwargs: Dict[str, Any] | None = None,
+    agent_kwargs: dict[str, Any] | None = None,
+    benchmark_kwargs: dict[str, Any] | None = None,
     progress: Progress | None = None,
     task_id: Any = None,
-) -> Dict[CompositeKey, TaskInfo] | None:
+) -> dict[CompositeKey, TaskInfo] | None:
     """Load run results for a specific agent/model/benchmark combination by searching config.json files.
 
     If agent is None, loads results from all agents and stores agent name in setup_info.
     If model is None, loads results from all models and stores model name in setup_info.
 
     Args:
+        output_dir: Directory containing run outputs
+        agent: Agent name to filter by, or None for all agents
+        model: Model name to filter by, or None for all models
+        benchmark: Benchmark name to search for
+        subset: Optional benchmark subset
+        agent_kwargs: Optional agent configuration parameters
+        benchmark_kwargs: Optional benchmark configuration parameters
         progress: Optional Rich Progress instance for showing progress
         task_id: Optional task ID for updating progress
 
@@ -119,7 +124,7 @@ def _load_run_results(
         Dict mapping composite_key (task_id or (task_id, setup_info)) -> TaskInfo, or None if not found
     """
     output_path = Path(output_dir)
-    results_by_task: Dict[CompositeKey, TaskInfo] = {}
+    results_by_task: dict[CompositeKey, TaskInfo] = {}
 
     # Collect all config files first to show progress
     config_files = list(output_path.glob("**/config.json"))
@@ -129,7 +134,7 @@ def _load_run_results(
         if progress and task_id is not None:
             progress.update(task_id, completed=idx, total=len(config_files))
         try:
-            with open(config_file, "r", encoding="utf-8") as f:
+            with open(config_file, encoding="utf-8") as f:
                 config_data = json.load(f)
 
             # Handle two different config.json formats:
@@ -154,9 +159,7 @@ def _load_run_results(
             # Extract subset name
             config_subset = config_data.get("subset")
             if config_subset is None and isinstance(config_data.get("benchmark"), dict):
-                config_subset = (
-                    config_data.get("benchmark", {}).get("params", {}).get("subset")
-                )
+                config_subset = config_data.get("benchmark", {}).get("params", {}).get("subset")
 
             # Check if this config file matches our criteria
             # Check benchmark
@@ -183,9 +186,7 @@ def _load_run_results(
 
             # If we get here, this is a match
             if progress and task_id is not None:
-                progress.update(
-                    task_id, description=f"Loading from {config_file.parent.name}..."
-                )
+                progress.update(task_id, description=f"Loading from {config_file.parent.name}...")
 
             # Determine the run directory based on config location
             # Config can be at: outputs/config.json or outputs/{run_id}/run/config.json
@@ -217,7 +218,7 @@ def _load_run_results(
                     continue
 
                 try:
-                    with open(session_results_file, "r", encoding="utf-8") as f:
+                    with open(session_results_file, encoding="utf-8") as f:
                         session_data = json.load(f)
 
                     # Validate session result and ensure success is consistent with score
@@ -237,11 +238,10 @@ def _load_run_results(
                         # )
                         # Correct the success field to match the score
                         session_result.success = expected_success
-                    task_key = session_result.task_key
-                    if task_key == "" or task_key is None:
+                    session_task_id = session_result.task_id
+                    if session_task_id == "" or session_task_id is None:
                         raise ValueError(
-                            f"Illegal task key '{task_key}'!\n"
-                            f"    File: {session_results_file}\n"
+                            f"Illegal task key '{session_task_id}'!\n" f"    File: {session_results_file}\n"
                         )
 
                     # Determine setup info based on what's being compared
@@ -251,19 +251,16 @@ def _load_run_results(
                     elif model is None and config_model:
                         setup_info = config_model
 
-                    # Create composite key: (task_key, setup_info) for unique identification
-                    # When setup_info is empty (specific agent/model), just use task_key
-                    composite_key = (task_key, setup_info) if setup_info else task_key
+                    # Create composite key: (task_id, setup_info) for unique identification
+                    # When setup_info is empty (specific agent/model), just use task_id
+                    composite_key = (session_task_id, setup_info) if setup_info else session_task_id
 
                     # Check for duplicate composite keys
                     if composite_key in results_by_task:
                         existing_task_info = results_by_task[composite_key]
-                        if (
-                            existing_task_info.session_result.success
-                            != session_result.success
-                        ):
+                        if existing_task_info.session_result.success != session_result.success:
                             raise ValueError(
-                                f"Duplicate entry found for task '{task_key}' with setup '{setup_info}'!\n"
+                                f"Duplicate entry found for task '{session_task_id}' with setup '{setup_info}'!\n"
                                 f"  First occurrence:\n"
                                 f"    File: {existing_task_info.file_path}\n"
                                 f"    Session ID: {existing_task_info.session_result.session_id}\n"
@@ -281,21 +278,21 @@ def _load_run_results(
                         file_path=str(session_results_file),
                     )
                     results_by_task[composite_key] = task_info
-                    # print(f"Loaded session {session_result.session_id} with composite_key {composite_key} with score {session_result.score} from file {session_results_file}.")
+                    # print(f"Loaded session {session_result.session_id} with composite_key {composite_key} "
+                    #       f"with score {session_result.score} from file {session_results_file}.")
 
                 except Exception as e:
                     # Print error but continue loading other sessions
                     console = Console()
-                    console.print(
-                        f"[yellow]Warning: Error loading {session_results_file}: {e}[/yellow]"
-                    )
+                    console.print(f"[yellow]Warning: Error loading {session_results_file}: {e}[/yellow]")
                     continue
 
             # When agent or model is None, continue searching for more runs
             # When both are specified, return after first match
             # if config_agent is not None and config_model is not None and results_by_task:
             #    if progress and task_id is not None:
-            #        progress.update(task_id, completed=len(config_files), description=f"Loaded {len(results_by_task)} sessions")
+            #        progress.update(task_id, completed=len(config_files),
+            #                        description=f"Loaded {len(results_by_task)} sessions")
             #    return results_by_task
 
         except Exception as e:
@@ -320,8 +317,8 @@ def _calculate_benchmark_stats(
     benchmark_name: str,
     setup1_label: str,
     setup2_label: str,
-    setup1_results: Dict[CompositeKey, TaskInfo],
-    setup2_results: Dict[CompositeKey, TaskInfo],
+    setup1_results: dict[CompositeKey, TaskInfo],
+    setup2_results: dict[CompositeKey, TaskInfo],
     limit: int | None = None,
 ) -> Optional[BenchmarkStats]:
     """Calculate statistics for comparing two setups on a single benchmark.
@@ -341,11 +338,7 @@ def _calculate_benchmark_stats(
     benchmark_data = _compare_results(benchmark_name, setup1_results, setup2_results)
 
     # Extract valid comparisons (tasks present in both setups)
-    valid_comparisons = [
-        (s1, s2)
-        for _, _, _, _, s1, s2 in benchmark_data
-        if s1 is not None and s2 is not None
-    ]
+    valid_comparisons = [(s1, s2) for _, _, _, _, s1, s2 in benchmark_data if s1 is not None and s2 is not None]
 
     # Apply limit if specified
     if limit is not None and len(valid_comparisons) > limit:
@@ -396,7 +389,7 @@ def _calculate_benchmark_stats(
 def _calculate_aggregate_stats(
     setup1_label: str,
     setup2_label: str,
-    per_benchmark_stats: List[BenchmarkStats],
+    per_benchmark_stats: list[BenchmarkStats],
 ) -> Optional[BenchmarkStats]:
     """Calculate aggregate statistics across multiple benchmarks.
 
@@ -441,10 +434,7 @@ def _calculate_aggregate_stats(
     winner = setup1_label if rate_diff > 0 else setup2_label if rate_diff < 0 else "Tie"
 
     if len(per_benchmark_stats) > 1:
-        bd_data = [
-            (bench_stats.success1, bench_stats.success2)
-            for bench_stats in per_benchmark_stats
-        ]
+        bd_data = [(bench_stats.success1, bench_stats.success2) for bench_stats in per_benchmark_stats]
         bd_p_value, bd_interp = _compute_breslow_day_test(bd_data)
     else:
         bd_p_value, bd_interp = None, None
@@ -468,9 +458,9 @@ def _calculate_aggregate_stats(
 
 def _compare_results(
     benchmark: str,
-    setup1_results: Dict[CompositeKey, TaskInfo] | None,
-    setup2_results: Dict[CompositeKey, TaskInfo] | None,
-) -> List[Tuple[str, str, str, str, bool | None, bool | None]]:
+    setup1_results: dict[CompositeKey, TaskInfo] | None,
+    setup2_results: dict[CompositeKey, TaskInfo] | None,
+) -> list[tuple[str, str, str, str, bool | None, bool | None]]:
     """Compare results from two setups for a single benchmark.
 
     Compares results by matching composite keys directly. For cross-agent/model comparisons,
@@ -495,19 +485,13 @@ def _compare_results(
 
     for composite_key in sorted(all_keys):
         # Extract task_id from composite key
-        task_id = (
-            composite_key[0] if isinstance(composite_key, tuple) else composite_key
-        )
+        task_id = composite_key[0] if isinstance(composite_key, tuple) else composite_key
 
         setup1_task_info = setup1_tasks.get(composite_key)
         setup2_task_info = setup2_tasks.get(composite_key)
 
-        setup1_success = (
-            setup1_task_info.session_result.success if setup1_task_info else None
-        )
-        setup2_success = (
-            setup2_task_info.session_result.success if setup2_task_info else None
-        )
+        setup1_success = setup1_task_info.session_result.success if setup1_task_info else None
+        setup2_success = setup2_task_info.session_result.success if setup2_task_info else None
         setup1_info = setup1_task_info.setup_info if setup1_task_info else ""
         setup2_info = setup2_task_info.setup_info if setup2_task_info else ""
 
@@ -526,9 +510,9 @@ def _compare_results(
 
 
 def _compute_statistical_significance_mcnemar(
-    success1: List[bool],
-    success2: List[bool],
-) -> Tuple[float, float, str, str, int, int]:
+    success1: list[bool],
+    success2: list[bool],
+) -> tuple[float, float, str, str, int, int]:
     """Compute statistical significance using McNemar's test for binary outcomes.
 
     McNemar's test is appropriate for comparing two classifiers on the same test set.
@@ -581,8 +565,8 @@ def _compute_statistical_significance_mcnemar(
 
 
 def _compute_breslow_day_test(
-    contingency_tables_data: List[Tuple[List[bool], List[bool]]],
-) -> Tuple[float, str]:
+    contingency_tables_data: list[tuple[list[bool], list[bool]]],
+) -> tuple[float, str]:
     """Compute Breslow-Day test for homogeneity of odds ratios across strata (benchmarks).
 
     The Breslow-Day test checks whether the odds ratios are consistent across different
@@ -628,7 +612,9 @@ def _compute_breslow_day_test(
 
         # Interpret the result
         if p_value < 0.01:
-            interpretation = "significant heterogeneity (p < 0.01) - relative success rates varies significantly across benchmarks"
+            interpretation = (
+                "significant heterogeneity (p < 0.01) - relative success rates varies significantly across benchmarks"
+            )
         elif p_value < 0.05:
             interpretation = "moderate heterogeneity (p < 0.05) - relative success rate vary across benchmarks"
         elif p_value < 0.1:
@@ -638,11 +624,11 @@ def _compute_breslow_day_test(
 
         return p_value, interpretation
     except Exception as e:
-        return 1.0, f"test failed: {str(e)}"
+        return 1.0, f"test failed: {e!s}"
 
 
 def _render_significance_matrix(
-    benchmark_stats_list: List[BenchmarkStats],
+    benchmark_stats_list: list[BenchmarkStats],
     title: str = "Statistical Significance Matrix",
     benchmark_name: str = "",
 ) -> None:
@@ -665,7 +651,7 @@ def _render_significance_matrix(
     console = Console()
 
     # Extract all unique setups and their success rates
-    setup_rates: Dict[str, float] = {}
+    setup_rates: dict[str, float] = {}
     for bench_stats in benchmark_stats_list:
         if bench_stats.setup1_label not in setup_rates:
             setup_rates[bench_stats.setup1_label] = bench_stats.success_rate1
@@ -673,13 +659,11 @@ def _render_significance_matrix(
             setup_rates[bench_stats.setup2_label] = bench_stats.success_rate2
 
     # Sort setups by success rate (descending - best first)
-    sorted_setups = sorted(
-        setup_rates.keys(), key=lambda s: setup_rates[s], reverse=True
-    )
+    sorted_setups = sorted(setup_rates.keys(), key=lambda s: setup_rates[s], reverse=True)
 
     # Build p-value matrix and winner matrix
     # Key: (setup1, setup2), Value: (p_value, winner)
-    comparison_data: Dict[Tuple[str, str], Tuple[float, str]] = {}
+    comparison_data: dict[tuple[str, str], tuple[float, str]] = {}
 
     for bench_stats in benchmark_stats_list:
         comparison_data[(bench_stats.setup1_label, bench_stats.setup2_label)] = (
@@ -689,16 +673,10 @@ def _render_significance_matrix(
 
     # Create the matrix table
     console.print(f"\n[bold cyan]{title}[/bold cyan]")
-    console.print(
-        "Significance levels: *** p<0.001, ** p<0.01, * p<0.05, - not significant\n"
-    )
+    console.print("Significance levels: *** p<0.001, ** p<0.01, * p<0.05, - not significant\n")
 
     # Include benchmark name in table title if provided
-    table_title = (
-        f"P-value Significance Matrix: {benchmark_name}"
-        if benchmark_name
-        else "P-value Significance Matrix"
-    )
+    table_title = f"P-value Significance Matrix: {benchmark_name}" if benchmark_name else "P-value Significance Matrix"
     table = Table(show_header=True, show_lines=True, title=table_title)
 
     # Add header row
@@ -760,13 +738,11 @@ def _render_significance_matrix(
         table.add_row(*row_data)
 
     console.print(table)
-    console.print(
-        "\n[dim]Green: row setup is significantly better | Red: column setup is significantly better[/dim]"
-    )
+    console.print("\n[dim]Green: row setup is significantly better | Red: column setup is significantly better[/dim]")
 
 
 def _render_pairwise_summary_table(
-    benchmark_stats_list: List[BenchmarkStats],
+    benchmark_stats_list: list[BenchmarkStats],
     title: str = "Pairwise Comparison Summary",
 ) -> None:
     """Render pairwise comparison summary table showing which setups are significantly better.
@@ -778,9 +754,7 @@ def _render_pairwise_summary_table(
     console = Console()
 
     console.print(f"\n[bold cyan]{title}[/bold cyan]")
-    console.print(
-        "Shows which setups are statistically significantly better than others (p < 0.05)\n"
-    )
+    console.print("Shows which setups are statistically significantly better than others (p < 0.05)\n")
 
     # First, render the significance matrix
     # Extract benchmark name from title if present (format: "Comparison Results: benchmark_name")
@@ -792,16 +766,10 @@ def _render_pairwise_summary_table(
     )
 
     # Sort by Success Rate 1 (descending), then by Success Rate 2 (descending)
-    sorted_results = sorted(
-        benchmark_stats_list, key=lambda x: (-x.success_rate1, -x.success_rate2)
-    )
+    sorted_results = sorted(benchmark_stats_list, key=lambda x: (-x.success_rate1, -x.success_rate2))
 
     # Include benchmark name in detailed table title if present
-    detailed_table_title = (
-        f"Detailed Comparison: {benchmark_name}"
-        if benchmark_name
-        else "Detailed Comparison"
-    )
+    detailed_table_title = f"Detailed Comparison: {benchmark_name}" if benchmark_name else "Detailed Comparison"
     table = Table(title=detailed_table_title, show_lines=True)
     table.add_column("Setup 1", style="cyan", no_wrap=True)
     table.add_column("Setup 2", style="magenta", no_wrap=True)
@@ -845,10 +813,7 @@ def _render_pairwise_summary_table(
             winner_str,
         ]
 
-        if (
-            bench_stats.breslow_day_interpretation is not None
-            and bench_stats.breslow_day_pvalue is not None
-        ):
+        if bench_stats.breslow_day_interpretation is not None and bench_stats.breslow_day_pvalue is not None:
             if bench_stats.breslow_day_pvalue < 0.05:
                 bd_str = f"[yellow]p={bench_stats.breslow_day_pvalue:.3f}[/yellow]"
             else:
@@ -862,12 +827,8 @@ def _render_pairwise_summary_table(
 
 
 @click.command("compare")
-@click.option(
-    "--agent1", help="First agent slug name (optional if comparing across agents)"
-)
-@click.option(
-    "--agent2", help="Second agent slug name (optional if comparing across agents)"
-)
+@click.option("--agent1", help="First agent slug name (optional if comparing across agents)")
+@click.option("--agent2", help="Second agent slug name (optional if comparing across agents)")
 @click.option("--agent3", help="Third agent slug name (optional)")
 @click.option("--agent4", help="Fourth agent slug name (optional)")
 @click.option("--agent5", help="Fifth agent slug name (optional)")
@@ -912,29 +873,28 @@ def compare_cmd(
     output_dir: str,
     output_format: str,
 ) -> None:
-    """Compare performance of multiple agent/model combinations across benchmarks.
-    
+    r"""Compare performance of multiple agent/model combinations across benchmarks.
+
     This command searches the output directory to locate results for each agent/model/benchmark combination.
-    
+
     Benchmarks can be specified with optional subsets using the format 'benchmark/subset'.
-    
+
     When comparing 2 setups: performs direct comparison.
     When comparing 3+ setups: performs pairwise comparisons and shows significance matrix.
-    
+
     Examples:
-    
         # Compare two agents and model configuration on a specific benchmark
         exgentic compare --agent1 tool_calling  --model1 openai/gcp/gemini-3-pro-preview \\
-                         --agent2 claude_code  --model1 openai/aws/claude-opus-4-5 
+                         --agent2 claude_code  --model1 openai/aws/claude-opus-4-5
 
         # Compare multiple agents (pairwise)
         exgentic compare --agent1 tool_calling --agent2 claude_code --agent3   openai_solo \\
                          --benchmark gsm8k
-        
-        # Compare multiple models 
+
+        # Compare multiple models
         exgentic compare --model1 openai/aws/claude-opus-4-5  --model2 openai/gcp/gemini-3-pro-preview  \\
                          --benchmark tau2/airline
-        
+
         # Compare up to 5 different setups
         exgentic compare --agent1 tool_calling  --model1 openai/aws/claude-opus-4-5t \\
                          --agent2 claude_code --model2 openai/gcp/gemini-3-pro-preview \\
@@ -955,9 +915,7 @@ def compare_cmd(
             setups.append((i, agent, model))
 
     if len(setups) < 2:
-        raise click.ClickException(
-            "At least 2 agent/model setups are required for comparison."
-        )
+        raise click.ClickException("At least 2 agent/model setups are required for comparison.")
 
     if len(setups) > 5:
         raise click.ClickException("Maximum 5 agent/model setups are supported.")
@@ -995,11 +953,7 @@ def compare_cmd(
     # Create labels for each setup
     setup_labels = []
     for idx, agent, model in setups:
-        label = (
-            (f"{agent}" if agent else "")
-            + (" and " if agent and model else "")
-            + (f"{model}" if model else "")
-        )
+        label = (f"{agent}" if agent else "") + (" and " if agent and model else "") + (f"{model}" if model else "")
         if not label:
             label = f"Setup {idx}"
         setup_labels.append(label)
@@ -1014,7 +968,7 @@ def compare_cmd(
         TaskProgressColumn(),
         console=Console(),
     ) as progress:
-        for setup_idx, (idx, agent, model) in enumerate(setups):
+        for setup_idx, (_idx, agent, model) in enumerate(setups):
             setup_label = setup_labels[setup_idx]
             setup_results = {}
 
@@ -1023,9 +977,7 @@ def compare_cmd(
                 display_name = benchmark_spec
 
                 # Create progress task for this load operation
-                task_id = progress.add_task(
-                    f"Loading {setup_label} on {display_name}...", total=100
-                )
+                task_id = progress.add_task(f"Loading {setup_label} on {display_name}...", total=100)
 
                 results = _load_run_results(
                     output_dir,
@@ -1051,8 +1003,7 @@ def compare_cmd(
                         eval_cmd += f" --subset {subset}"
 
                     raise click.ClickException(
-                        f"No results found for {setup_label} on '{benchmark_spec}'. "
-                        f"Run '{eval_cmd}' first."
+                        f"No results found for {setup_label} on '{benchmark_spec}'. " f"Run '{eval_cmd}' first."
                     )
 
                 setup_results[display_name] = results
@@ -1060,7 +1011,7 @@ def compare_cmd(
             all_setup_results.append(setup_results)
 
     # Calculate all pairwise comparisons using new calculation functions
-    all_pairwise_comparisons: List[PairwiseComparison] = []
+    all_pairwise_comparisons: list[PairwiseComparison] = []
 
     # Compare all pairs (i, j) where i < j
     for i in range(len(setups)):
@@ -1069,7 +1020,7 @@ def compare_cmd(
             setup2_label = setup_labels[j]
 
             # Calculate statistics for each benchmark
-            per_benchmark_stats: Dict[str, BenchmarkStats] = {}
+            per_benchmark_stats: dict[str, BenchmarkStats] = {}
 
             for benchmark_spec in benchmarks:
                 benchmark_name, subset, limit = _parse_benchmark_spec(benchmark_spec)
@@ -1092,9 +1043,7 @@ def compare_cmd(
                     per_benchmark_stats[display_name] = bench_stats
 
             # Calculate aggregate statistics across all benchmarks
-            aggregate_stats = _calculate_aggregate_stats(
-                setup1_label, setup2_label, list(per_benchmark_stats.values())
-            )
+            aggregate_stats = _calculate_aggregate_stats(setup1_label, setup2_label, list(per_benchmark_stats.values()))
 
             # Store pairwise comparison
             all_pairwise_comparisons.append(
@@ -1114,9 +1063,7 @@ def compare_cmd(
             benchmark_stats_for_display = []
             for comparison in all_pairwise_comparisons:
                 if benchmark_spec in comparison.per_benchmark:
-                    benchmark_stats_for_display.append(
-                        comparison.per_benchmark[benchmark_spec]
-                    )
+                    benchmark_stats_for_display.append(comparison.per_benchmark[benchmark_spec])
             if benchmark_stats_for_display:
                 _render_pairwise_summary_table(
                     benchmark_stats_for_display,
@@ -1173,8 +1120,7 @@ def compare_cmd(
                 # Get Breslow-Day result from comparison object
                 if (
                     comparison.aggregate_stats.breslow_day_pvalue is not None
-                    and comparison.aggregate_stats.breslow_day_interpretation
-                    is not None
+                    and comparison.aggregate_stats.breslow_day_interpretation is not None
                 ):
                     breslow_day = {
                         "p_value": float(comparison.aggregate_stats.breslow_day_pvalue),

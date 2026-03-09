@@ -4,7 +4,8 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
+
 from ..base import BaseCLIConfig, BaseCLIWrapper, ExecutionBackend
 
 
@@ -20,25 +21,19 @@ class CodexCLI(BaseCLIWrapper):
 
     def __init__(
         self,
-        env: Optional[Dict[str, str]] = None,
+        env: Optional[dict[str, str]] = None,
         log_path: Optional[Path] = None,
         logger=None,
         runner: ExecutionBackend = ExecutionBackend.PROCESS,
     ) -> None:
-        super().__init__(
-            env=env, log_path=log_path, config_dir=None, logger=logger, runner=runner
-        )
+        super().__init__(env=env, log_path=log_path, config_dir=None, logger=logger, runner=runner)
         self.config_prefix = "codex_cli_"
         self.spawn_error_message = "Failed to start Codex CLI"
 
-    def build_env(
-        self, *, cfg_root: Path, prompt: str, config: CodexCLIConfig
-    ) -> Dict[str, str]:
+    def build_env(self, *, cfg_root: Path, prompt: str, config: CodexCLIConfig) -> dict[str, str]:
         return self.env.copy()
 
-    def build_command(
-        self, *, cfg_root: Path, prompt: str, config: CodexCLIConfig
-    ) -> List[str]:
+    def build_command(self, *, cfg_root: Path, prompt: str, config: CodexCLIConfig) -> list[str]:
         mcp_url = f"http://{config.mcp_host}:{config.mcp_port}/mcp"
         overrides = [
             f'mcp_servers.environment.url="{mcp_url}"',
@@ -49,7 +44,7 @@ class CodexCLI(BaseCLIWrapper):
             f'profiles.{config.profile}.model="{config.model_id}"',
         ]
 
-        cmd: List[str] = ["codex", "exec", "--profile", config.profile]
+        cmd: list[str] = ["codex", "exec", "--profile", config.profile]
         for override in overrides:
             cmd.extend(["-c", override])
         cmd.append(prompt)

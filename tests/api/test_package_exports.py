@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import exgentic
+
 from tests.api.fixtures.test_agent import TestAgent
 from tests.api.fixtures.test_benchmark import TestBenchmark
 

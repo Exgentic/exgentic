@@ -3,7 +3,7 @@
 
 # CLI agent bundle namespace
 
-from .codex.agent import CodexAgent, CodexAgentInstance  # noqa: F401
 from .claude.agent import ClaudeCodeAgent, ClaudeCodeAgentInstance  # noqa: F401
-from .gemini.agent import GeminiAgent, GeminiAgentInstance  # noqa: F401
+from .codex.agent import CodexAgent, CodexAgentInstance  # noqa: F401
 from .command_runner import ExecutionBackend  # noqa: F401
+from .gemini.agent import GeminiAgent, GeminiAgentInstance  # noqa: F401

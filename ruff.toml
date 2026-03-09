@@ -1,0 +1,78 @@
+# Ruff configuration for Exgentic project
+
+# Set line length
+line-length = 120
+
+# Exclude common directories
+extend-exclude = [
+    ".venv",
+    ".venvs",
+    "venv",
+    ".git",
+    "__pycache__",
+    ".pytest_cache",
+    ".exgentic_cache",
+]
+
+[lint]
+# Enable specific rule sets
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "D",   # pydocstyle
+    "RUF", # Ruff-specific rules
+    "RET", # flake8-return
+    "C90", # mccabe complexity
+    "N",   # pep8-naming
+    "G",   # flake8-logging-format
+]
+
+# Ignore specific rules
+ignore = [
+    "TID252",  # Relative imports from parent modules - conflicts with our enforce-relative-imports hook
+    "C901",    # Function is too complex - will be addressed separately
+    "T201",    # Print statements - will be addressed separately
+    "D100",    # Missing docstring in public module
+    "D101",    # Missing docstring in public class
+    "D102",    # Missing docstring in public method
+    "D103",    # Missing docstring in public function
+    "D104",    # Missing docstring in public package
+    "D105",    # Missing docstring in magic method
+    "D107",    # Missing docstring in __init__
+    "G004",    # Logging statement uses f-string
+    "UP007",   # Use `X | Y` for type annotations
+    "RET504",  # Unnecessary assignment to ... before return
+]
+
+# Allow autofix for all enabled rules
+fixable = ["ALL"]
+unfixable = []
+
+[lint.per-file-ignores]
+# Allow print statements in test files and scripts
+"tests/**/*.py" = ["T201"]
+"examples/**/*.py" = ["T201"]
+"misc/**/*.py" = ["T201"]
+
+[lint.pydocstyle]
+# Use Google-style docstrings
+convention = "google"
+
+[lint.mccabe]
+# Set maximum complexity
+max-complexity = 15
+
+[format]
+# Use double quotes for strings
+quote-style = "double"
+
+# Indent with 4 spaces
+indent-style = "space"
+
+# Use Unix line endings
+line-ending = "lf"

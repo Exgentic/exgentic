@@ -2,10 +2,9 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 import pytest
+from exgentic.adapters.actions.functions import action_type_to_function, bind_arguments
+from exgentic.core.types import Action, ActionType, SingleAction, SingleObservation
 from pydantic import BaseModel
-
-from exgentic.core.types import ActionType, Action, SingleAction, SingleObservation
-from exgentic.adapters.actions.functions import bind_arguments, action_type_to_function
 
 
 def test_bind():
@@ -63,9 +62,7 @@ def test_action_type_to_function():
         name: str = "my_action"
         arguments: MyArgs
 
-    action_type = ActionType(
-        name="my_action", description="my description", cls=MyAction
-    )
+    action_type = ActionType(name="my_action", description="my description", cls=MyAction)
 
     function = action_type_to_function(action_type, internal_function)
 

@@ -20,13 +20,5 @@ def test_cache_logger_uses_context_session_path(tmp_path) -> None:
     logger = CacheLogger(disk_cache_dir=str(tmp_path / "cache"), strip_time=False)
     logger.hit()
 
-    expected = (
-        tmp_path
-        / "run-cache"
-        / "sessions"
-        / "sess-1"
-        / "agent"
-        / "litellm"
-        / "cache.log"
-    )
+    expected = tmp_path / "run-cache" / "sessions" / "sess-1" / "agent" / "litellm" / "cache.log"
     assert expected.exists()

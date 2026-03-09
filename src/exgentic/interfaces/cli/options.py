@@ -5,13 +5,13 @@ from __future__ import annotations
 
 import json
 import traceback
-from typing import Any, Dict, List
+from typing import Any
 
 import rich_click as click
 
+from ...core.types import ModelSettings, RunConfig
+from ...utils.settings import ExgenticSettings, get_settings
 from ..lib.api import get_agent_info, get_benchmark_info
-from ...core.types import RunConfig, ModelSettings
-from ...utils.settings import get_settings, ExgenticSettings
 
 DEFAULT_OUTPUT_DIR = "./outputs"
 
@@ -45,18 +45,18 @@ def _format_exception_for_cli(exc: Exception) -> str:
     return "\n\n".join(parts)
 
 
-def _load_json_arg(raw: str | None) -> Dict[str, Any]:
+def _load_json_arg(raw: str | None) -> dict[str, Any]:
     if not raw:
         return {}
     if raw.startswith("@"):
         path = raw[1:]
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     return json.loads(raw)
 
 
-def _parse_kv_list(values: tuple[str, ...]) -> Dict[str, Any]:
-    payload: Dict[str, Any] = {}
+def _parse_kv_list(values: tuple[str, ...]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
     for item in values:
         if "=" not in item:
             raise click.ClickException(f"Expected key=value, got '{item}'")
@@ -69,15 +69,13 @@ def _parse_kv_list(values: tuple[str, ...]) -> Dict[str, Any]:
     return payload
 
 
-def _set_nested(target: Dict[str, Any], path: List[str], value: Any) -> None:
+def _set_nested(target: dict[str, Any], path: list[str], value: Any) -> None:
     if not path or any(not part for part in path):
         raise click.ClickException("Invalid --set key (empty path).")
     cur = target
     for part in path[:-1]:
         if part in cur and not isinstance(cur[part], dict):
-            raise click.ClickException(
-                f"Conflicting --set path at '{part}': not a mapping."
-            )
+            raise click.ClickException(f"Conflicting --set path at '{part}': not a mapping.")
         cur = cur.setdefault(part, {})
     leaf = path[-1]
     if leaf in cur and cur[leaf] != value:
@@ -85,8 +83,8 @@ def _set_nested(target: Dict[str, Any], path: List[str], value: Any) -> None:
     cur[leaf] = value
 
 
-def _parse_set_list(values: tuple[str, ...]) -> List[tuple[str, List[str], Any]]:
-    items: List[tuple[str, List[str], Any]] = []
+def _parse_set_list(values: tuple[str, ...]) -> list[tuple[str, list[str], Any]]:
+    items: list[tuple[str, list[str], Any]] = []
     for item in values:
         if "=" not in item:
             raise click.ClickException(f"Expected key=value, got '{item}'")
@@ -109,15 +107,12 @@ def _parse_set_list(values: tuple[str, ...]) -> List[tuple[str, List[str], Any]]
             items.append(("settings", path, value))
         else:
             raise click.ClickException(
-                "Invalid --set key. Use benchmark.<arg>=..., agent.<arg>=..., "
-                "or settings.<arg>=..."
+                "Invalid --set key. Use benchmark.<arg>=..., agent.<arg>=..., " "or settings.<arg>=..."
             )
     return items
 
 
-def _validate_set_keys_for_benchmark(
-    benchmark: str, items: List[tuple[str, List[str], Any]]
-) -> None:
+def _validate_set_keys_for_benchmark(benchmark: str, items: list[tuple[str, list[str], Any]]) -> None:
     try:
         info = get_benchmark_info(benchmark)
     except Exception as exc:
@@ -132,19 +127,14 @@ def _validate_set_keys_for_benchmark(
         if group != "benchmark" or not path:
             continue
         if path[0] in forbidden:
-            raise click.ClickException(
-                f"Use --subset/--num-tasks instead of --set benchmark.{path[0]}."
-            )
+            raise click.ClickException(f"Use --subset/--num-tasks instead of --set benchmark.{path[0]}.")
         if not allow_any and path[0] not in allowed:
             raise click.ClickException(
-                f"Unknown benchmark override '{path[0]}'. "
-                f"Available: {', '.join(sorted(allowed))}"
+                f"Unknown benchmark override '{path[0]}'. " f"Available: {', '.join(sorted(allowed))}"
             )
 
 
-def _validate_set_keys_for_agent(
-    agent: str, items: List[tuple[str, List[str], Any]]
-) -> None:
+def _validate_set_keys_for_agent(agent: str, items: list[tuple[str, list[str], Any]]) -> None:
     try:
         info = get_agent_info(agent)
     except Exception as exc:
@@ -158,19 +148,17 @@ def _validate_set_keys_for_agent(
         if path[0] == "model_settings":
             if len(path) < 2 or path[1] not in model_fields:
                 raise click.ClickException(
-                    f"Unknown agent model override '{'.'.join(path)}'. "
-                    f"Available: {', '.join(sorted(model_fields))}"
+                    f"Unknown agent model override '{'.'.join(path)}'. " f"Available: {', '.join(sorted(model_fields))}"
                 )
             continue
         if not allow_any and path[0] not in allowed:
             raise click.ClickException(
-                f"Unknown agent override '{path[0]}'. "
-                f"Available: {', '.join(sorted(allowed))}"
+                f"Unknown agent override '{path[0]}'. " f"Available: {', '.join(sorted(allowed))}"
             )
 
 
 def _validate_set_keys_for_settings(
-    items: List[tuple[str, List[str], Any]],
+    items: list[tuple[str, list[str], Any]],
 ) -> None:
     allowed = set(ExgenticSettings.model_fields.keys())
     for group, path, _ in items:
@@ -178,12 +166,11 @@ def _validate_set_keys_for_settings(
             continue
         if len(path) != 1 or path[0] not in allowed:
             raise click.ClickException(
-                f"Unknown settings override '{'.'.join(path)}'. "
-                f"Available: {', '.join(sorted(allowed))}"
+                f"Unknown settings override '{'.'.join(path)}'. " f"Available: {', '.join(sorted(allowed))}"
             )
 
 
-def _apply_settings_overrides(items: List[tuple[str, List[str], Any]]) -> None:
+def _apply_settings_overrides(items: list[tuple[str, list[str], Any]]) -> None:
     settings = get_settings()
     for group, path, value in items:
         if group != "settings" or not path:
@@ -343,7 +330,7 @@ def build_run_config(
     max_actions: int | None,
     overwrite: bool,
 ) -> RunConfig:
-    bench_kwargs: Dict[str, Any] = {}
+    bench_kwargs: dict[str, Any] = {}
     agent_kwargs = _load_json_arg(agent_json)
     agent_kwargs.update(_parse_kv_list(agent_arg))
     set_items = _parse_set_list(set_values)
@@ -367,16 +354,8 @@ def build_run_config(
         run_id=run_id,
         model=model,
         max_workers=max_workers,
-        max_steps=(
-            RunConfig.model_fields["max_steps"].default
-            if max_steps is None
-            else max_steps
-        ),
-        max_actions=(
-            RunConfig.model_fields["max_actions"].default
-            if max_actions is None
-            else max_actions
-        ),
+        max_steps=(RunConfig.model_fields["max_steps"].default if max_steps is None else max_steps),
+        max_actions=(RunConfig.model_fields["max_actions"].default if max_actions is None else max_actions),
         overwrite_sessions=overwrite,
         benchmark_kwargs=bench_kwargs,
         agent_kwargs=agent_kwargs,

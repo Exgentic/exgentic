@@ -6,7 +6,7 @@ from __future__ import annotations
 import importlib
 import importlib.util
 from dataclasses import dataclass
-from typing import Any, Dict, List, Type, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
@@ -34,18 +34,14 @@ class RegistryEntry:
         try:
             module = importlib.import_module(self.module)
         except Exception as exc:
-            raise ImportError(
-                f"Failed to import {self.kind} '{self.slug_name}' from {self.module}: {exc}"
-            ) from exc
+            raise ImportError(f"Failed to import {self.kind} '{self.slug_name}' from {self.module}: {exc}") from exc
         try:
             return getattr(module, self.attr)
         except AttributeError as exc:
-            raise ImportError(
-                f"Missing {self.kind} class '{self.attr}' in {self.module}"
-            ) from exc
+            raise ImportError(f"Missing {self.kind} class '{self.attr}' in {self.module}") from exc
 
 
-BENCHMARKS: Dict[str, RegistryEntry] = {
+BENCHMARKS: dict[str, RegistryEntry] = {
     "tau2": RegistryEntry(
         slug_name="tau2",
         display_name="Tau Bench 2",
@@ -108,7 +104,7 @@ BENCHMARKS: Dict[str, RegistryEntry] = {
     ),
 }
 
-AGENTS: Dict[str, RegistryEntry] = {
+AGENTS: dict[str, RegistryEntry] = {
     "tool_calling": RegistryEntry(
         slug_name="tool_calling",
         display_name="LiteLLM Tool Calling",
@@ -161,15 +157,15 @@ AGENTS: Dict[str, RegistryEntry] = {
 }
 
 
-def get_benchmark_entries() -> Dict[str, RegistryEntry]:
+def get_benchmark_entries() -> dict[str, RegistryEntry]:
     return dict(BENCHMARKS)
 
 
-def get_agent_entries() -> Dict[str, RegistryEntry]:
+def get_agent_entries() -> dict[str, RegistryEntry]:
     return dict(AGENTS)
 
 
-def get_benchmark_subsets(slug_name: str) -> List[str]:
+def get_benchmark_subsets(slug_name: str) -> list[str]:
     entry = BENCHMARKS.get(slug_name)
     if entry is None:
         raise KeyError(f"Unknown benchmark slug '{slug_name}'")
@@ -183,37 +179,27 @@ def get_benchmark_subset_arg(slug_name: str) -> str | None:
     return entry.subset_arg
 
 
-def apply_subset_kwargs(
-    slug_name: str, subset: str | None, kwargs: Dict[str, Any]
-) -> Dict[str, Any]:
+def apply_subset_kwargs(slug_name: str, subset: str | None, kwargs: dict[str, Any]) -> dict[str, Any]:
     if subset is None:
         return kwargs
     subsets = get_benchmark_subsets(slug_name)
     if subsets and subset not in subsets:
-        raise ValueError(
-            f"Unknown subset '{subset}' for '{slug_name}'. Available: {', '.join(subsets)}"
-        )
+        raise ValueError(f"Unknown subset '{subset}' for '{slug_name}'. Available: {', '.join(subsets)}")
     subset_arg = get_benchmark_subset_arg(slug_name)
     if subset_arg:
         if subset_arg in kwargs and kwargs[subset_arg] != subset:
-            raise ValueError(
-                f"Conflicting subset selection: {subset_arg}={kwargs[subset_arg]} "
-                f"but subset={subset}"
-            )
+            raise ValueError(f"Conflicting subset selection: {subset_arg}={kwargs[subset_arg]} " f"but subset={subset}")
         merged = dict(kwargs)
         merged[subset_arg] = subset
         return merged
     if subsets and subset != subsets[0]:
         raise ValueError(
-            f"Benchmark '{slug_name}' does not support subset selection; "
-            f"default subset is '{subsets[0]}'."
+            f"Benchmark '{slug_name}' does not support subset selection; " f"default subset is '{subsets[0]}'."
         )
     return kwargs
 
 
-def apply_task_kwargs(
-    slug_name: str, tasks: List[str] | None, kwargs: Dict[str, Any]
-) -> Dict[str, Any]:
+def apply_task_kwargs(slug_name: str, tasks: list[str] | None, kwargs: dict[str, Any]) -> dict[str, Any]:
     if not tasks:
         return kwargs
     entry = BENCHMARKS.get(slug_name)
@@ -225,22 +211,19 @@ def apply_task_kwargs(
         try:
             coerced = [int(v) for v in tasks]
         except Exception as exc:
-            raise ValueError(
-                f"Invalid task for '{slug_name}': {tasks}. Expected integers."
-            ) from exc
+            raise ValueError(f"Invalid task for '{slug_name}': {tasks}. Expected integers.") from exc
     else:
         coerced = [str(v) for v in tasks]
     if entry.task_ids_arg in kwargs and kwargs[entry.task_ids_arg] != coerced:
         raise ValueError(
-            f"Conflicting task selection: {entry.task_ids_arg}={kwargs[entry.task_ids_arg]} "
-            f"but tasks={coerced}"
+            f"Conflicting task selection: {entry.task_ids_arg}={kwargs[entry.task_ids_arg]} " f"but tasks={coerced}"
         )
     merged = dict(kwargs)
     merged[entry.task_ids_arg] = coerced
     return merged
 
 
-def load_benchmark(slug_name: str) -> Type["Benchmark"]:
+def load_benchmark(slug_name: str) -> type[Benchmark]:
     entry = BENCHMARKS.get(slug_name)
     if entry is None:
         raise KeyError(f"Unknown benchmark slug '{slug_name}'")
@@ -249,7 +232,7 @@ def load_benchmark(slug_name: str) -> Type["Benchmark"]:
     return cls  # type: ignore[return-value]
 
 
-def load_agent(slug_name: str) -> Type["Agent"]:
+def load_agent(slug_name: str) -> type[Agent]:
     entry = AGENTS.get(slug_name)
     if entry is None:
         raise KeyError(f"Unknown agent slug '{slug_name}'")
@@ -262,9 +245,7 @@ def _validate_entry(entry: RegistryEntry, cls: type) -> None:
     try:
         slug = cls.slug_name
     except AttributeError as exc:
-        raise ValueError(
-            f"{entry.kind} class '{entry.attr}' is missing slug_name"
-        ) from exc
+        raise ValueError(f"{entry.kind} class '{entry.attr}' is missing slug_name") from exc
     if str(slug) != entry.slug_name:
         raise ValueError(
             f"{entry.kind} slug mismatch: registry '{entry.slug_name}' "
@@ -273,18 +254,14 @@ def _validate_entry(entry: RegistryEntry, cls: type) -> None:
     try:
         display = cls.display_name
     except AttributeError as exc:
-        raise ValueError(
-            f"{entry.kind} class '{entry.attr}' is missing display_name"
-        ) from exc
+        raise ValueError(f"{entry.kind} class '{entry.attr}' is missing display_name") from exc
     if str(display) != entry.display_name:
         raise ValueError(
             f"{entry.kind} display_name mismatch: registry '{entry.display_name}' "
             f"!= class '{display}' for {entry.module}.{entry.attr}"
         )
     if not issubclass(cls, BaseModel):
-        raise TypeError(
-            f"{entry.kind} class '{entry.attr}' must be a Pydantic BaseModel."
-        )
+        raise TypeError(f"{entry.kind} class '{entry.attr}' must be a Pydantic BaseModel.")
 
 
 __all__ = [

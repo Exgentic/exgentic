@@ -5,13 +5,12 @@ from __future__ import annotations
 
 import hashlib
 import random
-from typing import Any, ClassVar, Dict, List, Literal, Optional
-
-from pydantic import BaseModel
+from typing import Any, ClassVar, Literal, Optional
 
 from exgentic.core.agent import Agent
 from exgentic.core.agent_instance import AgentInstance
 from exgentic.core.types import Action, ActionType, SingleAction, SingleObservation
+from pydantic import BaseModel
 
 
 class EmptyArgs(BaseModel):
@@ -73,10 +72,10 @@ class TestAgent(Agent):
     def assign(
         self,
         task: str,
-        context: Dict[str, Any],
-        actions: List[ActionType],
+        context: dict[str, Any],
+        actions: list[ActionType],
         session_id: str,
-    ) -> "TestAgentInstance":
+    ) -> TestAgentInstance:
         return TestAgentInstance(
             session_id=session_id,
             seed=self.seed,
@@ -108,7 +107,7 @@ class TestAgentInstance(AgentInstance):
 
     @staticmethod
     def _build_rng(session_id: str, seed: int) -> random.Random:
-        payload = f"{session_id}:{seed}".encode("utf-8")
+        payload = f"{session_id}:{seed}".encode()
         digest = hashlib.sha256(payload).digest()
         value = int.from_bytes(digest[:4], "big")
         return random.Random(value)
@@ -132,9 +131,7 @@ class TestAgentInstance(AgentInstance):
                 return FinishAction(arguments=EmptyArgs())
             return GoodAction(arguments=EmptyArgs())
         # random policy
-        choice = self._rng.choice(
-            [GOOD_ACTION_TYPE, BAD_ACTION_TYPE, FINISH_ACTION_TYPE]
-        )
+        choice = self._rng.choice([GOOD_ACTION_TYPE, BAD_ACTION_TYPE, FINISH_ACTION_TYPE])
         if choice is GOOD_ACTION_TYPE:
             return GoodAction(arguments=EmptyArgs())
         if choice is BAD_ACTION_TYPE:

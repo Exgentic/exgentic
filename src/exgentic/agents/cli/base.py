@@ -8,30 +8,28 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional, Type
+from typing import Any, ClassVar, Optional
 
-from ...core.types import ActionType, ModelSettings
+from ...adapters.agents.mcp_agent import MCPAgentInstance
 from ...core.agent import Agent
 from ...core.agent_instance import AgentInstance
-from ...adapters.agents.mcp_agent import MCPAgentInstance
 from ...core.context import context_env
-from ...utils.cost import UpdatableCostReport
+from ...core.types import ActionType, ModelSettings
 from ...integrations.litellm import LitellmProxy
 from ...integrations.litellm.trace_cost import load_trace_cost
-
+from ...utils.cost import UpdatableCostReport
 from .command_runner import (
     BaseCLIConfig,
     CLIResult,
     DockerRunner,
+    ExecutionBackend,
     PodmanRunner,
     ProcessRunner,
-    ExecutionBackend,
 )
 
 
 class BaseCLIWrapper(abc.ABC):
-    """
-    Shared helpers for headless CLI wrappers.
+    """Shared helpers for headless CLI wrappers.
 
     Subclasses implement build_env/build_command; run() handles the rest.
     """
@@ -41,7 +39,7 @@ class BaseCLIWrapper(abc.ABC):
 
     def __init__(
         self,
-        env: Optional[Dict[str, str]] = None,
+        env: Optional[dict[str, str]] = None,
         log_path: Optional[Path] = None,
         config_dir: Optional[Path] = None,
         logger: Optional[logging.Logger] = None,
@@ -50,7 +48,7 @@ class BaseCLIWrapper(abc.ABC):
         self.env = env or os.environ.copy()
         self.config_dir = config_dir
         self.log_path = log_path
-        self._last_run_context: Dict[str, Any] = {}
+        self._last_run_context: dict[str, Any] = {}
         self._logger = logger or logging.getLogger(self.__class__.__name__)
         if runner == ExecutionBackend.PROCESS:
             self.runner = ProcessRunner(log_path=log_path, logger=self._logger)
@@ -99,25 +97,23 @@ class BaseCLIWrapper(abc.ABC):
     # Abstract hooks -------------------------------------------------
 
     @abc.abstractmethod
-    def build_env(self, *, cfg_root: Path, prompt: str, config: Any) -> Dict[str, str]:
+    def build_env(self, *, cfg_root: Path, prompt: str, config: Any) -> dict[str, str]:
         ...
 
     @abc.abstractmethod
-    def build_command(self, *, cfg_root: Path, prompt: str, config: Any) -> List[str]:
+    def build_command(self, *, cfg_root: Path, prompt: str, config: Any) -> list[str]:
         ...
 
 
 class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
-    """
-    Base class for MCP agents that launch a LiteLLM proxy and delegate to a CLI wrapper.
-    """
+    """Base class for MCP agents that launch a LiteLLM proxy and delegate to a CLI wrapper."""
 
     def __init__(
         self,
         session_id: str,
         task: str,
-        context: Dict[str, Any],
-        actions: List[ActionType],
+        context: dict[str, Any],
+        actions: list[ActionType],
         model_id: str,
         *,
         max_steps: int = 150,
@@ -248,9 +244,7 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
         finish_hint = ""
         finish_tools = [a.name for a in self.actions if a.is_finish]
         if finish_tools:
-            finish_hint = (
-                f" Use the designated finish tool(s): {', '.join(finish_tools)}."
-            )
+            finish_hint = f" Use the designated finish tool(s): {', '.join(finish_tools)}."
 
         instructions = (
             "Complete this task using the available environment tools. Each tool corresponds to an action "
@@ -261,13 +255,12 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
         )
 
         if finish_hint:
-            instructions += f"{finish_hint} Always conclude by invoking the designated finish tool for this task environment."
+            instructions += (
+                f"{finish_hint} Always conclude by invoking the designated finish tool for this task environment."
+            )
         prompt += f"{instructions}\n"
 
-        if (
-            self.initial_observation is not None
-            and not self.initial_observation.is_empty()
-        ):
+        if self.initial_observation is not None and not self.initial_observation.is_empty():
             text = str(self.initial_observation).strip()
             if text:
                 prompt += f"\nFirst Observation: {text}\n"
@@ -284,7 +277,7 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
         self._drain_server()
         super().close()
 
-    def _proxy_alias_map(self) -> Dict[str, str]:
+    def _proxy_alias_map(self) -> dict[str, str]:
         if not self._model_alias:
             return {}
         return {self._model_alias: self.model_id}
@@ -309,7 +302,7 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
 class ProxyBackedAgent(Agent):
     """Minimal agent factory helper for proxy-backed CLI agents."""
 
-    agent_cls: ClassVar[Type[ProxyBackedMCPAgentInstance] | None] = None
+    agent_cls: ClassVar[type[ProxyBackedMCPAgentInstance] | None] = None
     model: str
     max_steps: int = 150
     runner: ExecutionBackend = ExecutionBackend.PROCESS
@@ -318,8 +311,8 @@ class ProxyBackedAgent(Agent):
     def assign(
         self,
         task: str,
-        context: Dict[str, Any],
-        actions: List[ActionType],
+        context: dict[str, Any],
+        actions: list[ActionType],
         session_id: str,
     ) -> AgentInstance:
         agent_cls = self.__class__.agent_cls
@@ -340,5 +333,5 @@ class ProxyBackedAgent(Agent):
     def model_name(self) -> str:  # type: ignore[override]
         return str(self.model).split("/")[-1]
 
-    def get_models_names(self) -> List[str]:  # type: ignore[override]
+    def get_models_names(self) -> list[str]:  # type: ignore[override]
         return [str(self.model)]

@@ -11,16 +11,12 @@ def main():
     p.add_argument("--output", required=True, help="Path to write the light JSONL")
     args = p.parse_args()
 
-    with open(args.input, "r", encoding="utf-8") as fin, open(
-        args.output, "w", encoding="utf-8"
-    ) as fout:
+    with open(args.input, encoding="utf-8") as fin, open(args.output, "w", encoding="utf-8") as fout:
         for line in fin:
             if line.strip():
                 obj = json.loads(line)
                 for k in ["gold_docs", "evidence_docs", "negative_docs"]:
-                    obj[k] = [
-                        d.get("docid") for d in obj.get(k) if d.get("docid") is not None
-                    ]
+                    obj[k] = [d.get("docid") for d in obj.get(k) if d.get("docid") is not None]
 
                 fout.write(json.dumps(obj, ensure_ascii=False) + "\n")
 

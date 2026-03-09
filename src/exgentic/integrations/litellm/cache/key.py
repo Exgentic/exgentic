@@ -13,7 +13,6 @@ from typing import Any, Optional
 from litellm.caching.caching import Cache, ModelParamHelper, litellm
 from litellm.types.utils import all_litellm_params
 
-
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
@@ -24,9 +23,7 @@ def _to_stable_json(value: Any) -> str:
     if not isinstance(value, (dict, list)):
         return str(value)
     try:
-        return json.dumps(
-            value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-        )
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     except TypeError:
         return str(value)
 
@@ -47,10 +44,7 @@ _MONTH_PATTERN = (
 _TODAYS_DATE_REGEX = re.compile(r"(?i)\bToday'?s date(?:\s+is|:)\s*[^\n]*")
 
 _DATE_TIME_REGEXES = [
-    re.compile(
-        r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?"
-        r"(?:Z|[+-]\d{2}:\d{2})?\b"
-    ),
+    re.compile(r"\b\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?" r"(?:Z|[+-]\d{2}:\d{2})?\b"),
     re.compile(r"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b"),
     re.compile(r"\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b"),
     re.compile(
@@ -88,9 +82,7 @@ class MessageNormalizer:
             return None
         normalized = self.normalize(messages)
         try:
-            return json.dumps(
-                normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-            )
+            return json.dumps(normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
         except TypeError:
             return str(normalized)
 
@@ -198,9 +190,7 @@ def _sort_tools(tools: Any) -> Any:
         func = item.get("function")
         func_name = str(func.get("name", "")) if isinstance(func, dict) else ""
         try:
-            stable = json.dumps(
-                item, sort_keys=True, separators=(",", ":"), ensure_ascii=True
-            )
+            stable = json.dumps(item, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
         except TypeError:
             stable = str(item)
         return (tool_type, func_name, stable)
@@ -211,9 +201,7 @@ def _sort_tools(tools: Any) -> Any:
 _NOT_HANDLED = object()
 
 
-def _resolve_custom_param(
-    param: str, kwargs: dict[str, Any], normalizer: MessageNormalizer
-) -> Any:
+def _resolve_custom_param(param: str, kwargs: dict[str, Any], normalizer: MessageNormalizer) -> Any:
     """Resolve params that need custom serialization.
 
     Returns the string value for params we handle (messages, tools, sentinels),
@@ -241,11 +229,8 @@ class CacheKeyBuilder:
         self._normalizer = normalizer
         self._cache = cache
 
-    def build(
-        self, kwargs: dict[str, Any]
-    ) -> tuple[Optional[str], Optional[str], str, list[str]]:
+    def build(self, kwargs: dict[str, Any]) -> tuple[Optional[str], Optional[str], str, list[str]]:
         """Return (cache_key, raw_key, source, included_fields)."""
-
         if "cache_key" in kwargs:
             return kwargs["cache_key"], None, "explicit", []
 
@@ -291,10 +276,7 @@ class CacheKeyBuilder:
             # Fallback to litellm's default handling (e.g. model name normalization).
             return self._cache._get_param_value(param, kwargs)
 
-        if (
-            param not in litellm_only
-            and litellm.enable_caching_on_provider_specific_optional_params
-        ):
+        if param not in litellm_only and litellm.enable_caching_on_provider_specific_optional_params:
             value = kwargs[param]
             return _to_stable_json(value) if value is not None else None
 

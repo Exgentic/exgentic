@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-
 from exgentic.core.context import run_scope, try_get_context
 from exgentic.core.types import RunConfig
 from exgentic.integrations.litellm.cache_utils import build_litellm_cache
@@ -11,10 +10,7 @@ from exgentic.utils.settings import ExgenticSettings, resolve_cache_path
 
 
 def test_resolve_cache_path_uses_base_dir_for_relative_paths() -> None:
-    assert (
-        resolve_cache_path(".exgentic_cache", ".litellm_cache")
-        == ".exgentic_cache/.litellm_cache"
-    )
+    assert resolve_cache_path(".exgentic_cache", ".litellm_cache") == ".exgentic_cache/.litellm_cache"
 
 
 def test_resolve_cache_path_keeps_absolute_paths() -> None:

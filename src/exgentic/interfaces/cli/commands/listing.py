@@ -27,9 +27,7 @@ def list_cmd(debug: bool) -> None:
     is_flag=True,
     help="Enable debug mode (sets settings.debug=true and log level to DEBUG)",
 )
-@click.option(
-    "--format", "output_format", type=click.Choice(["text", "json"]), default="text"
-)
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
 def list_benchmarks_cmd(debug: bool, output_format: str) -> None:
     """List available benchmarks."""
     apply_debug_mode(debug)
@@ -43,9 +41,7 @@ def list_benchmarks_cmd(debug: bool, output_format: str) -> None:
     is_flag=True,
     help="Enable debug mode (sets settings.debug=true and log level to DEBUG)",
 )
-@click.option(
-    "--format", "output_format", type=click.Choice(["text", "json"]), default="text"
-)
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
 def list_agents_cmd(debug: bool, output_format: str) -> None:
     """List available agents."""
     apply_debug_mode(debug)
@@ -60,9 +56,7 @@ def list_agents_cmd(debug: bool, output_format: str) -> None:
     help="Enable debug mode (sets settings.debug=true and log level to DEBUG)",
 )
 @click.option("--benchmark", required=True, help="Benchmark slug_name")
-@click.option(
-    "--format", "output_format", type=click.Choice(["text", "json"]), default="text"
-)
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
 def list_subsets_cmd(debug: bool, benchmark: str, output_format: str) -> None:
     """List available subsets for a benchmark."""
     apply_debug_mode(debug)
@@ -82,9 +76,7 @@ def list_subsets_cmd(debug: bool, benchmark: str, output_format: str) -> None:
 @click.option("--benchmark", required=True, help="Benchmark slug_name")
 @click.option("--subset", help="Benchmark subset name")
 @click.option("--limit", type=int, help="Limit output to first N tasks")
-@click.option(
-    "--format", "output_format", type=click.Choice(["text", "json"]), default="text"
-)
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
 def list_tasks_cmd(
     debug: bool,
     benchmark: str,
@@ -100,9 +92,7 @@ def list_tasks_cmd(
         raise click.ClickException(str(exc)) from exc
     if limit is not None:
         tasks = tasks[: int(limit)]
-    label = (
-        f"Tasks ({benchmark})" if subset is None else f"Tasks ({benchmark}:{subset})"
-    )
+    label = f"Tasks ({benchmark})" if subset is None else f"Tasks ({benchmark}:{subset})"
     render_list(tasks, output_format, title=label)
 
 

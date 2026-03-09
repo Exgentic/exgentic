@@ -13,7 +13,7 @@ from ..options import add_run_options, has_run_options, run_with
 
 
 def _load_config_file(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -82,9 +82,7 @@ def evaluate_cmd(
             run_id=run_id,
             max_workers=max_workers,
         ):
-            raise click.ClickException(
-                "Do not pass run options together with --config."
-            )
+            raise click.ClickException("Do not pass run options together with --config.")
         config = RunConfig.model_validate(_load_config_file(config_path))
         evaluate(config)
         return
@@ -110,8 +108,7 @@ def evaluate_cmd(
             max_workers=max_workers,
         ):
             raise click.ClickException(
-                "Pass options after the subcommand, e.g. "
-                "'exgentic evaluate execute --benchmark ...'."
+                "Pass options after the subcommand, e.g. " "'exgentic evaluate execute --benchmark ...'."
             )
         return
     if not benchmark or not agent:
@@ -281,12 +278,8 @@ def evaluate_session_cmd(
             run_id=run_id,
             max_workers=max_workers,
         ):
-            raise click.ClickException(
-                "Do not pass run options together with --config."
-            )
-        session_config = SessionConfig.model_validate(
-            _load_config_file(session_config_path)
-        )
+            raise click.ClickException("Do not pass run options together with --config.")
+        session_config = SessionConfig.model_validate(_load_config_file(session_config_path))
         run_config = _run_config_from_session(session_config)
         execute(run_config)
         return

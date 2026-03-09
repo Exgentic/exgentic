@@ -12,6 +12,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!src/exgentic/interfaces/lib
 lib64/
 parts/
 sdist/

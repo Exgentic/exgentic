@@ -10,12 +10,10 @@ logger = logging.getLogger(__name__)
 
 def check_imports(file_path):
     success = True
-    with open(file_path, "r", encoding="utf-8") as file:
+    with open(file_path, encoding="utf-8") as file:
         for lineno, line in enumerate(file, start=1):
             if "from src import" in line or "from src." in line or "import src" in line:
-                logger.error(
-                    f"Non library import: {file_path}:{lineno}: {line.strip()[:30]}..."
-                )
+                logger.error(f"Non library import: {file_path}:{lineno}: {line.strip()[:30]}...")
                 success = False
     return success
 

@@ -74,34 +74,25 @@ def _configure_callbacks() -> None:
         litellm.failure_callback.append(sync_trace_logger)
     if not any(isinstance(cb, AsyncTraceLogger) for cb in litellm.failure_callback):
         litellm.failure_callback.append(async_trace_logger)
-    if not any(
-        isinstance(cb, SyncTraceLogger) for cb in litellm._async_success_callback
-    ):
+    if not any(isinstance(cb, SyncTraceLogger) for cb in litellm._async_success_callback):
         litellm._async_success_callback.append(sync_trace_logger)
-    if not any(
-        isinstance(cb, AsyncTraceLogger) for cb in litellm._async_success_callback
-    ):
+    if not any(isinstance(cb, AsyncTraceLogger) for cb in litellm._async_success_callback):
         litellm._async_success_callback.append(async_trace_logger)
-    if not any(
-        isinstance(cb, SyncTraceLogger) for cb in litellm._async_failure_callback
-    ):
+    if not any(isinstance(cb, SyncTraceLogger) for cb in litellm._async_failure_callback):
         litellm._async_failure_callback.append(sync_trace_logger)
-    if not any(
-        isinstance(cb, AsyncTraceLogger) for cb in litellm._async_failure_callback
-    ):
+    if not any(isinstance(cb, AsyncTraceLogger) for cb in litellm._async_failure_callback):
         litellm._async_failure_callback.append(async_trace_logger)
 
 
 def _configure_logging(config: LitellmSettings) -> None:
     try:
         import logging
+
         import litellm
     except ImportError:
         return
 
-    level = (
-        logging.DEBUG if str(config.log_level).upper() == "DEBUG" else logging.WARNING
-    )
+    level = logging.DEBUG if str(config.log_level).upper() == "DEBUG" else logging.WARNING
     litellm.log_level = "DEBUG" if level == logging.DEBUG else "WARNING"
     litellm.suppress_debug_info = level != logging.DEBUG
     litellm.set_verbose = level == logging.DEBUG

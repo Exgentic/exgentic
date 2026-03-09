@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Literal
 import random
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -12,8 +12,8 @@ from .evaluation import BaseEvaluationConfig
 from .session import (
     SessionConfig,
     SessionExecutionStatus,
-    SessionStatus,
     SessionResults,
+    SessionStatus,
 )
 
 
@@ -23,7 +23,7 @@ class BenchmarkResults(BaseModel):
     benchmark_name: str
     total_tasks: int
     score: float
-    metrics: Dict[str, Any] = {}
+    metrics: dict[str, Any] = {}
 
 
 class RunResults(BaseModel):
@@ -34,17 +34,17 @@ class RunResults(BaseModel):
     agent_name: str
     agent_slug_name: str | None = None
     model_name: str | None = None
-    model_names: List[str] | None = None
+    model_names: list[str] | None = None
     subset_name: str | None = None
     total_sessions: int
     planned_sessions: Optional[int] = None
-    planned_session_ids: Optional[List[str]] = None
-    executed_session_ids: List[str] = Field(default_factory=list)
+    planned_session_ids: Optional[list[str]] = None
+    executed_session_ids: list[str] = Field(default_factory=list)
     max_workers: Optional[int] = None
     successful_sessions: int
     # Primary benchmark-level outcome (from benchmark.aggregate_sessions())
     benchmark_score: Optional[float] = None
-    benchmark_results: Optional[Dict[str, Any]] = None
+    benchmark_results: Optional[dict[str, Any]] = None
     average_score: Optional[float] = None
     average_agent_cost: Optional[float] = None
     total_agent_cost: Optional[float] = None
@@ -53,7 +53,7 @@ class RunResults(BaseModel):
     total_run_cost: Optional[float] = None
     accumulated_agent_report: Optional[Any] = None
     accumulated_benchmark_report: Optional[Any] = None
-    session_results: List[SessionResults]
+    session_results: list[SessionResults]
     average_steps: Optional[float] = None
     average_action_count: Optional[float] = None
     average_invalid_action_count: Optional[float] = None
@@ -70,14 +70,14 @@ class RunResults(BaseModel):
     incomplete_sessions: Optional[int] = None
     missing_sessions: Optional[int] = None
     running_sessions: Optional[int] = None
-    aggregated_session_ids: Optional[List[str]] = None
-    skipped_session_ids: Optional[List[str]] = None
-    skipped_session_reasons: Optional[Dict[str, str]] = None
-    missing_result_files: Optional[List[str]] = None
+    aggregated_session_ids: Optional[list[str]] = None
+    skipped_session_ids: Optional[list[str]] = None
+    skipped_session_reasons: Optional[dict[str, str]] = None
+    missing_result_files: Optional[list[str]] = None
 
 
 class Integration(BaseModel):
-    """Metadata about a benchmark or agent integration"""
+    """Metadata about a benchmark or agent integration."""
 
     name: str
     type: Literal["benchmark", "agent"]
@@ -105,25 +105,25 @@ class RunStatus(BaseModel):
     agent_slug_name: str
     model_name: Optional[str] = None
     subset_name: Optional[str] = None
-    task_ids: List[str]
+    task_ids: list[str]
     total_tasks: int
-    session_statuses: List[SessionStatus] = Field(default_factory=list)
+    session_statuses: list[SessionStatus] = Field(default_factory=list)
     completed_sessions: int = 0
     running_sessions: int = 0
     incomplete_sessions: int = 0
     missing_sessions: int = 0
 
     @classmethod
-    def from_config(cls, run_config: "RunConfig") -> "RunStatus":
+    def from_config(cls, run_config: RunConfig) -> RunStatus:
         session_configs = run_config.get_sessions()
         return cls.from_session_configs(run_config, session_configs)
 
     @classmethod
     def from_session_configs(
         cls,
-        run_config: "RunConfig",
-        session_configs: List[SessionConfig],
-    ) -> "RunStatus":
+        run_config: RunConfig,
+        session_configs: list[SessionConfig],
+    ) -> RunStatus:
         from ...utils.paths import get_run_paths
 
         context_config = run_config
@@ -148,22 +148,10 @@ class RunStatus(BaseModel):
                 for session_config in session_configs
             ]
             task_ids = [str(item.task_id) for item in session_configs]
-            completed = sum(
-                1
-                for item in statuses
-                if item.status == SessionExecutionStatus.COMPLETED
-            )
-            running = sum(
-                1 for item in statuses if item.status == SessionExecutionStatus.RUNNING
-            )
-            incomplete = sum(
-                1
-                for item in statuses
-                if item.status == SessionExecutionStatus.INCOMPLETE
-            )
-            missing = sum(
-                1 for item in statuses if item.status == SessionExecutionStatus.MISSING
-            )
+            completed = sum(1 for item in statuses if item.status == SessionExecutionStatus.COMPLETED)
+            running = sum(1 for item in statuses if item.status == SessionExecutionStatus.RUNNING)
+            incomplete = sum(1 for item in statuses if item.status == SessionExecutionStatus.INCOMPLETE)
+            missing = sum(1 for item in statuses if item.status == SessionExecutionStatus.MISSING)
 
             return cls(
                 run_id=run_paths.run_id,
@@ -179,9 +167,7 @@ class RunStatus(BaseModel):
                 benchmark_slug_name=run_config.benchmark,
                 agent_name=run_config.agent,
                 agent_slug_name=run_config.agent,
-                model_name=(
-                    run_config.model or (run_config.agent_kwargs or {}).get("model")
-                ),
+                model_name=(run_config.model or (run_config.agent_kwargs or {}).get("model")),
                 subset_name=run_config.subset,
                 task_ids=task_ids,
                 total_tasks=len(task_ids),
@@ -198,18 +184,18 @@ class RunPlan(BaseModel):
 
     run_config: RunConfig
     overwrite_sessions: bool
-    to_run: List[SessionConfig] = Field(default_factory=list)
-    reuse: List[SessionConfig] = Field(default_factory=list)
-    running: List[SessionConfig] = Field(default_factory=list)
-    missing: List[SessionConfig] = Field(default_factory=list)
-    incomplete: List[SessionConfig] = Field(default_factory=list)
+    to_run: list[SessionConfig] = Field(default_factory=list)
+    reuse: list[SessionConfig] = Field(default_factory=list)
+    running: list[SessionConfig] = Field(default_factory=list)
+    missing: list[SessionConfig] = Field(default_factory=list)
+    incomplete: list[SessionConfig] = Field(default_factory=list)
 
     @classmethod
     def from_config_and_status(
         cls,
         run_config: RunConfig,
         status: RunStatus,
-    ) -> "RunPlan":
+    ) -> RunPlan:
         overwrite_sessions = run_config.overwrite_sessions
         to_run: list[SessionConfig] = []
         reuse: list[SessionConfig] = []
@@ -249,7 +235,7 @@ class RunPlan(BaseModel):
 class RunConfig(BaseEvaluationConfig):
     """Configuration for a run of multiple sessions."""
 
-    task_ids: Optional[List[str]] = None
+    task_ids: Optional[list[str]] = None
     num_tasks: Optional[int] = None
     max_workers: Optional[int] = None
     max_steps: int = 100
@@ -282,8 +268,8 @@ class RunConfig(BaseEvaluationConfig):
     def get_session_configs(
         self,
         *,
-        resolved_config: "RunConfig | None" = None,
-    ) -> List[SessionConfig]:
+        resolved_config: RunConfig | None = None,
+    ) -> list[SessionConfig]:
         from ...interfaces.registry import load_benchmark
 
         resolved = resolved_config or self
@@ -308,5 +294,5 @@ class RunConfig(BaseEvaluationConfig):
 
         return [resolved.to_session_config(task_id) for task_id in selected]
 
-    def get_sessions(self) -> List[SessionConfig]:
+    def get_sessions(self) -> list[SessionConfig]:
         return self.get_session_configs()

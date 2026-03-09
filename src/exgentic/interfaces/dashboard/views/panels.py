@@ -52,7 +52,9 @@ def _metric_help_text(label: str) -> Optional[str]:
         "Finished Rate": "Share of sessions marked finished.",
         "Success %": "Share of successful sessions.",
         "Finished %": "Share of sessions marked finished.",
-        "Status": "Session status (running/success/unsuccessful/unfinished/agent error/benchmark error/cancelled/error).",
+        "Status": (
+            "Session status (running/success/unsuccessful/unfinished/" "agent error/benchmark error/cancelled/error)."
+        ),
         "Steps": "Number of actions taken in the session.",
         "Score": "Session score from the benchmark.",
         "Exec Time (s)": "Elapsed time for the session.",
@@ -132,9 +134,7 @@ def _render_action_entry(payload: Any) -> None:
                     if args is None:
                         ui.label("No arguments.")
                     else:
-                        ui.code(_format_payload(args), language="json").classes(
-                            "w-full"
-                        )
+                        ui.code(_format_payload(args), language="json").classes("w-full")
         return
     name = data.get("name") or "Action"
     args = data.get("arguments")
@@ -227,9 +227,7 @@ def _render_overview_panel(
     if planned_sessions is None:
         planned_sessions = total
     running_total = total_workers if total_workers is not None else "-"
-    benchmark_score = (
-        results.get("benchmark_score") if isinstance(results, dict) else None
-    )
+    benchmark_score = results.get("benchmark_score") if isinstance(results, dict) else None
     with ui.element("div").classes("w-full metric-grid"):
         _metric_card("Running", f"{running}/{running_total}")
         _metric_card("Completed", f"{done}/{planned_sessions}")
@@ -296,9 +294,7 @@ def _render_session_results_overview(meta: dict) -> None:
     error_msg = meta.get("error")
     if error_msg:
         ui.label("Error Details").classes("section-title")
-        ui.code(_format_error_message(error_msg), language="text").classes(
-            "w-full"
-        ).style("white-space: pre-wrap;")
+        ui.code(_format_error_message(error_msg), language="text").classes("w-full").style("white-space: pre-wrap;")
 
     with ui.element("div").classes("w-full metric-grid"):
         _metric_card_small("Exec Time (s)", meta.get("execution_time"))
@@ -358,14 +354,10 @@ def _render_session_config(
         return
     if run_config_content is not None:
         with ui.expansion("Run Config", value=False):
-            ui.code(_format_payload(run_config_content), language="json").classes(
-                "w-full"
-            )
+            ui.code(_format_payload(run_config_content), language="json").classes("w-full")
     if benchmark_config_content is not None:
         with ui.expansion("Benchmark Config", value=False):
-            ui.code(_format_payload(benchmark_config_content), language="json").classes(
-                "w-full"
-            )
+            ui.code(_format_payload(benchmark_config_content), language="json").classes("w-full")
 
 
 def _render_session_benchmark_results(results_content: Optional[dict]) -> None:
@@ -433,14 +425,12 @@ def _render_dive_panel(
         ui.label("No sessions to inspect yet.")
         return
 
-    active_session = (
-        selected_session if selected_session in session_ids else session_ids[0]
-    )
+    active_session = selected_session if selected_session in session_ids else session_ids[0]
 
     with ui.card().classes("w-full card p-4"):
-        ui.select(session_ids, value=active_session, label="Select session").props(
-            "dense"
-        ).on_value_change(on_session_change)
+        ui.select(session_ids, value=active_session, label="Select session").props("dense").on_value_change(
+            on_session_change
+        )
     meta = sessions.get(active_session, {})
     turns_list = turns.get(active_session, [])
 
@@ -452,9 +442,7 @@ def _render_dive_panel(
     results_content = None
     if run_id:
         resolved_output = output_dir or get_settings().output_dir
-        sess_paths = RunPaths(run_id=run_id, output_dir=resolved_output).session(
-            active_session
-        )
+        sess_paths = RunPaths(run_id=run_id, output_dir=resolved_output).session(active_session)
         base = sess_paths.benchmark_dir
         agent_files = _list_text_files(sess_paths.agent_dir)
         benchmark_files = _list_text_files(base)

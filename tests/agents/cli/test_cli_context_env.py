@@ -5,22 +5,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from exgentic.core.context import Context, set_context
 from exgentic.agents.cli.base import (
-    BaseCLIWrapper,
     BaseCLIConfig,
+    BaseCLIWrapper,
     CLIResult,
     ExecutionBackend,
 )
+from exgentic.core.context import Context, set_context
 
 
 class _DummyRunner:
     def __init__(self):
         self.env = None
 
-    def run(
-        self, *, cmd, env, cfg_root, config, spawn_error_message, stdin_devnull=False
-    ):
+    def run(self, *, cmd, env, cfg_root, config, spawn_error_message, stdin_devnull=False):
         self.env = env
         return CLIResult(stdout="", stderr="", code=0)
 

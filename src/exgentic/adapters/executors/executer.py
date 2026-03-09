@@ -14,26 +14,25 @@ Notes:
 """
 from __future__ import annotations
 
+import builtins
 import multiprocessing as mp
+import os
 import traceback
 import weakref
-import builtins
-import os
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Tuple
+from typing import Any, Optional
 
 import cloudpickle as cp
 
-
-from ...utils.settings import ExecuterName, get_settings
 from ...core.context import (
+    context_env_scope,
     get_context,
-    try_get_context,
     init_context_from_env,
     set_context,
-    context_env_scope,
+    try_get_context,
 )
-from ...observers.logging import get_logger, configure_warnings_logging
+from ...observers.logging import configure_warnings_logging, get_logger
+from ...utils.settings import ExecuterName, get_settings
 
 
 def _dumps(obj: Any) -> bytes:
@@ -73,9 +72,7 @@ def _worker(queue_in: mp.Queue, queue_out: mp.Queue) -> None:
                 set_context(ctx.with_session(str(session_id)))
         queue_out.put(_dumps(("ready", None)))
     except Exception as e:
-        queue_out.put(
-            _dumps(("error", (type(e).__name__, str(e), traceback.format_exc())))
-        )
+        queue_out.put(_dumps(("error", (type(e).__name__, str(e), traceback.format_exc()))))
         return
 
     while True:
@@ -109,11 +106,7 @@ def _worker(queue_in: mp.Queue, queue_out: mp.Queue) -> None:
                     raise ValueError(f"Unknown op: {op}")
                 queue_out.put(_dumps(("ok", result)))
             except Exception as e:
-                queue_out.put(
-                    _dumps(
-                        ("error", (type(e).__name__, str(e), traceback.format_exc()))
-                    )
-                )
+                queue_out.put(_dumps(("error", (type(e).__name__, str(e), traceback.format_exc()))))
         except (EOFError, BrokenPipeError):
             break
 
@@ -170,9 +163,7 @@ class RemoteProcessExecuter(BaseExecuter):
         self._qin: Optional[mp.Queue] = None
         self._qout: Optional[mp.Queue] = None
         self._proc: Optional[mp.Process] = None
-        self._finalizer = weakref.finalize(
-            self, RemoteProcessExecuter._cleanup_static, self
-        )
+        self._finalizer = weakref.finalize(self, RemoteProcessExecuter._cleanup_static, self)
 
         # Set up logging
         from ...utils.paths import RunPaths
@@ -220,9 +211,7 @@ class RemoteProcessExecuter(BaseExecuter):
             pass
         try:
             if self._proc is not None and self._proc.is_alive():
-                self._logger.warning(
-                    f"Terminating unresponsive worker process PID:{self._proc.pid}"
-                )
+                self._logger.warning(f"Terminating unresponsive worker process PID:{self._proc.pid}")
                 self._proc.terminate()
         except Exception:
             pass
@@ -236,7 +225,7 @@ class RemoteProcessExecuter(BaseExecuter):
         self._logger.info("Worker process shutdown complete")
 
     @staticmethod
-    def _cleanup_static(self_ref: "RemoteProcessExecuter") -> None:  # pragma: no cover
+    def _cleanup_static(self_ref: RemoteProcessExecuter) -> None:  # pragma: no cover
         try:
             if self_ref._qin is not None:
                 self_ref._qin.put(None)
@@ -254,34 +243,23 @@ class RemoteProcessExecuter(BaseExecuter):
             pass
 
     # --- RPC helpers ---
-    def _send(self, cmd: Tuple[Any, ...]) -> None:
-        if (
-            self._proc is None
-            or self._qin is None
-            or self._qout is None
-            or not self._proc.is_alive()
-        ):
+    def _send(self, cmd: tuple[Any, ...]) -> None:
+        if self._proc is None or self._qin is None or self._qout is None or not self._proc.is_alive():
             raise RuntimeError("Worker process is not running")
         self._qin.put(_dumps(cmd))
 
-    def _recv(self) -> Tuple[str, Any]:
+    def _recv(self) -> tuple[str, Any]:
         assert self._qout is not None
         # Check if process is alive before waiting
         if not self._proc.is_alive():
             exitcode = self._proc.exitcode
-            self._logger.error(
-                f"Worker process died before response (exit code: {exitcode})"
-            )
-            raise RuntimeError(
-                f"Worker process died before response (exit code: {exitcode})"
-            )
+            self._logger.error(f"Worker process died before response (exit code: {exitcode})")
+            raise RuntimeError(f"Worker process died before response (exit code: {exitcode})")
         raw = self._qout.get()
         return _loads(raw)
 
     # --- BaseExecuter API ---
-    def _recreate_original_exception(
-        self, exc_type_name: str, exc_msg: str, exc_traceback: str
-    ) -> Exception:
+    def _recreate_original_exception(self, exc_type_name: str, exc_msg: str, exc_traceback: str) -> Exception:
         """Recreate the original exception type with the original message."""
         # Try to get the original exception class
         exc_class = getattr(builtins, exc_type_name, None)
@@ -312,9 +290,7 @@ class RemoteProcessExecuter(BaseExecuter):
         if status == "error":
             exc_type, exc_msg, exc_traceback = data
             self._logger.error(f"Worker method {name}() failed: {exc_type}: {exc_msg}")
-            original_exc = self._recreate_original_exception(
-                exc_type, exc_msg, exc_traceback
-            )
+            original_exc = self._recreate_original_exception(exc_type, exc_msg, exc_traceback)
             raise original_exc
         return data
 
@@ -324,9 +300,7 @@ class RemoteProcessExecuter(BaseExecuter):
         if status == "error":
             exc_type, exc_msg, exc_traceback = data
             self._logger.error(f"Worker get {name} failed: {exc_type}: {exc_msg}")
-            original_exc = self._recreate_original_exception(
-                exc_type, exc_msg, exc_traceback
-            )
+            original_exc = self._recreate_original_exception(exc_type, exc_msg, exc_traceback)
             raise original_exc
         return data
 
@@ -336,9 +310,7 @@ class RemoteProcessExecuter(BaseExecuter):
         if status == "error":
             exc_type, exc_msg, exc_traceback = data
             self._logger.error(f"Worker set {name} failed: {exc_type}: {exc_msg}")
-            original_exc = self._recreate_original_exception(
-                exc_type, exc_msg, exc_traceback
-            )
+            original_exc = self._recreate_original_exception(exc_type, exc_msg, exc_traceback)
             raise original_exc
 
     def delete(self, name: str) -> None:
@@ -347,9 +319,7 @@ class RemoteProcessExecuter(BaseExecuter):
         if status == "error":
             exc_type, exc_msg, exc_traceback = data
             self._logger.error(f"Worker delete {name} failed: {exc_type}: {exc_msg}")
-            original_exc = self._recreate_original_exception(
-                exc_type, exc_msg, exc_traceback
-            )
+            original_exc = self._recreate_original_exception(exc_type, exc_msg, exc_traceback)
             raise original_exc
 
     # --- Introspection helpers ---
@@ -436,9 +406,7 @@ class InProcessExecuter(BaseExecuter):
         return self._target
 
 
-def make_executer(
-    kind: Optional[ExecuterName], target_cls: type, *args: Any, **kwargs: Any
-) -> BaseExecuter:
+def make_executer(kind: Optional[ExecuterName], target_cls: type, *args: Any, **kwargs: Any) -> BaseExecuter:
     if kind is None:
         kind = get_settings().default_executer
     if kind == "inprocess":

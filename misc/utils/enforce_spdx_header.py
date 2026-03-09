@@ -16,9 +16,7 @@ HEADER_LINES = [
 ]
 HEADER_TEXT = "\n".join(HEADER_LINES) + "\n\n"
 
-COPYRIGHT_RE = re.compile(
-    r"^# Copyright \(C\) (?P<year>\d{4}), The Exgentic organization and its contributors\.$"
-)
+COPYRIGHT_RE = re.compile(r"^# Copyright \(C\) (?P<year>\d{4}), The Exgentic organization and its contributors\.$")
 
 SKIP_DIRS = {
     ".git",

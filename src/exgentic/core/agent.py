@@ -2,7 +2,7 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 from abc import ABC, abstractmethod
-from typing import ClassVar, Dict, List, Any
+from typing import Any, ClassVar, Dict, List
 
 from pydantic import BaseModel, ConfigDict
 
@@ -12,7 +12,7 @@ from .types.model_settings import ModelSettings
 
 
 class Agent(BaseModel, ABC):
-    """Agent factory - creates AgentInstance objects"""
+    """Agent factory - creates AgentInstance objects."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -28,7 +28,7 @@ class Agent(BaseModel, ABC):
         actions: List[ActionType],
         session_id: str,
     ) -> AgentInstance:
-        """Create agent for specific task - agent factory controls instance creation"""
+        """Create agent for specific task - agent factory controls instance creation."""
         pass
 
     # Optional metadata property for dashboard/leaderboards
@@ -44,4 +44,4 @@ class Agent(BaseModel, ABC):
 
     def close(self) -> None:
         """Optional cleanup hook for agent factories."""
-        return None
+        return

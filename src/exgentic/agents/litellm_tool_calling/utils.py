@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-from typing_extensions import TypedDict
 import json
+from typing import Any, Optional
 
+from typing_extensions import TypedDict
+
+from ...core.actions import build_action, build_unknown_action
 from ...core.types import (
     Action,
     ActionType,
@@ -14,7 +16,6 @@ from ...core.types import (
     SingleAction,
     SingleObservation,
 )
-from ...core.actions import build_action, build_unknown_action
 
 
 class PartialAction(SingleAction):
@@ -57,10 +58,10 @@ class ToolsActionsRegistry:
         except TypeError:
             return str(value)
 
-    def __init__(self, actions: List[ActionType]):
-        self.action_types: List[ActionType] = []
-        self.name_to_action: Dict[str, ActionType] = {}
-        self.action_id_to_tool_call_id: Dict[str, str] = {}
+    def __init__(self, actions: list[ActionType]):
+        self.action_types: list[ActionType] = []
+        self.name_to_action: dict[str, ActionType] = {}
+        self.action_id_to_tool_call_id: dict[str, str] = {}
         for action in actions:
             self.add_action(action)
 
@@ -70,8 +71,8 @@ class ToolsActionsRegistry:
         self.action_types.append(action)
         self.name_to_action[action.name] = action
 
-    def openai_tools(self) -> List[Dict[str, Any]]:
-        tools: List[Dict[str, Any]] = []
+    def openai_tools(self) -> list[dict[str, Any]]:
+        tools: list[dict[str, Any]] = []
         for action in self.action_types:
             # Skip non-environment messaging actions; agents handle messaging flow
             if action.is_message:
@@ -104,13 +105,9 @@ class ToolsActionsRegistry:
 
         action_id = tool_call.get("id")
         if action_type:
-            action = build_action(
-                action_type, tool_call["arguments"], action_id=action_id
-            )
+            action = build_action(action_type, tool_call["arguments"], action_id=action_id)
         else:
-            action = build_unknown_action(
-                name, tool_call.get("arguments", {}), action_id=action_id
-            )
+            action = build_unknown_action(name, tool_call.get("arguments", {}), action_id=action_id)
 
         if "id" not in tool_call:
             tool_call["id"] = action.id
@@ -119,8 +116,8 @@ class ToolsActionsRegistry:
 
         return action
 
-    def tool_calls_to_action(self, tool_calls: List[ToolCall]) -> Optional[Action]:
-        actions: List[SingleAction] = []
+    def tool_calls_to_action(self, tool_calls: list[ToolCall]) -> Optional[Action]:
+        actions: list[SingleAction] = []
         for tool_call in tool_calls:
             actions.append(self._tool_call_to_single_action(tool_call))
         if len(actions) == 0:

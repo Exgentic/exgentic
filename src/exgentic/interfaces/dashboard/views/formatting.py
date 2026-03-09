@@ -92,9 +92,7 @@ def _normalize_observation_payload(payload: Any) -> Any:
         return None
     if isinstance(payload, dict):
         if isinstance(payload.get("observations"), list):
-            return [
-                _normalize_observation_item(item) for item in payload["observations"]
-            ]
+            return [_normalize_observation_item(item) for item in payload["observations"]]
         return _normalize_observation_item(payload)
     if isinstance(payload, list):
         return [_normalize_observation_item(item) for item in payload]

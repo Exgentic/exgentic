@@ -29,14 +29,12 @@ class RunRecapData:
 
 
 class RunRecapMixin:
-    def _load_recap_data(
-        self, results_path: Path, start_time: datetime | None
-    ) -> RunRecapData | None:
+    def _load_recap_data(self, results_path: Path, start_time: datetime | None) -> RunRecapData | None:
         if not results_path.exists():
             return None
 
         try:
-            with open(results_path, "r", encoding="utf-8") as f:
+            with open(results_path, encoding="utf-8") as f:
                 results = json.load(f)
         except Exception:
             return None
@@ -58,11 +56,7 @@ class RunRecapMixin:
             succ = sum(1 for r in session_results if r.get("success"))
             if total:
                 success_rate = succ / total
-        finished = (
-            sum(1 for r in session_results if r.get("is_finished"))
-            if session_results
-            else None
-        )
+        finished = sum(1 for r in session_results if r.get("is_finished")) if session_results else None
 
         started = start_time or datetime.now()
         execution_time = datetime.now() - started
@@ -128,20 +122,10 @@ class RunRecapObserver(Observer, RunRecapMixin):
         if data is None:
             return
 
-        finished_str = (
-            f" | Finished: {data.finished_sessions}"
-            if data.finished_sessions is not None
-            else ""
-        )
-        success_rate_str = (
-            f" | Success%: {data.success_rate:.2%}"
-            if data.success_rate is not None
-            else ""
-        )
+        finished_str = f" | Finished: {data.finished_sessions}" if data.finished_sessions is not None else ""
+        success_rate_str = f" | Success%: {data.success_rate:.2%}" if data.success_rate is not None else ""
 
-        final_str = (
-            f"{data.benchmark_score}" if data.benchmark_score is not None else "-"
-        )
+        final_str = f"{data.benchmark_score}" if data.benchmark_score is not None else "-"
         avg_str = f"{data.average_score}" if data.average_score is not None else "-"
         run_cost_str = self._format_money(data.run_cost)
         avg_agent_cost_str = self._format_money(data.avg_agent_cost)

@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-from pydantic import BaseModel
-
 from exgentic.agents.litellm_tool_calling.utils import ToolsActionsRegistry
 from exgentic.core.actions import ActionsHandler
 from exgentic.core.types import SingleAction
+from pydantic import BaseModel
 
 
 class EmptyArgs(BaseModel):

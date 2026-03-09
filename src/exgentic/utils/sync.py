@@ -21,8 +21,8 @@ def _loop_thread_main() -> None:
 
 
 def run_sync(coro: Coroutine[Any, Any, Any], timeout: float | None = None) -> Any:
-    """
-    Run an async coroutine from sync code using ONE long-lived event loop.
+    """Run an async coroutine from sync code using ONE long-lived event loop.
+
     Safe from any thread in this process.
 
     Do not call from an async context.
@@ -32,17 +32,13 @@ def run_sync(coro: Coroutine[Any, Any, Any], timeout: float | None = None) -> An
     except RuntimeError:
         pass
     else:
-        raise RuntimeError(
-            "run_sync() called from a running event loop; use `await` instead"
-        )
+        raise RuntimeError("run_sync() called from a running event loop; use `await` instead")
 
     global _loop, _thread
     with _lock:
         if _loop is None or not _loop.is_running():
             _ready.clear()
-            _thread = threading.Thread(
-                target=_loop_thread_main, name="exgentic-async-loop", daemon=True
-            )
+            _thread = threading.Thread(target=_loop_thread_main, name="exgentic-async-loop", daemon=True)
             _thread.start()
 
     if not _ready.wait(timeout=5.0) or _loop is None:

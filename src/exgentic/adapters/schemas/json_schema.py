@@ -3,22 +3,19 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Literal
 
-from pydantic import BaseModel
-from typing import Literal
 from json_schema_to_pydantic import create_model as _schema_to_model
+from pydantic import BaseModel
 
 
-def make_args_model_from_json_schema(
-    name: str, parameters: Dict[str, Any]
-) -> type[BaseModel]:
-    """
-    Build a Pydantic v2 model from JSON Schema and verify core semantics match
-    (type/required/properties), ignoring cosmetic keys like 'title'.
+def make_args_model_from_json_schema(name: str, parameters: dict[str, Any]) -> type[BaseModel]:
+    """Build a Pydantic v2 model from JSON Schema and verify core semantics match.
+
+    Verifies (type/required/properties), ignoring cosmetic keys like 'title'.
     """
     # 1) build
-    Model = _schema_to_model(
+    model = _schema_to_model(
         schema=parameters,
         base_model_type=BaseModel,
         root_schema=None,
@@ -26,10 +23,10 @@ def make_args_model_from_json_schema(
         allow_undefined_type=False,
     )
 
-    return Model
+    return model
 
 
-def _schema_to_type(schema: Dict[str, Any]) -> Any:
+def _schema_to_type(schema: dict[str, Any]) -> Any:
     """Best-effort map a JSON Schema fragment to a Python type annotation."""
     if not isinstance(schema, dict):
         return Any
@@ -40,13 +37,15 @@ def _schema_to_type(schema: Dict[str, Any]) -> Any:
     return _json_type_to_py(t, items)
 
 
-def _json_type_to_py(t: Any, item_schema: Dict[str, Any] | None = None):
+def _json_type_to_py(t: Any, item_schema: dict[str, Any] | None = None):
     """Map a JSON Schema "type" to a Python type annotation.
 
     Supports primitives and simple containers. For arrays/objects, uses generic
     fallbacks unless an item schema is provided for arrays.
     """
-    from typing import List as TList, Dict as TDict, Any as TAny
+    from typing import Any as TAny
+    from typing import Dict as TDict
+    from typing import List as TList
 
     if t == "string":
         return str
@@ -67,7 +66,7 @@ def _json_type_to_py(t: Any, item_schema: Dict[str, Any] | None = None):
     return Any
 
 
-def _enum_type(values: List[Any]):
+def _enum_type(values: list[Any]):
     """Create a Literal type from enum values when feasible; otherwise Any."""
     try:
         return Literal[tuple(values)]  # type: ignore[misc]

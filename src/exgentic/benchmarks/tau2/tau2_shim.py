@@ -32,12 +32,6 @@ except Exception:
     _loguru = None  # type: ignore
 
 # 3) Re-export Tau2 modules used by Exgentic
-from tau2.data_model.simulation import Results, RunConfig, TerminationReason  # noqa: E402
-from tau2.metrics.agent_metrics import compute_metrics, is_successful  # noqa: E402
-from tau2.environment.tool import Tool  # noqa: E402
-from tau2.registry import registry  # noqa: E402
-from tau2.run import load_tasks, run_domain  # noqa: E402
-from tau2.utils.display import ConsoleDisplay  # noqa: E402
 from rich.console import Console  # noqa: E402
 from tau2.agent.llm_agent import LLMAgent  # noqa: E402
 from tau2.data_model.message import (  # noqa: E402
@@ -47,6 +41,12 @@ from tau2.data_model.message import (  # noqa: E402
     ToolMessage,
     UserMessage,
 )
+from tau2.data_model.simulation import Results, RunConfig, TerminationReason  # noqa: E402
+from tau2.environment.tool import Tool  # noqa: E402
+from tau2.metrics.agent_metrics import compute_metrics, is_successful  # noqa: E402
+from tau2.registry import registry  # noqa: E402
+from tau2.run import load_tasks, run_domain  # noqa: E402
+from tau2.utils.display import ConsoleDisplay  # noqa: E402
 
 # Tau2's llm_utils disables LiteLLM cache by default; re-enable Exgentic cache here.
 from ...integrations.litellm.config import configure_litellm  # noqa: E402

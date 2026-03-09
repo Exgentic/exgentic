@@ -45,8 +45,8 @@ Exgentic serves multiple audiences in the AI agent ecosystem:
 
 Clone the repository:
 ```bash
-git clone <repository-url>
-cd exgentic-research
+git clone  https://github.com/Exgentic/exgentic.git
+cd exgentic
 ```
 
 Set up your environment:
@@ -292,6 +292,18 @@ Agent trajectories can be recorded as OTel traces and emitted to a collector ser
    OTEL logs are written to `<session_root>/otel.log`
 
 ---
+## 📖 Citing Exgentic
+
+If you use Exgentic or Exgentic harness in your research, please cite it by using the following BibTeX entry.
+```bash
+@misc{bandel2026generalagentevaluation,
+      title={General Agent Evaluation}, 
+      author={Elron Bandel and Asaf Yehudai and Lilach Eden and Yehoshua Sagron and Yotam Perlitz and Elad Venezian and Natalia Razinkov and Natan Ergas and Shlomit Shachor Ifergan and Segev Shlomov and Michal Jacovi and Leshem Choshen and Liat Ein-Dor and Yoav Katz and Michal Shmueli-Scheuer},
+      year={2026},
+      url={https://arxiv.org/abs/2602.22953}, 
+}
+```
+
 
 ## 📄 License
 

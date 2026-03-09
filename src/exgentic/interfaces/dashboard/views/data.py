@@ -6,21 +6,21 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
-from ...lib.api import list_agents, list_benchmarks
 from ....utils.paths import RunPaths
 from ....utils.settings import get_settings
+from ...lib.api import list_agents, list_benchmarks
 from .state import RunContext
 from .status import _status_from_outcome
 
 
-def get_display_mappings() -> tuple[Dict[str, str], Dict[str, str]]:
-    bench_label_to_key: Dict[str, str] = {}
+def get_display_mappings() -> tuple[dict[str, str], dict[str, str]]:
+    bench_label_to_key: dict[str, str] = {}
     for item in list_benchmarks():
         bench_label_to_key[str(item["display_name"])] = item["slug_name"]
 
-    agent_label_to_key: Dict[str, str] = {}
+    agent_label_to_key: dict[str, str] = {}
     for item in list_agents():
         agent_label_to_key[str(item["display_name"])] = item["slug_name"]
 
@@ -60,36 +60,22 @@ def _build_overview_secondary_metrics(
     if total_sessions is None:
         total_sessions = len(sessions)
     if successful_sessions is None:
-        successful_sessions = sum(
-            1 for s in sessions.values() if s.get("status") == "success"
-        )
+        successful_sessions = sum(1 for s in sessions.values() if s.get("status") == "success")
 
     if avg_steps is None:
-        steps = [
-            s.get("steps") for s in sessions.values() if s.get("steps") is not None
-        ]
+        steps = [s.get("steps") for s in sessions.values() if s.get("steps") is not None]
         if steps:
             avg_steps = sum(float(x) for x in steps) / len(steps)
     if avg_score is None:
-        scores = [
-            s.get("score") for s in sessions.values() if s.get("score") is not None
-        ]
+        scores = [s.get("score") for s in sessions.values() if s.get("score") is not None]
         if scores:
             avg_score = sum(float(x) for x in scores) / len(scores)
     if avg_agent_cost is None:
-        costs = [
-            s.get("agent_cost")
-            for s in sessions.values()
-            if s.get("agent_cost") is not None
-        ]
+        costs = [s.get("agent_cost") for s in sessions.values() if s.get("agent_cost") is not None]
         if costs:
             avg_agent_cost = sum(float(x) for x in costs) / len(costs)
     if avg_benchmark_cost is None:
-        costs = [
-            s.get("benchmark_cost")
-            for s in sessions.values()
-            if s.get("benchmark_cost") is not None
-        ]
+        costs = [s.get("benchmark_cost") for s in sessions.values() if s.get("benchmark_cost") is not None]
         if costs:
             avg_benchmark_cost = sum(float(x) for x in costs) / len(costs)
     if total_run_cost is None:
@@ -112,35 +98,23 @@ def _build_overview_secondary_metrics(
 
     success_rate = percent_successful
     if success_rate is None and completed_total > 0:
-        success_rate = (
-            sum(1 for s in completed_sessions if s.get("status") == "success")
-            / completed_total
-        )
+        success_rate = sum(1 for s in completed_sessions if s.get("status") == "success") / completed_total
 
     finished_rate = percent_finished
     if finished_rate is None and completed_total > 0:
         finished_rate = (
-            sum(
-                1
-                for s in completed_sessions
-                if s.get("status") in ("success", "unsuccessful")
-            )
-            / completed_total
+            sum(1 for s in completed_sessions if s.get("status") in ("success", "unsuccessful")) / completed_total
         )
 
     finished_unsuccessful_rate = percent_finished_unsuccessful
     if finished_unsuccessful_rate is None and completed_total > 0:
         finished_unsuccessful_rate = (
-            sum(1 for s in completed_sessions if s.get("status") == "unsuccessful")
-            / completed_total
+            sum(1 for s in completed_sessions if s.get("status") == "unsuccessful") / completed_total
         )
 
     unfinished_rate = percent_unfinished
     if unfinished_rate is None and completed_total > 0:
-        unfinished_rate = (
-            sum(1 for s in completed_sessions if s.get("status") == "unfinished")
-            / completed_total
-        )
+        unfinished_rate = sum(1 for s in completed_sessions if s.get("status") == "unfinished") / completed_total
 
     error_rate = percent_error
     if error_rate is None and completed_total > 0:
@@ -148,8 +122,7 @@ def _build_overview_secondary_metrics(
             sum(
                 1
                 for s in completed_sessions
-                if s.get("status")
-                in ("error", "agent error", "benchmark error", "cancelled")
+                if s.get("status") in ("error", "agent error", "benchmark error", "cancelled")
             )
             / completed_total
         )
@@ -171,7 +144,7 @@ def load_leaderboard_data(output_dir: str) -> list[dict]:
             if not os.path.isfile(results_path):
                 continue
             try:
-                with open(results_path, "r", encoding="utf-8-sig") as f:
+                with open(results_path, encoding="utf-8-sig") as f:
                     r = json.load(f)
                 rows.append(
                     {
@@ -186,7 +159,7 @@ def load_leaderboard_data(output_dir: str) -> list[dict]:
                         "run_id": run_id,
                     }
                 )
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 continue
     except FileNotFoundError:
         pass
@@ -195,9 +168,9 @@ def load_leaderboard_data(output_dir: str) -> list[dict]:
 
 def load_run_results(results_path: str) -> Optional[dict]:
     try:
-        with open(results_path, "r", encoding="utf-8-sig") as f:
+        with open(results_path, encoding="utf-8-sig") as f:
             return json.load(f)
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return None
 
 
@@ -253,17 +226,9 @@ def _resolve_run_meta(
                 agent = agent_cfg
             agent_cfg = {}
         if not benchmark:
-            benchmark = (
-                bench_cfg.get("display_name")
-                or bench_cfg.get("slug_name")
-                or bench_cfg.get("class")
-            )
+            benchmark = bench_cfg.get("display_name") or bench_cfg.get("slug_name") or bench_cfg.get("class")
         if not agent:
-            agent = (
-                agent_cfg.get("display_name")
-                or agent_cfg.get("slug_name")
-                or agent_cfg.get("class")
-            )
+            agent = agent_cfg.get("display_name") or agent_cfg.get("slug_name") or agent_cfg.get("class")
         if not models:
             model_names = agent_cfg.get("model_names")
             if isinstance(model_names, list):
@@ -300,10 +265,7 @@ def _resolve_planned_sessions(
             return config_data.get("num_tasks")
 
         bench_cfg = config_data.get("benchmark")
-        if (
-            isinstance(bench_cfg, dict)
-            and bench_cfg.get("planned_sessions") is not None
-        ):
+        if isinstance(bench_cfg, dict) and bench_cfg.get("planned_sessions") is not None:
             return bench_cfg.get("planned_sessions")
 
         run_cfg = config_data.get("run")
@@ -345,9 +307,7 @@ def _load_run_context(
     config_data = None
     if run_id:
         resolved_output = output_dir or get_settings().output_dir
-        results = load_run_results(
-            str(RunPaths(run_id=run_id, output_dir=resolved_output).results)
-        )
+        results = load_run_results(str(RunPaths(run_id=run_id, output_dir=resolved_output).results))
         config_data = load_run_config(run_id, output_dir=resolved_output)
     run_meta = _resolve_run_meta(
         results,
@@ -418,14 +378,12 @@ def load_session_file(file_path: str, file_type: str) -> Optional[Any]:
         return None
     try:
         if file_type == "log":
-            with open(
-                file_path, "r", encoding="utf-8-sig", errors="replace", newline=""
-            ) as f:
+            with open(file_path, encoding="utf-8-sig", errors="replace", newline="") as f:
                 lines = f.readlines()[-200:]
             return "".join(lines) if lines else "(empty)"
-        with open(file_path, "r", encoding="utf-8-sig") as f:
+        with open(file_path, encoding="utf-8-sig") as f:
             return json.load(f)
-    except (IOError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):
         return None
 
 
@@ -461,7 +419,7 @@ def _load_trajectory_events(path: Path) -> list[dict]:
         return []
     events: list[dict] = []
     try:
-        with open(path, "r", encoding="utf-8-sig") as f:
+        with open(path, encoding="utf-8-sig") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -470,7 +428,7 @@ def _load_trajectory_events(path: Path) -> list[dict]:
                     events.append(json.loads(line))
                 except json.JSONDecodeError:
                     continue
-    except IOError:
+    except OSError:
         return []
     return events
 
@@ -482,9 +440,7 @@ def _build_history_sessions(
     output_dir: Optional[str] = None,
 ) -> dict[str, dict]:
     sessions: dict[str, dict] = {}
-    session_results = (
-        results.get("session_results") if isinstance(results, dict) else None
-    )
+    session_results = results.get("session_results") if isinstance(results, dict) else None
     if isinstance(session_results, list):
         for item in session_results:
             if not isinstance(item, dict):

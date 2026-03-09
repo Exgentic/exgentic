@@ -11,18 +11,15 @@ from exgentic.integrations.litellm.cache import build_litellm_cache
 from exgentic.integrations.litellm.config import configure_litellm
 from exgentic.integrations.litellm.trace_logger import (
     FILE_ENV,
-    TraceLogger,
-    SyncTraceLogger,
     AsyncTraceLogger,
+    SyncTraceLogger,
+    TraceLogger,
 )
 from exgentic.utils.settings import ExgenticSettings, resolve_cache_path
 
 
 def test_resolve_cache_path_uses_base_dir_for_relative_paths() -> None:
-    assert (
-        resolve_cache_path(".exgentic_cache", ".litellm_cache")
-        == ".exgentic_cache/.litellm_cache"
-    )
+    assert resolve_cache_path(".exgentic_cache", ".litellm_cache") == ".exgentic_cache/.litellm_cache"
 
 
 def test_resolve_cache_path_keeps_absolute_paths() -> None:
@@ -89,32 +86,14 @@ def test_configure_litellm_always_registers_trace_logger_callbacks() -> None:
         assert any(isinstance(cb, AsyncTraceLogger) for cb in litellm.success_callback)
         assert any(isinstance(cb, SyncTraceLogger) for cb in litellm.failure_callback)
         assert any(isinstance(cb, AsyncTraceLogger) for cb in litellm.failure_callback)
-        assert (
-            sum(isinstance(cb, SyncTraceLogger) for cb in litellm.success_callback) == 1
-        )
-        assert (
-            sum(isinstance(cb, AsyncTraceLogger) for cb in litellm.success_callback)
-            == 1
-        )
-        assert (
-            sum(isinstance(cb, SyncTraceLogger) for cb in litellm.failure_callback) == 1
-        )
-        assert (
-            sum(isinstance(cb, AsyncTraceLogger) for cb in litellm.failure_callback)
-            == 1
-        )
-        assert any(
-            isinstance(cb, SyncTraceLogger) for cb in litellm._async_success_callback
-        )
-        assert any(
-            isinstance(cb, AsyncTraceLogger) for cb in litellm._async_success_callback
-        )
-        assert any(
-            isinstance(cb, SyncTraceLogger) for cb in litellm._async_failure_callback
-        )
-        assert any(
-            isinstance(cb, AsyncTraceLogger) for cb in litellm._async_failure_callback
-        )
+        assert sum(isinstance(cb, SyncTraceLogger) for cb in litellm.success_callback) == 1
+        assert sum(isinstance(cb, AsyncTraceLogger) for cb in litellm.success_callback) == 1
+        assert sum(isinstance(cb, SyncTraceLogger) for cb in litellm.failure_callback) == 1
+        assert sum(isinstance(cb, AsyncTraceLogger) for cb in litellm.failure_callback) == 1
+        assert any(isinstance(cb, SyncTraceLogger) for cb in litellm._async_success_callback)
+        assert any(isinstance(cb, AsyncTraceLogger) for cb in litellm._async_success_callback)
+        assert any(isinstance(cb, SyncTraceLogger) for cb in litellm._async_failure_callback)
+        assert any(isinstance(cb, AsyncTraceLogger) for cb in litellm._async_failure_callback)
     finally:
         litellm.callbacks = original_callbacks
         litellm.success_callback = original_success
@@ -123,9 +102,7 @@ def test_configure_litellm_always_registers_trace_logger_callbacks() -> None:
         litellm._async_failure_callback = original_async_failure
 
 
-def test_trace_logger_callback_registered_and_writes_by_default(
-    tmp_path, monkeypatch
-) -> None:
+def test_trace_logger_callback_registered_and_writes_by_default(tmp_path, monkeypatch) -> None:
     import litellm
 
     original_callbacks = litellm.callbacks
@@ -146,9 +123,7 @@ def test_trace_logger_callback_registered_and_writes_by_default(
         settings = ExgenticSettings(litellm_caching=False)
         configure_litellm(config=settings.to_litellm_config(), cache_only=False)
 
-        registered = [
-            cb for cb in litellm.success_callback if isinstance(cb, TraceLogger)
-        ]
+        registered = [cb for cb in litellm.success_callback if isinstance(cb, TraceLogger)]
         assert len(registered) == 2
 
         kwargs = {

@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 import requests
-
 from exgentic.integrations.litellm import LitellmProxy
 
 
@@ -39,9 +38,7 @@ def _wait_for_proxy(url: str, timeout: float = 10.0) -> None:
     not (Path(sys.executable).parent / "litellm").exists(),
     reason="litellm CLI not installed in active venv",
 )
-def test_exgentic_proxy_executes_default_trace_callback_and_writes_trace(
-    tmp_path, fake_openai_server
-) -> None:
+def test_exgentic_proxy_executes_default_trace_callback_and_writes_trace(tmp_path, fake_openai_server) -> None:
     backend_port = fake_openai_server.server_address[1]
     backend_base = f"http://127.0.0.1:{backend_port}/v1"
     trace_path = tmp_path / "trace.jsonl"
@@ -79,9 +76,7 @@ def test_exgentic_proxy_executes_default_trace_callback_and_writes_trace(
     not (Path(sys.executable).parent / "litellm").exists(),
     reason="litellm CLI not installed in active venv",
 )
-def test_raw_litellm_proxy_executes_litellm_settings_callbacks_and_writes_trace(
-    tmp_path, fake_openai_server
-) -> None:
+def test_raw_litellm_proxy_executes_litellm_settings_callbacks_and_writes_trace(tmp_path, fake_openai_server) -> None:
     backend_port = fake_openai_server.server_address[1]
     backend_base = f"http://127.0.0.1:{backend_port}/v1"
     proxy_port = _free_port()
@@ -89,9 +84,7 @@ def test_raw_litellm_proxy_executes_litellm_settings_callbacks_and_writes_trace(
     config_path = tmp_path / "litellm_config.json"
 
     callback_path = "exgentic.integrations.litellm.trace_logger.trace_logger"
-    async_callback_path = (
-        "exgentic.integrations.litellm.trace_logger.async_trace_logger"
-    )
+    async_callback_path = "exgentic.integrations.litellm.trace_logger.async_trace_logger"
     config_path.write_text(
         json.dumps(
             {
@@ -128,7 +121,7 @@ def test_raw_litellm_proxy_executes_litellm_settings_callbacks_and_writes_trace(
         ]
     )
 
-    proc = subprocess.Popen(  # noqa: S603
+    proc = subprocess.Popen(
         [
             str(Path(sys.executable).parent / "litellm"),
             "--config",

@@ -3,9 +3,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from dataclasses import dataclass
-
+from pathlib import Path
 
 _WINDOWS_FORBIDDEN = set('<>:"/\\|?*')
 
@@ -35,9 +34,7 @@ class SessionPaths:
     def from_context(cls, ctx) -> SessionPaths:
         if ctx.session_id is None:
             raise ValueError("Context has no session_id")
-        return cls(
-            session_id=ctx.session_id, run_id=ctx.run_id, output_dir=ctx.output_dir
-        )
+        return cls(session_id=ctx.session_id, run_id=ctx.run_id, output_dir=ctx.output_dir)
 
     @property
     def root(self) -> Path:
@@ -163,9 +160,7 @@ class RunPaths:
         return self.run_dir / "executer.log"
 
     def session(self, session_id: str) -> SessionPaths:
-        return SessionPaths(
-            session_id=session_id, run_id=self.run_id, output_dir=self.output_dir
-        )
+        return SessionPaths(session_id=session_id, run_id=self.run_id, output_dir=self.output_dir)
 
 
 # ---------------------------------------------------------------------------

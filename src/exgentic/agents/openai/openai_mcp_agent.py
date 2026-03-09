@@ -3,34 +3,33 @@
 
 import asyncio
 import logging
-from typing import Any, Dict, List, ClassVar
+from typing import Any, ClassVar, Dict, List
 
 import httpx
-from agents.usage import Usage
+from agents import Agent as OpenAIAgent
+from agents import Runner
+from agents.extensions.models.litellm_model import LitellmModel
 from agents.lifecycle import RunHooksBase
+from agents.mcp import MCPServerStreamableHttp, MCPServerStreamableHttpParams
+from agents.model_settings import ModelSettings as OpenAIModelSettings
+from agents.model_settings import Reasoning
+from agents.run import RunConfig
+from agents.usage import Usage
+from pydantic import BaseModel, ConfigDict
 
+from ...adapters.agents.mcp_agent import MCPAgentInstance
+from ...core.agent import Agent
+from ...core.agent_instance import AgentInstance
+from ...core.context import get_context
+from ...core.types import ActionType, ModelSettings, RetryStrategy
+from ...integrations.litellm.health import acheck_model_accessible
 from ...observers.logging import (
     attach_library_logger_to_handler,
     restore_library_logger,
 )
 from ...utils.cost import UpdatableCostReport, litellm_tokens_cost
-from ...utils.sync import run_sync
 from ...utils.settings import get_settings
-from pydantic import BaseModel, ConfigDict
-from ...integrations.litellm.health import acheck_model_accessible
-
-from ...core.types import ActionType, RetryStrategy, ModelSettings
-from ...core.agent import Agent
-from ...core.agent_instance import AgentInstance
-from ...adapters.agents.mcp_agent import MCPAgentInstance
-from ...core.context import get_context
-
-
-from agents import Agent as OpenAIAgent, Runner
-from agents.extensions.models.litellm_model import LitellmModel
-from agents.model_settings import ModelSettings as OpenAIModelSettings, Reasoning
-from agents.mcp import MCPServerStreamableHttp, MCPServerStreamableHttpParams
-from agents.run import RunConfig
+from ...utils.sync import run_sync
 
 settings = get_settings()
 
@@ -68,7 +67,7 @@ class RetryingLitellmModel(LitellmModel):
 
     async def _fetch_response(self, *args, **kwargs):
         # Inject context into metadata for OTEL tracing
-        kwargs.setdefault("metadata", {})["context"] = get_context
+        kwargs.setdefault("metadata", {})["context"] = get_context()
         for attempt in range(self._num_retries + 1):
             try:
                 return await super()._fetch_response(*args, **kwargs)
@@ -86,6 +85,7 @@ class RetryingLitellmModel(LitellmModel):
                 )
                 if delay > 0:
                     await asyncio.sleep(delay)
+        return None
 
 
 class MCPConfig(BaseModel):
@@ -207,9 +207,7 @@ class OpenAIMCPAgentInstance(MCPAgentInstance):
             if self.mcp_config.http_timeout_seconds is not None:
                 mcp_params["timeout"] = self.mcp_config.http_timeout_seconds
             if self.mcp_config.sse_read_timeout_seconds is not None:
-                mcp_params[
-                    "sse_read_timeout"
-                ] = self.mcp_config.sse_read_timeout_seconds
+                mcp_params["sse_read_timeout"] = self.mcp_config.sse_read_timeout_seconds
 
             async with MCPServerStreamableHttp(
                 params=MCPServerStreamableHttpParams(**mcp_params),
@@ -227,11 +225,7 @@ class OpenAIMCPAgentInstance(MCPAgentInstance):
                     temperature=temperature if temperature is not None else 1.0,
                     max_tokens=self.model_settings.max_tokens,
                     top_p=self.model_settings.top_p,
-                    reasoning=(
-                        Reasoning(effort=reasoning_effort)
-                        if reasoning_effort is not None
-                        else None
-                    ),
+                    reasoning=(Reasoning(effort=reasoning_effort) if reasoning_effort is not None else None),
                 )
                 num_retries = self.model_settings.num_retries or 0
                 retry_after = self.model_settings.retry_after
@@ -303,14 +297,11 @@ class OpenAIMCPAgentInstance(MCPAgentInstance):
         prompt += (
             "Complete this task using the available tools. Each tool corresponds to an action "
             "you can take in the environment. Do not respond or ask clarification questions "
-            "unless done through a dedicated tool, and only if such tool exist. Any plain message that is not a tool call "
-            "will end the run in failure.\n"
+            "unless done through a dedicated tool, and only if such tool exist. "
+            "Any plain message that is not a tool call will end the run in failure.\n"
         )
 
-        if (
-            self.initial_observation is not None
-            and not self.initial_observation.is_empty()
-        ):
+        if self.initial_observation is not None and not self.initial_observation.is_empty():
             text = str(self.initial_observation).strip()
             if text:
                 prompt += f"\nFirst Observation: {text}\n"

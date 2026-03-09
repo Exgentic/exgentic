@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, ClassVar, Dict, List
+from typing import Any, ClassVar
 
 from exgentic.core.benchmark import Benchmark
 from exgentic.core.session import Session
@@ -16,14 +16,15 @@ from exgentic.core.types import (
     SessionScore,
     SingleObservation,
 )
+from pydantic import Field
 
 from .test_agent import (
-    GOOD_ACTION_TYPE,
     BAD_ACTION_TYPE,
     FINISH_ACTION_TYPE,
-    GoodAction,
+    GOOD_ACTION_TYPE,
     BadAction,
     FinishAction,
+    GoodAction,
 )
 
 
@@ -32,11 +33,11 @@ class TestBenchmark(Benchmark):
     display_name: ClassVar[str] = "Test Benchmark"
     slug_name: ClassVar[str] = "test_benchmark"
 
-    tasks: List[str] = ["task-1", "task-2", "task-3"]
+    tasks: list[str] = Field(default_factory=lambda: ["task-1", "task-2", "task-3"])
     stop_on_step: bool = False
     invalid_observation: bool = False
 
-    def list_tasks(self) -> List[str]:
+    def list_tasks(self) -> list[str]:
         return list(self.tasks)
 
     def create_session(self, index: SessionIndex) -> Session:
@@ -46,8 +47,8 @@ class TestBenchmark(Benchmark):
             invalid_observation=self.invalid_observation,
         )
 
-    def aggregate_sessions(self, sessions: List[SessionIndex]) -> BenchmarkResults:
-        scores: List[float] = []
+    def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
+        scores: list[float] = []
         for paths in self.get_sessions_paths(sessions):
             if not paths.results.exists():
                 continue
@@ -95,11 +96,11 @@ class TestSession(Session):
         return f"Task {self._task_id}"
 
     @property
-    def context(self) -> Dict[str, Any]:
+    def context(self) -> dict[str, Any]:
         return {"task_id": self._task_id}
 
     @property
-    def actions(self) -> List[ActionType]:
+    def actions(self) -> list[ActionType]:
         return [GOOD_ACTION_TYPE, BAD_ACTION_TYPE, FINISH_ACTION_TYPE]
 
     def start(self) -> SingleObservation:
@@ -137,7 +138,7 @@ class TestSession(Session):
         self.save_standard_results(result)
         return result
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         return {
             "task_id": self._task_id,
             "stop_on_step": self._stop_on_step,

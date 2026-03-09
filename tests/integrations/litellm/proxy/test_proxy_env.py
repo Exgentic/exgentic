@@ -27,15 +27,9 @@ def test_proxy_passes_context_env(monkeypatch):
         captured["env"] = kwargs.get("env", {})
         return _DummyProc()
 
-    monkeypatch.setattr(
-        "exgentic.integrations.litellm.proxy.subprocess.Popen", _fake_popen
-    )
-    monkeypatch.setattr(
-        "exgentic.integrations.litellm.proxy._is_port_open", lambda *_a, **_k: True
-    )
-    monkeypatch.setattr(
-        "exgentic.integrations.litellm.proxy._is_proxy_ready", lambda *_a, **_k: True
-    )
+    monkeypatch.setattr("exgentic.integrations.litellm.proxy.subprocess.Popen", _fake_popen)
+    monkeypatch.setattr("exgentic.integrations.litellm.proxy._is_port_open", lambda *_a, **_k: True)
+    monkeypatch.setattr("exgentic.integrations.litellm.proxy._is_proxy_ready", lambda *_a, **_k: True)
 
     ctx = Context(run_id="run-proxy", output_dir="/tmp/out", cache_dir="/tmp/cache")
     set_context(ctx)

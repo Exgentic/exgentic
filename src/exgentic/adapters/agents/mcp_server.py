@@ -58,11 +58,13 @@ class MCPServer:
             str(self._mcp_log_dir / "server.log"),
         )
         ts = self._mcp.settings.transport_security
-        ts.allowed_hosts = list(ts.allowed_hosts) + [
+        ts.allowed_hosts = [
+            *ts.allowed_hosts,
             "host.containers.internal:*",
             "host.docker.internal:*",
         ]
-        ts.allowed_origins = list(ts.allowed_origins) + [
+        ts.allowed_origins = [
+            *ts.allowed_origins,
             "http://host.containers.internal:*",
             "http://host.docker.internal:*",
         ]
@@ -191,9 +193,7 @@ class MCPServer:
         t.start()
 
         if not self._started.wait(timeout=timeout):
-            raise RuntimeError(
-                "MCP uvicorn thread did not signal startup within timeout."
-            )
+            raise RuntimeError("MCP uvicorn thread did not signal startup within timeout.")
 
         try:
             started_at = time.time()
@@ -272,9 +272,7 @@ class MCPServer:
         try:
             sock = self._sock
             if sock is not None:
-                self._server_logger.info(
-                    "Using pre-bound socket on %s:%s", self._host, self.port
-                )
+                self._server_logger.info("Using pre-bound socket on %s:%s", self._host, self.port)
                 server.run(sockets=[sock])
             else:
                 server.run()
@@ -325,10 +323,7 @@ def wait_for_tcp(host: str, port: int, timeout: float = 60.0) -> None:
         except Exception as e:
             last_err = e
             time.sleep(0.1)
-    raise TimeoutError(
-        f"Server at {host}:{port} did not open TCP port within {timeout}s. "
-        f"Last error: {last_err!r}"
-    )
+    raise TimeoutError(f"Server at {host}:{port} did not open TCP port within {timeout}s. " f"Last error: {last_err!r}")
 
 
 async def wait_for_mcp_ping_async(host: str, port: int, timeout: float = 60.0) -> None:
@@ -353,7 +348,4 @@ async def wait_for_mcp_ping_async(host: str, port: int, timeout: float = 60.0) -
             last_err = e
             await asyncio.sleep(0.1)
 
-    raise TimeoutError(
-        f"MCP ping at {host}:{port} failed within {timeout}s. "
-        f"Last error: {last_err!r}"
-    )
+    raise TimeoutError(f"MCP ping at {host}:{port} failed within {timeout}s. " f"Last error: {last_err!r}")

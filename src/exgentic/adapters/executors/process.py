@@ -1,9 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-"""
-Generic Process Manager
-======================
+"""Generic Process Manager.
 
 Run code in isolated child processes with simple RPC communication.
 
@@ -35,7 +33,7 @@ Example:
 """
 
 from abc import ABC, abstractmethod
-from multiprocessing import Process, Pipe
+from multiprocessing import Pipe, Process
 from multiprocessing.connection import Connection
 from typing import Any, Dict, Optional
 
@@ -53,9 +51,7 @@ class ProcessWorker(ABC):
         return None
 
     @abstractmethod
-    def handle_operation(
-        self, operation: str, params: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    def handle_operation(self, operation: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Handle an operation request."""
         pass
 

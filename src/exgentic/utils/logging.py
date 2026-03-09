@@ -25,8 +25,8 @@ def hook_loggers_into_session(
     logger_names: list[str],
     level: int = logging.INFO,
 ) -> None:
-    """
-    Redirect logs from the given logger names into session_logger.
+    """Redirect logs from the given logger names into session_logger.
+
     Each line will be prefixed with [logger_name].
     """
     handler = SessionLogHandler(session_logger)
@@ -72,8 +72,8 @@ def capture_stdio_to_session(
     stdout_level: int = logging.INFO,
     stderr_level: int = logging.WARNING,
 ):
-    """
-    Redirect sys.stdout and sys.stderr into session_logger.
+    """Redirect sys.stdout and sys.stderr into session_logger.
+
     Lines from stdout are prefixed with [stdout], from stderr with [stderr].
     """
     old_stdout, old_stderr = sys.stdout, sys.stderr

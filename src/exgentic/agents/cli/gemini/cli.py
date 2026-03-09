@@ -5,7 +5,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
+
 from ..base import BaseCLIConfig, BaseCLIWrapper, ExecutionBackend
 
 
@@ -16,8 +17,8 @@ class GeminiCLIConfig(BaseCLIConfig):
     server_name: str = "environment"
     output_format: str = "text"
     approval_mode: str = "yolo"
-    allowed_mcp_server_names: Optional[List[str]] = None
-    allowed_tools: Optional[List[str]] = None
+    allowed_mcp_server_names: Optional[list[str]] = None
+    allowed_tools: Optional[list[str]] = None
 
 
 class GeminiCLI(BaseCLIWrapper):
@@ -25,7 +26,7 @@ class GeminiCLI(BaseCLIWrapper):
 
     def __init__(
         self,
-        env: Optional[Dict[str, str]] = None,
+        env: Optional[dict[str, str]] = None,
         log_path: Optional[Path] = None,
         config_dir: Optional[Path] = None,
         logger=None,
@@ -44,24 +45,18 @@ class GeminiCLI(BaseCLIWrapper):
 
     # Required hooks --------------------------------------------------
 
-    def build_env(
-        self, *, cfg_root: Path, prompt: str, config: GeminiCLIConfig
-    ) -> Dict[str, str]:
+    def build_env(self, *, cfg_root: Path, prompt: str, config: GeminiCLIConfig) -> dict[str, str]:
         env = self.env.copy()
         env["GOOGLE_GEMINI_BASE_URL"] = config.provider_url
 
-        api_key = (
-            env.get(config.env_key) or env.get("GEMINI_API_KEY") or "dummy-api-key"
-        )
+        api_key = env.get(config.env_key) or env.get("GEMINI_API_KEY") or "dummy-api-key"
         env[config.env_key] = api_key
         env["GEMINI_API_KEY"] = api_key
 
         env["HOME"] = str(cfg_root)
         return env
 
-    def build_command(
-        self, *, cfg_root: Path, prompt: str, config: GeminiCLIConfig
-    ) -> List[str]:
+    def build_command(self, *, cfg_root: Path, prompt: str, config: GeminiCLIConfig) -> list[str]:
         gemini_cfg_dir = cfg_root / ".gemini"
         settings_path = gemini_cfg_dir / "settings.json"
         self._settings_path = settings_path
@@ -70,7 +65,7 @@ class GeminiCLI(BaseCLIWrapper):
         mcp_url = f"http://{config.mcp_host}:{config.mcp_port}/mcp"
         self._ensure_settings(settings_path, config.server_name, mcp_url)
 
-        cmd: List[str] = [
+        cmd: list[str] = [
             "gemini",
             "--model",
             config.gemini_model,
@@ -88,13 +83,11 @@ class GeminiCLI(BaseCLIWrapper):
 
     # Internal helpers -------------------------------------------------
 
-    def _ensure_settings(
-        self, settings_path: Path, server_name: str, mcp_url: str
-    ) -> None:
-        settings: Dict[str, object] = {}
+    def _ensure_settings(self, settings_path: Path, server_name: str, mcp_url: str) -> None:
+        settings: dict[str, object] = {}
         if settings_path.exists():
             try:
-                with open(settings_path, "r", encoding="utf-8-sig") as fh:
+                with open(settings_path, encoding="utf-8-sig") as fh:
                     settings = json.load(fh)
             except Exception:
                 settings = {}

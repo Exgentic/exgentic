@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import rich_click as click
 
-from .commands.batch import batch_cmd
 from .commands.analyze import analyse_cmd
+from .commands.batch import batch_cmd
 from .commands.compare import compare_cmd
 from .commands.dashboard import dashboard_cmd
 from .commands.evaluate import evaluate_cmd

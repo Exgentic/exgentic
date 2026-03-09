@@ -8,28 +8,28 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from ...core.types import (
-    Action,
-    BenchmarkResults,
-    Observation,
-    RunResults,
-    RunStatus,
-    SessionOutcomeStatus,
-    SessionScore,
-    SessionExecutionStatus,
-    SessionResults,
-)
 from ...core.orchestrator.observer import Observer
 from ...core.orchestrator.termination import (
     AgentError,
     BenchmarkError,
     InvalidActionError,
     InvalidObservationError,
-    RunCancel,
-    SessionCancel,
+    RunCancelError,
+    SessionCancelError,
+)
+from ...core.types import (
+    Action,
+    BenchmarkResults,
+    Observation,
+    RunResults,
+    RunStatus,
+    SessionExecutionStatus,
+    SessionOutcomeStatus,
+    SessionResults,
+    SessionScore,
 )
 from ...interfaces.registry import get_agent_entries, get_benchmark_entries
-from ...utils.cost import accumulate_reports, CostReport
+from ...utils.cost import CostReport, accumulate_reports
 from .session_ledger import SessionLedger
 
 
@@ -82,15 +82,12 @@ class ResultsObserver(Observer):
         if observation is not None and not isinstance(observation, Observation):
             self._set_reason(
                 session,
-                "terminated by illegal observation returned from session: "
-                f"{observation}",
+                "terminated by illegal observation returned from session: " f"{observation}",
             )
             return
         self._record_observation(session, observation)
         if observation is None:
-            self._set_reason(
-                session, "ended by agent (session returned None observation)"
-            )
+            self._set_reason(session, "ended by agent (session returned None observation)")
 
     def on_react_error(self, session, error) -> None:
         if isinstance(error, InvalidActionError):
@@ -105,8 +102,7 @@ class ResultsObserver(Observer):
         if isinstance(error, InvalidObservationError):
             self._set_reason(
                 session,
-                "terminated by illegal observation returned from session: "
-                f"{error.observation}",
+                "terminated by illegal observation returned from session: " f"{error.observation}",
             )
         else:
             self._set_reason(session, "terminated by session exception")
@@ -117,7 +113,7 @@ class ResultsObserver(Observer):
             error_source = "agent"
         elif isinstance(error, BenchmarkError):
             error_source = "benchmark"
-        if isinstance(error, (SessionCancel, RunCancel, KeyboardInterrupt)):
+        if isinstance(error, (SessionCancelError, RunCancelError, KeyboardInterrupt)):
             self._set_reason(session, "cancelled by user")
             error_source = "cancelled"
         else:
@@ -125,9 +121,7 @@ class ResultsObserver(Observer):
                 session,
                 "terminated by unexpected exception (see console)",
             )
-        root_error = (
-            error.error if isinstance(error, (AgentError, BenchmarkError)) else None
-        )
+        root_error = error.error if isinstance(error, (AgentError, BenchmarkError)) else None
         error_message = str(root_error) if root_error else str(error)
         session_metadata = {"error": error_message}
         if error_source is not None:
@@ -216,11 +210,7 @@ class ResultsObserver(Observer):
         agent_cost, benchmark_cost = self._get_cost_snapshot(session_id, session)
         traj_path = session.paths.trajectory
         traj_path.parent.mkdir(parents=True, exist_ok=True)
-        payload = (
-            json.loads(observation.model_dump_json())
-            if observation is not None
-            else None
-        )
+        payload = json.loads(observation.model_dump_json()) if observation is not None else None
         event = {
             "event": "observation",
             "run_id": self._run_id,
@@ -249,9 +239,7 @@ class ResultsObserver(Observer):
         success = bool(score.success)
         value = score.score
         is_finished = score.is_finished
-        agent_cost_report = (
-            agent.get_cost() if agent is not None else CostReport.initialize_empty()
-        )
+        agent_cost_report = agent.get_cost() if agent is not None else CostReport.initialize_empty()
         benchmark_cost_report = session.get_cost()
         status = self._resolve_session_status(score)
         tr = SessionResults(
@@ -305,29 +293,17 @@ class ResultsObserver(Observer):
         if score.session_metadata.get("error"):
             return SessionOutcomeStatus.ERROR
         if score.is_finished is True:
-            return (
-                SessionOutcomeStatus.SUCCESS
-                if score.success
-                else SessionOutcomeStatus.UNSUCCESSFUL
-            )
+            return SessionOutcomeStatus.SUCCESS if score.success else SessionOutcomeStatus.UNSUCCESSFUL
         if score.is_finished is False:
             return SessionOutcomeStatus.UNFINISHED
-        return (
-            SessionOutcomeStatus.ERROR
-            if not score.success
-            else SessionOutcomeStatus.UNKNOWN
-        )
+        return SessionOutcomeStatus.ERROR if not score.success else SessionOutcomeStatus.UNKNOWN
 
     def _write_run_results(self) -> RunResults:
         rp = self.paths
         with self._lock:
             results_snapshot = list(self._session_results)
             run_config = self._run_config
-            bench_results_obj = (
-                self._final_results
-                if isinstance(self._final_results, BenchmarkResults)
-                else None
-            )
+            bench_results_obj = self._final_results if isinstance(self._final_results, BenchmarkResults) else None
         if run_config is None:
             raise RuntimeError("Run config not recorded in results observer.")
 
@@ -347,26 +323,10 @@ class ResultsObserver(Observer):
         missing_result_files = None
 
         if status is not None:
-            completed = [
-                s
-                for s in status.session_statuses
-                if s.status == SessionExecutionStatus.COMPLETED
-            ]
-            incomplete = [
-                s
-                for s in status.session_statuses
-                if s.status == SessionExecutionStatus.INCOMPLETE
-            ]
-            missing = [
-                s
-                for s in status.session_statuses
-                if s.status == SessionExecutionStatus.MISSING
-            ]
-            running = [
-                s
-                for s in status.session_statuses
-                if s.status == SessionExecutionStatus.RUNNING
-            ]
+            completed = [s for s in status.session_statuses if s.status == SessionExecutionStatus.COMPLETED]
+            incomplete = [s for s in status.session_statuses if s.status == SessionExecutionStatus.INCOMPLETE]
+            missing = [s for s in status.session_statuses if s.status == SessionExecutionStatus.MISSING]
+            running = [s for s in status.session_statuses if s.status == SessionExecutionStatus.RUNNING]
             completed_sessions = len(completed)
             incomplete_sessions = len(incomplete)
             missing_sessions = len(missing)
@@ -387,48 +347,29 @@ class ResultsObserver(Observer):
                 planned_task_ids = planned_task_ids[: int(run_config.num_tasks)]
             planned_sessions = len(planned_task_ids)
             planned_session_ids = [
-                run_config.to_session_config(task_id).get_session_id()
-                for task_id in planned_task_ids
+                run_config.to_session_config(task_id).get_session_id() for task_id in planned_task_ids
             ]
         elif run_config.num_tasks is not None:
             planned_sessions = int(run_config.num_tasks)
         if planned_sessions is None:
             planned_sessions = total_sessions
         successful_sessions = sum(1 for r in results_snapshot if r.success)
-        percent_successful = (
-            successful_sessions / total_sessions if total_sessions else None
-        )
+        percent_successful = successful_sessions / total_sessions if total_sessions else None
         scores = [r.score for r in results_snapshot if r.score is not None]
         average_score = (sum(scores) / len(scores)) if scores else None
 
-        finished_successful = sum(
-            1 for r in results_snapshot if r.is_finished is True and bool(r.success)
-        )
-        finished_unsuccessful = sum(
-            1 for r in results_snapshot if r.is_finished is True and not bool(r.success)
-        )
+        finished_successful = sum(1 for r in results_snapshot if r.is_finished is True and bool(r.success))
+        finished_unsuccessful = sum(1 for r in results_snapshot if r.is_finished is True and not bool(r.success))
         unfinished = sum(1 for r in results_snapshot if r.is_finished is False)
         errored = sum(1 for r in results_snapshot if r.is_finished is None)
-        percent_finished_successful = (
-            finished_successful / total_sessions if total_sessions else None
-        )
-        percent_finished_unsuccessful = (
-            finished_unsuccessful / total_sessions if total_sessions else None
-        )
+        percent_finished_successful = finished_successful / total_sessions if total_sessions else None
+        percent_finished_unsuccessful = finished_unsuccessful / total_sessions if total_sessions else None
         percent_unfinished = unfinished / total_sessions if total_sessions else None
         percent_error = errored / total_sessions if total_sessions else None
-        percent_finished = (
-            (finished_successful + finished_unsuccessful) / total_sessions
-            if total_sessions
-            else None
-        )
+        percent_finished = (finished_successful + finished_unsuccessful) / total_sessions if total_sessions else None
 
-        total_agent_cost = (
-            sum(r.agent_cost for r in results_snapshot) if total_sessions else 0.0
-        )
-        total_benchmark_cost = (
-            sum(r.benchmark_cost for r in results_snapshot) if total_sessions else 0.0
-        )
+        total_agent_cost = sum(r.agent_cost for r in results_snapshot) if total_sessions else 0.0
+        total_benchmark_cost = sum(r.benchmark_cost for r in results_snapshot) if total_sessions else 0.0
         total_run_cost = total_agent_cost + total_benchmark_cost
         if results_snapshot:
             agent_reports = [r.cost_reports["agent"] for r in results_snapshot]
@@ -448,38 +389,24 @@ class ResultsObserver(Observer):
         else:
             accumulated_agent_report = CostReport.initialize_empty()
             accumulated_benchmark_report = CostReport.initialize_empty()
-        average_agent_cost = (
-            (total_agent_cost / total_sessions) if total_sessions else None
-        )
-        average_benchmark_cost = (
-            (total_benchmark_cost / total_sessions) if total_sessions else None
-        )
+        average_agent_cost = (total_agent_cost / total_sessions) if total_sessions else None
+        average_benchmark_cost = (total_benchmark_cost / total_sessions) if total_sessions else None
 
         steps = [tr.steps for tr in results_snapshot]
         avg_steps = sum(steps) / len(steps) if steps else None
         action_counts = [tr.action_count for tr in results_snapshot]
-        avg_action_count = (
-            sum(action_counts) / len(action_counts) if action_counts else None
-        )
+        avg_action_count = sum(action_counts) / len(action_counts) if action_counts else None
         invalid_action_counts = [tr.invalid_action_count for tr in results_snapshot]
         avg_invalid_action_count = (
-            sum(invalid_action_counts) / len(invalid_action_counts)
-            if invalid_action_counts
-            else None
+            sum(invalid_action_counts) / len(invalid_action_counts) if invalid_action_counts else None
         )
         total_action_count = sum(action_counts) if action_counts else 0
-        total_invalid_action_count = (
-            sum(invalid_action_counts) if invalid_action_counts else 0
-        )
+        total_invalid_action_count = sum(invalid_action_counts) if invalid_action_counts else 0
         avg_invalid_action_percent = (
-            (total_invalid_action_count / total_action_count * 100)
-            if total_action_count
-            else None
+            (total_invalid_action_count / total_action_count * 100) if total_action_count else None
         )
 
-        bench_score: Optional[float] = (
-            bench_results_obj.score if bench_results_obj is not None else None
-        )
+        bench_score: Optional[float] = bench_results_obj.score if bench_results_obj is not None else None
 
         model_name = run_config.model or (run_config.agent_kwargs or {}).get("model")
         model_names = [str(model_name)] if model_name else None
@@ -495,14 +422,8 @@ class ResultsObserver(Observer):
 
         bench_entry = get_benchmark_entries().get(run_config.benchmark)
         agent_entry = get_agent_entries().get(run_config.agent)
-        bench_name = (
-            bench_entry.display_name
-            if bench_entry is not None
-            else run_config.benchmark
-        )
-        agent_name = (
-            agent_entry.display_name if agent_entry is not None else run_config.agent
-        )
+        bench_name = bench_entry.display_name if bench_entry is not None else run_config.benchmark
+        agent_name = agent_entry.display_name if agent_entry is not None else run_config.agent
 
         results_obj = RunResults(
             benchmark_name=str(bench_name),
@@ -511,9 +432,7 @@ class ResultsObserver(Observer):
             agent_slug_name=str(run_config.agent),
             model_name=str(model_name) if model_name is not None else None,
             model_names=model_names,
-            subset_name=str(run_config.subset)
-            if run_config.subset is not None
-            else None,
+            subset_name=str(run_config.subset) if run_config.subset is not None else None,
             total_sessions=total_sessions,
             planned_sessions=planned_sessions,
             planned_session_ids=planned_session_ids,
@@ -521,11 +440,7 @@ class ResultsObserver(Observer):
             max_workers=max_workers,
             successful_sessions=successful_sessions,
             benchmark_score=bench_score,
-            benchmark_results=(
-                bench_results_obj.model_dump()
-                if bench_results_obj is not None
-                else None
-            ),
+            benchmark_results=(bench_results_obj.model_dump() if bench_results_obj is not None else None),
             average_score=average_score,
             average_agent_cost=average_agent_cost,
             total_agent_cost=total_agent_cost,

@@ -23,9 +23,7 @@ def test_aggregate_logs_missing_results_and_records_ids(tmp_path):
 
     missing_session_id = config.to_session_config("task-1").get_session_id()
     kept_session_id = config.to_session_config("task-2").get_session_id()
-    missing_results = (
-        output_dir / run_id / "sessions" / missing_session_id / "results.json"
-    )
+    missing_results = output_dir / run_id / "sessions" / missing_session_id / "results.json"
     assert missing_results.exists()
     missing_results.unlink()
 

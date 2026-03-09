@@ -4,9 +4,8 @@
 from __future__ import annotations
 
 import pytest
-
-from exgentic.core.context import Context, set_context
 from exgentic.adapters.executors.executer import RemoteProcessExecuter
+from exgentic.core.context import Context, set_context
 
 
 class _ContextEcho:

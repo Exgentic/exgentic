@@ -7,10 +7,10 @@ import inspect
 import json
 import subprocess
 from importlib import resources
-from typing import Any, Dict, List
+from typing import Any
 
-from ...core.benchmark import Benchmark
 from ...core.agent import Agent
+from ...core.benchmark import Benchmark
 from ...core.orchestrator.run import (
     core_aggregate,
     core_evaluate,
@@ -27,39 +27,27 @@ from ..registry import (
 )
 
 
-def list_benchmarks() -> List[Dict[str, Any]]:
+def list_benchmarks() -> list[dict[str, Any]]:
     entries = get_benchmark_entries()
-    return [
-        {"slug_name": slug, "display_name": entry.display_name}
-        for slug, entry in sorted(entries.items())
-    ]
+    return [{"slug_name": slug, "display_name": entry.display_name} for slug, entry in sorted(entries.items())]
 
 
-def list_agents() -> List[Dict[str, Any]]:
+def list_agents() -> list[dict[str, Any]]:
     entries = get_agent_entries()
-    return [
-        {"slug_name": slug, "display_name": entry.display_name}
-        for slug, entry in sorted(entries.items())
-    ]
+    return [{"slug_name": slug, "display_name": entry.display_name} for slug, entry in sorted(entries.items())]
 
 
 def load_benchmark_class(benchmark: str) -> type[Benchmark]:
     entries = get_benchmark_entries()
     if benchmark not in entries:
-        raise ValueError(
-            f"Unknown benchmark slug '{benchmark}'. "
-            f"Available: {', '.join(sorted(entries.keys()))}"
-        )
+        raise ValueError(f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(entries.keys()))}")
     return load_benchmark(benchmark)
 
 
 def load_agent_class(agent: str) -> type[Agent]:
     entries = get_agent_entries()
     if agent not in entries:
-        raise ValueError(
-            f"Unknown agent slug '{agent}'. "
-            f"Available: {', '.join(sorted(entries.keys()))}"
-        )
+        raise ValueError(f"Unknown agent slug '{agent}'. " f"Available: {', '.join(sorted(entries.keys()))}")
     return load_agent(agent)
 
 
@@ -85,7 +73,7 @@ def _normalize_run_config(
     benchmark: str | Benchmark | None,
     agent: str | Agent | None,
     subset: str | None,
-    task_ids: List[str] | None,
+    task_ids: list[str] | None,
     num_tasks: int | None,
     output_dir: str,
     cache_dir: str | None,
@@ -95,8 +83,8 @@ def _normalize_run_config(
     max_steps: int,
     max_actions: int,
     overwrite_sessions: bool,
-    benchmark_kwargs: Dict[str, Any] | None,
-    agent_kwargs: Dict[str, Any] | None,
+    benchmark_kwargs: dict[str, Any] | None,
+    agent_kwargs: dict[str, Any] | None,
 ) -> RunConfig:
     if config is not None:
         if (
@@ -129,7 +117,7 @@ def _normalize_run_config(
         raise ValueError("benchmark and agent are required.")
 
     bench_slug: str
-    bench_kwargs: Dict[str, Any]
+    bench_kwargs: dict[str, Any]
     if isinstance(benchmark, Benchmark):
         if benchmark_kwargs is not None or subset is not None:
             raise ValueError("Do not pass benchmark args with a benchmark instance.")
@@ -141,7 +129,7 @@ def _normalize_run_config(
         bench_kwargs = dict(benchmark_kwargs or {})
 
     agent_slug: str
-    agent_cfg: Dict[str, Any]
+    agent_cfg: dict[str, Any]
     if isinstance(agent, Agent):
         if agent_kwargs is not None or model is not None:
             raise ValueError("Do not pass agent args with an agent instance.")
@@ -176,7 +164,7 @@ def evaluate(
     benchmark: str | Benchmark | None = None,
     agent: str | Agent | None = None,
     subset: str | None = None,
-    task_ids: List[str] | None = None,
+    task_ids: list[str] | None = None,
     num_tasks: int | None = None,
     output_dir: str = "./outputs",
     cache_dir: str | None = None,
@@ -186,8 +174,8 @@ def evaluate(
     max_steps: int = 100,
     max_actions: int = 100,
     overwrite_sessions: bool = False,
-    benchmark_kwargs: Dict[str, Any] | None = None,
-    agent_kwargs: Dict[str, Any] | None = None,
+    benchmark_kwargs: dict[str, Any] | None = None,
+    agent_kwargs: dict[str, Any] | None = None,
     observers: list[Any] | None = None,
     controllers: list[Any] | None = None,
 ) -> RunResults:
@@ -254,7 +242,7 @@ def execute(
     benchmark: str | Benchmark | None = None,
     agent: str | Agent | None = None,
     subset: str | None = None,
-    task_ids: List[str] | None = None,
+    task_ids: list[str] | None = None,
     num_tasks: int | None = None,
     output_dir: str = "./outputs",
     cache_dir: str | None = None,
@@ -264,8 +252,8 @@ def execute(
     max_steps: int = 100,
     max_actions: int = 100,
     overwrite_sessions: bool = False,
-    benchmark_kwargs: Dict[str, Any] | None = None,
-    agent_kwargs: Dict[str, Any] | None = None,
+    benchmark_kwargs: dict[str, Any] | None = None,
+    agent_kwargs: dict[str, Any] | None = None,
     observers: list[Any] | None = None,
     controllers: list[Any] | None = None,
 ) -> RunResults:
@@ -332,7 +320,7 @@ def aggregate(
     benchmark: str | Benchmark | None = None,
     agent: str | Agent | None = None,
     subset: str | None = None,
-    task_ids: List[str] | None = None,
+    task_ids: list[str] | None = None,
     num_tasks: int | None = None,
     output_dir: str = "./outputs",
     cache_dir: str | None = None,
@@ -342,8 +330,8 @@ def aggregate(
     max_steps: int = 100,
     max_actions: int = 100,
     overwrite_sessions: bool = False,
-    benchmark_kwargs: Dict[str, Any] | None = None,
-    agent_kwargs: Dict[str, Any] | None = None,
+    benchmark_kwargs: dict[str, Any] | None = None,
+    agent_kwargs: dict[str, Any] | None = None,
     observers: list[Any] | None = None,
     controllers: list[Any] | None = None,
 ) -> RunResults:
@@ -410,7 +398,7 @@ def status(
     benchmark: str | Benchmark | None = None,
     agent: str | Agent | None = None,
     subset: str | None = None,
-    task_ids: List[str] | None = None,
+    task_ids: list[str] | None = None,
     num_tasks: int | None = None,
     output_dir: str = "./outputs",
     cache_dir: str | None = None,
@@ -420,8 +408,8 @@ def status(
     max_steps: int = 100,
     max_actions: int = 100,
     overwrite_sessions: bool = False,
-    benchmark_kwargs: Dict[str, Any] | None = None,
-    agent_kwargs: Dict[str, Any] | None = None,
+    benchmark_kwargs: dict[str, Any] | None = None,
+    agent_kwargs: dict[str, Any] | None = None,
 ) -> RunStatus:
     run_config = _normalize_run_config(
         config,
@@ -453,8 +441,8 @@ def preview(config: RunConfig) -> RunPlan:
 
 
 def results(config: RunConfig) -> RunResults:
-    from ...utils.paths import RunPaths
     from ...core.context import get_context
+    from ...utils.paths import RunPaths
 
     with config.get_context():
         results_path = RunPaths.from_context(get_context()).results
@@ -464,14 +452,11 @@ def results(config: RunConfig) -> RunResults:
         return RunResults.model_validate(payload)
 
 
-def get_benchmark_info(benchmark: str) -> Dict[str, Any]:
+def get_benchmark_info(benchmark: str) -> dict[str, Any]:
     entries = get_benchmark_entries()
     entry = entries.get(benchmark)
     if entry is None:
-        raise ValueError(
-            f"Unknown benchmark slug '{benchmark}'. "
-            f"Available: {', '.join(sorted(entries.keys()))}"
-        )
+        raise ValueError(f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(entries.keys()))}")
     bench_cls = load_benchmark_class(benchmark)
     return {
         "slug_name": entry.slug_name,
@@ -484,14 +469,11 @@ def get_benchmark_info(benchmark: str) -> Dict[str, Any]:
     }
 
 
-def get_agent_info(agent: str) -> Dict[str, Any]:
+def get_agent_info(agent: str) -> dict[str, Any]:
     entries = get_agent_entries()
     entry = entries.get(agent)
     if entry is None:
-        raise ValueError(
-            f"Unknown agent slug '{agent}'. "
-            f"Available: {', '.join(sorted(entries.keys()))}"
-        )
+        raise ValueError(f"Unknown agent slug '{agent}'. " f"Available: {', '.join(sorted(entries.keys()))}")
     agent_cls = load_agent_class(agent)
     return {
         "slug_name": entry.slug_name,
@@ -500,12 +482,11 @@ def get_agent_info(agent: str) -> Dict[str, Any]:
     }
 
 
-def list_subsets(benchmark: str) -> List[str]:
+def list_subsets(benchmark: str) -> list[str]:
     benchmark_entries = get_benchmark_entries()
     if benchmark not in benchmark_entries:
         raise ValueError(
-            f"Unknown benchmark slug '{benchmark}'. "
-            f"Available: {', '.join(sorted(benchmark_entries.keys()))}"
+            f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(benchmark_entries.keys()))}"
         )
     return get_benchmark_subsets(benchmark)
 
@@ -514,13 +495,12 @@ def list_tasks(
     *,
     benchmark: str,
     subset: str | None = None,
-    benchmark_kwargs: Dict[str, Any] | None = None,
-) -> List[str]:
+    benchmark_kwargs: dict[str, Any] | None = None,
+) -> list[str]:
     benchmark_entries = get_benchmark_entries()
     if benchmark not in benchmark_entries:
         raise ValueError(
-            f"Unknown benchmark slug '{benchmark}'. "
-            f"Available: {', '.join(sorted(benchmark_entries.keys()))}"
+            f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(benchmark_entries.keys()))}"
         )
     bench_kwargs = dict(benchmark_kwargs or {})
     if subset is not None:
@@ -540,10 +520,7 @@ def get_setup_script_path(benchmark: str) -> str:
     entries = get_benchmark_entries()
     entry = entries.get(benchmark)
     if entry is None:
-        raise ValueError(
-            f"Unknown benchmark slug '{benchmark}'. "
-            f"Available: {', '.join(sorted(entries.keys()))}"
-        )
+        raise ValueError(f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(entries.keys()))}")
     parts = entry.module.split(".")
     if len(parts) < 3:
         raise ValueError(f"Invalid module path for benchmark '{benchmark}'.")
@@ -551,9 +528,7 @@ def get_setup_script_path(benchmark: str) -> str:
     try:
         setup_path = resources.files(package) / "setup.sh"
     except Exception as exc:
-        raise ValueError(
-            f"Unable to locate setup.sh for benchmark '{benchmark}'."
-        ) from exc
+        raise ValueError(f"Unable to locate setup.sh for benchmark '{benchmark}'.") from exc
     if not setup_path.is_file():
         raise ValueError(f"setup.sh not found for benchmark '{benchmark}'.")
     return str(setup_path)
@@ -564,7 +539,7 @@ def setup_benchmark(benchmark: str) -> None:
     subprocess.run(["bash", setup_path], check=True)
 
 
-def _describe_init_args(cls: type) -> List[str]:
+def _describe_init_args(cls: type) -> list[str]:
     model_fields = getattr(cls, "model_fields", None)
     if model_fields:
         names = set(model_fields.keys())

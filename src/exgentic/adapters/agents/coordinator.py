@@ -19,8 +19,7 @@ from ...core.types import (
 
 
 class CoordinatedAgent(ABC):
-    """
-    Internal agent that runs inside an AgentCoordinator.
+    """Internal agent that runs inside an AgentCoordinator.
 
     The agent:
     - receives observations via get_observation()
@@ -34,8 +33,8 @@ class CoordinatedAgent(ABC):
 
 
 class AgentCoordinator(AgentInstance):
-    """
-    Coordinates turn-based communication between:
+    """Coordinates turn-based communication between threads.
+
     - an environment thread (react)
     - an internal agent thread (run / execute)
     """
@@ -100,9 +99,7 @@ class AgentCoordinator(AgentInstance):
         if self._agent_error is not None:
             if isinstance(self._agent_error, Exception):
                 tb = self._agent_traceback or ""
-                raise RuntimeError(
-                    f"{self._agent_error}\n\n{tb}"
-                ) from self._agent_error
+                raise RuntimeError(f"{self._agent_error}\n\n{tb}") from self._agent_error
             raise RuntimeError("Internal agent failed") from self._agent_error
 
     def _flush_actions(self) -> Action | None:
@@ -129,9 +126,7 @@ class AgentCoordinator(AgentInstance):
             return
         self._last_actions = []
 
-    def _rewire_observation(
-        self, observation: Observation | None
-    ) -> Observation | None:
+    def _rewire_observation(self, observation: Observation | None) -> Observation | None:
         if observation is None or not self._last_actions:
             return observation
         if not isinstance(observation, Observation):
@@ -147,12 +142,7 @@ class AgentCoordinator(AgentInstance):
                 obs.invoking_actions = list(self._last_actions)
                 return observation
 
-        used_ids = {
-            act.id
-            for obs in obs_list
-            for act in obs.invoking_actions
-            if isinstance(act, SingleAction)
-        }
+        used_ids = {act.id for obs in obs_list for act in obs.invoking_actions if isinstance(act, SingleAction)}
         remaining = [act for act in self._last_actions if act.id not in used_ids]
         for obs in obs_list:
             if obs.invoking_actions:
@@ -186,10 +176,7 @@ class AgentCoordinator(AgentInstance):
         matched = [
             obs
             for obs in obs_list
-            if any(
-                isinstance(inv, SingleAction) and inv.id == action.id
-                for inv in obs.invoking_actions
-            )
+            if any(isinstance(inv, SingleAction) and inv.id == action.id for inv in obs.invoking_actions)
         ]
         if matched:
             if len(matched) == 1:
@@ -204,9 +191,7 @@ class AgentCoordinator(AgentInstance):
         return observation
 
     def _publish_observation(self, observation: Observation | None) -> None:
-        self.logger.info(
-            "Publishing observation (turn=%s): %s", self._turn + 1, observation
-        )
+        self.logger.info("Publishing observation (turn=%s): %s", self._turn + 1, observation)
         observation = self._rewire_observation(observation)
         self._last_actions = []
         self._current_observation = observation
@@ -242,9 +227,7 @@ class AgentCoordinator(AgentInstance):
 
             # Wait until a new observation is published by the environment thread.
             # We also block if _current_observation is still None (initial call).
-            while not self._closed and (
-                self._turn <= self._agent_seen_turn or self._current_observation is None
-            ):
+            while not self._closed and (self._turn <= self._agent_seen_turn or self._current_observation is None):
                 self._condition.wait()
 
             self._raise_if_agent_failed()
@@ -260,8 +243,8 @@ class AgentCoordinator(AgentInstance):
             return self._current_observation
 
     def execute(self, action: Action | None) -> Observation | None:
-        """
-        Publish an action for the current turn.
+        """Publish an action for the current turn.
+
         If action is None, signals agent termination.
         """
         with self._condition:
@@ -293,13 +276,11 @@ class AgentCoordinator(AgentInstance):
                 self._turn,
                 self._current_observation,
             )
-            return self._select_observation_for_action(
-                action, self._current_observation
-            )
+            return self._select_observation_for_action(action, self._current_observation)
 
     def react(self, observation: Observation | None) -> Action | None:
-        """
-        Publish an observation and wait for the agent's action.
+        """Publish an observation and wait for the agent's action.
+
         If observation is None, signals environment termination.
         """
         with self._condition:

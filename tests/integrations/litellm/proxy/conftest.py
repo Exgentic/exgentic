@@ -50,7 +50,7 @@ class FakeOpenAIHandler(BaseHTTPRequestHandler):
             return
         self.send_error(404)
 
-    def log_message(self, fmt: str, *args: Any) -> None:  # noqa: D401
+    def log_message(self, fmt: str, *args: Any) -> None:
         return
 
     def _write_json(self, payload: dict[str, Any]) -> None:

@@ -6,11 +6,11 @@ from __future__ import annotations
 import asyncio
 import json
 
+from exgentic.core.context import Context, Role
 from exgentic.integrations.litellm.trace_logger import (
     FILE_ENV,
     TraceLogger,
 )
-from exgentic.core.context import Context, Role
 
 
 def _sample_payload() -> tuple[dict, dict]:
@@ -21,9 +21,7 @@ def _sample_payload() -> tuple[dict, dict]:
     }
     response = {
         "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-        "choices": [
-            {"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}
-        ],
+        "choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
     }
     return kwargs, response
 
@@ -74,15 +72,7 @@ def test_trace_logger_reads_context_from_metadata(tmp_path, monkeypatch) -> None
     }
     logger.log_success_event(kwargs, response, None, None)
 
-    expected = (
-        tmp_path
-        / "run_meta"
-        / "sessions"
-        / "sess_meta"
-        / "agent"
-        / "litellm"
-        / "trace.jsonl"
-    )
+    expected = tmp_path / "run_meta" / "sessions" / "sess_meta" / "agent" / "litellm" / "trace.jsonl"
     assert expected.exists()
     assert not env_log_path.exists()
 
@@ -106,15 +96,7 @@ def test_trace_logger_reads_context_from_nested_metadata(tmp_path, monkeypatch) 
     }
     logger.log_success_event(kwargs, response, None, None)
 
-    expected = (
-        tmp_path
-        / "run_nested"
-        / "sessions"
-        / "sess_nested"
-        / "agent"
-        / "litellm"
-        / "trace.jsonl"
-    )
+    expected = tmp_path / "run_nested" / "sessions" / "sess_nested" / "agent" / "litellm" / "trace.jsonl"
     assert expected.exists()
     assert not env_log_path.exists()
 
@@ -137,15 +119,7 @@ def test_trace_logger_async_writes_with_kwargs_context(tmp_path, monkeypatch) ->
 
     asyncio.run(logger.async_log_success_event(kwargs, response, None, None))
 
-    expected = (
-        tmp_path
-        / "run_async"
-        / "sessions"
-        / "sess_async"
-        / "agent"
-        / "litellm"
-        / "trace.jsonl"
-    )
+    expected = tmp_path / "run_async" / "sessions" / "sess_async" / "agent" / "litellm" / "trace.jsonl"
     assert expected.exists()
     lines = expected.read_text().strip().splitlines()
     assert len(lines) == 1
@@ -169,15 +143,7 @@ def test_trace_logger_uses_kwargs_context_for_log_path(tmp_path, monkeypatch) ->
     )
     logger.log_success_event(kwargs, response, None, None)
 
-    expected = (
-        tmp_path
-        / "run_abc"
-        / "sessions"
-        / "sess_123"
-        / "agent"
-        / "litellm"
-        / "trace.jsonl"
-    )
+    expected = tmp_path / "run_abc" / "sessions" / "sess_123" / "agent" / "litellm" / "trace.jsonl"
     assert expected.exists()
     assert not env_log_path.exists()
 

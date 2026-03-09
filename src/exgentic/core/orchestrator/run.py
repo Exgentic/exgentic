@@ -3,22 +3,21 @@
 
 from __future__ import annotations
 
-
-from ..types import (
-    RunPlan,
-    RunConfig,
-    RunStatus,
-    RunResults,
-    SessionIndex,
-    SessionExecutionStatus,
-)
-from ...utils.paths import get_run_paths
-from ...observers.logging import get_logger
 from ...interfaces.registry import load_benchmark
+from ...observers.logging import get_logger
+from ...utils.paths import get_run_paths
+from ..types import (
+    RunConfig,
+    RunPlan,
+    RunResults,
+    RunStatus,
+    SessionExecutionStatus,
+    SessionIndex,
+)
 from .controller import Controller
+from .execution import execute_sessions, load_reused_results
 from .observer import Observer
 from .tracker import Tracker
-from .execution import execute_sessions, load_reused_results
 
 
 def _build_session_indexes(run_config: RunConfig, task_ids: list[str]):
@@ -115,20 +114,11 @@ def core_run(
             if execute:
                 status = RunStatus.from_config(run_config)
             if status.task_ids:
-                _log_missing_session_results(
-                    run_config=run_config, task_ids=status.task_ids, log=log
-                )
+                _log_missing_session_results(run_config=run_config, task_ids=status.task_ids, log=log)
             # Aggregate only completed sessions.
-            completed = [
-                item
-                for item in status.session_statuses
-                if item.status == SessionExecutionStatus.COMPLETED
-            ]
+            completed = [item for item in status.session_statuses if item.status == SessionExecutionStatus.COMPLETED]
             if completed:
-                session_indexes = [
-                    SessionIndex(task_id=item.task_id, session_id=item.session_id)
-                    for item in completed
-                ]
+                session_indexes = [SessionIndex(task_id=item.task_id, session_id=item.session_id) for item in completed]
             else:
                 session_indexes = []
             skipped = len(status.session_statuses) - len(session_indexes)
