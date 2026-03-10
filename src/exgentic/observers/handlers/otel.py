@@ -362,15 +362,7 @@ class OtelTracingObserver(Observer):
                     pass
 
     def on_react_error(self, session, error) -> None:
-        span_manager = self._get_span_manager(session.session_id)
-
-        # Record exception on session span
-        span_manager.record_exception(error)
-
-        # Create execute_tool span (even on error, we still need to track the step)
-        span_manager.start_span("execute_tool error_recovery", kind=SpanKind.CLIENT)
-        span_manager.current_span.set_attribute("gen_ai.operation.name", "execute_tool")
-        span_manager.current_span.set_attribute("gen_ai.tool.name", "error_recovery")
+        return None
 
     def on_step_success(self, session, observation) -> None:
         span_manager = self._get_span_manager(session.session_id)
@@ -382,12 +374,13 @@ class OtelTracingObserver(Observer):
     def on_step_error(self, session, error) -> None:
         span_manager = self._get_span_manager(session.session_id)
         span_manager.record_exception(error)
-        span_manager.end_current_span()  # end execute_tool span
-
-        self._session_step_counters[session.session_id] += 1
 
     def on_session_success(self, session, score, agent) -> None:
         span_manager = self._get_span_manager(session.session_id)
+
+        # Certain session conditions may lead to a trailing execute_tool span
+        if len(span_manager._span_stack) == 2:
+            span_manager.end_current_span()  # end execute_tool span
 
         # Add final session attributes (with exgentic. prefix)
         span_manager.set_attribute("exgentic.score.success", score.success)
@@ -425,9 +418,9 @@ class OtelTracingObserver(Observer):
     def on_session_error(self, session, error) -> None:
         span_manager = self._get_span_manager(session.session_id)
 
-        # Close execute_tool span if one is open
-        if len(span_manager._span_stack) > 1:
-            span_manager.end_current_span()
+        # Certain session conditions may lead to a trailing execute_tool span
+        if len(span_manager._span_stack) == 2:
+            span_manager.end_current_span()  # end execute_tool span
 
         # Record error on session span
         span_manager.record_exception(error)

@@ -44,7 +44,7 @@ class UrandomIdGenerator(IdGenerator):
 def init_tracing_from_env(
     service_name: Optional[str] = None,
     use_urandom_ids: bool = True,
-    use_simple_processor: bool = False,
+    use_simple_processor: bool = True,
 ) -> Tracer:
     """Initialize OpenTelemetry tracing from environment variables.
 

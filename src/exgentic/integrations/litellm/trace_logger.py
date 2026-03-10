@@ -71,7 +71,7 @@ class TraceLogger(CustomLogger):
             return
 
         # Initialize the TracerProvider (use simple processor for subprocess)
-        self._tracer = init_tracing_from_env(service_name="exgentic-litellm", use_simple_processor=True)
+        self._tracer = init_tracing_from_env()
 
         base = Path(ctx.output_dir) / ctx.run_id
         session_root = base / "sessions" / ctx.session_id
@@ -133,10 +133,15 @@ class TraceLogger(CustomLogger):
 
         span_ctx = span.get_span_context()
 
+        # Extract parent span ID from context for logging
+        ctx = self.get_context(kwargs)
+        parent_span_id = ctx.otel_context.span_id if ctx and ctx.otel_context else None
+
         self._otel_logger.log_span_start(
             span_name=name,
             span_id=format(span_ctx.span_id, "016x"),
             trace_id=format(span_ctx.trace_id, "032x"),
+            parent_span_id=parent_span_id,
             start_time=start_time,
         )
 
@@ -149,7 +154,7 @@ class TraceLogger(CustomLogger):
 
     @staticmethod
     def _metadata_context(kwargs: dict[str, Any]):
-        from ...core.context import Context
+        from ...core.context import Context, OtelContext, Role
 
         # Check multiple locations where metadata might be stored
         # 1. Direct litellm_metadata parameter
@@ -161,8 +166,43 @@ class TraceLogger(CustomLogger):
             # 3. litellm_params.metadata (for 'metadata' parameter)
             metadata = kwargs.get("litellm_params", {}).get("metadata")
 
-        context = metadata.get("context") if isinstance(metadata, dict) else None
-        return context if isinstance(context, Context) else None
+        if not isinstance(metadata, dict):
+            return None
+
+        context = metadata.get("context")
+        if isinstance(context, Context):
+            return context
+
+        # Reconstruct Context from serialized fields
+        # Check if we have the required fields
+        if "exgentic_ctx_run_id" not in metadata:
+            return None
+
+        # Reconstruct OtelContext if present
+        otel_context = None
+        if "exgentic_ctx_otel_trace_id" in metadata and "exgentic_ctx_otel_span_id" in metadata:
+            otel_context = OtelContext(
+                trace_id=metadata["exgentic_ctx_otel_trace_id"],
+                span_id=metadata["exgentic_ctx_otel_span_id"],
+            )
+
+        # Reconstruct Role
+        role_str = metadata.get("exgentic_ctx_role", "framework")
+        try:
+            role = Role(role_str)
+        except ValueError:
+            role = Role.FRAMEWORK
+
+        # Reconstruct Context
+        return Context(
+            run_id=metadata["exgentic_ctx_run_id"],
+            output_dir=metadata["exgentic_ctx_output_dir"],
+            cache_dir=metadata["exgentic_ctx_cache_dir"],
+            session_id=metadata.get("exgentic_ctx_session_id"),
+            task_id=metadata.get("exgentic_ctx_task_id"),
+            role=role,
+            otel_context=otel_context,
+        )
 
     @staticmethod
     def _context_log_path(ctx) -> str:

@@ -66,8 +66,30 @@ class RetryingLitellmModel(LitellmModel):
         self._retry_strategy = retry_strategy
 
     async def _fetch_response(self, *args, **kwargs):
-        # Inject context into metadata for OTEL tracing
-        kwargs.setdefault("metadata", {})["context"] = get_context()
+        # Inject context for OTEL tracing via model_settings.metadata
+        # The parent class extracts metadata from model_settings and passes it to litellm.acompletion()
+        # Note: metadata must be Dict[str, str], so we serialize Context fields individually
+        ctx = get_context()
+
+        # model_settings is the 3rd positional argument (index 2)
+        if len(args) > 2:
+            model_settings = args[2]
+            if model_settings.metadata is None:
+                model_settings.metadata = {}
+
+            # Serialize Context fields as individual string metadata entries
+            model_settings.metadata["exgentic_ctx_run_id"] = ctx.run_id
+            model_settings.metadata["exgentic_ctx_output_dir"] = ctx.output_dir
+            model_settings.metadata["exgentic_ctx_cache_dir"] = ctx.cache_dir
+            if ctx.session_id is not None:
+                model_settings.metadata["exgentic_ctx_session_id"] = ctx.session_id
+            if ctx.task_id is not None:
+                model_settings.metadata["exgentic_ctx_task_id"] = ctx.task_id
+            model_settings.metadata["exgentic_ctx_role"] = ctx.role.value
+            if ctx.otel_context is not None:
+                model_settings.metadata["exgentic_ctx_otel_trace_id"] = ctx.otel_context.trace_id
+                model_settings.metadata["exgentic_ctx_otel_span_id"] = ctx.otel_context.span_id
+
         for attempt in range(self._num_retries + 1):
             try:
                 return await super()._fetch_response(*args, **kwargs)
