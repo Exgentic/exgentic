@@ -17,6 +17,10 @@ from ...core.orchestrator.run import (
     core_execute,
 )
 from ...core.types import RunConfig, RunPlan, RunResults, RunStatus, SessionConfig
+from ...utils.installation_tracker import (
+    get_all_installations,
+    record_installation,
+)
 from ..registry import (
     apply_subset_kwargs,
     get_agent_entries,
@@ -29,12 +33,30 @@ from ..registry import (
 
 def list_benchmarks() -> list[dict[str, Any]]:
     entries = get_benchmark_entries()
-    return [{"slug_name": slug, "display_name": entry.display_name} for slug, entry in sorted(entries.items())]
+    installations = get_all_installations("benchmark")
+    return [
+        {
+            "slug_name": slug,
+            "display_name": entry.display_name,
+            "installed": slug in installations,
+            "installed_at": installations.get(slug, {}).get("installed_at"),
+        }
+        for slug, entry in sorted(entries.items())
+    ]
 
 
 def list_agents() -> list[dict[str, Any]]:
     entries = get_agent_entries()
-    return [{"slug_name": slug, "display_name": entry.display_name} for slug, entry in sorted(entries.items())]
+    installations = get_all_installations("agent")
+    return [
+        {
+            "slug_name": slug,
+            "display_name": entry.display_name,
+            "installed": slug in installations,
+            "installed_at": installations.get(slug, {}).get("installed_at"),
+        }
+        for slug, entry in sorted(entries.items())
+    ]
 
 
 def load_benchmark_class(benchmark: str) -> type[Benchmark]:
@@ -537,6 +559,39 @@ def get_setup_script_path(benchmark: str) -> str:
 def setup_benchmark(benchmark: str) -> None:
     setup_path = get_setup_script_path(benchmark)
     subprocess.run(["bash", setup_path], check=True)
+    record_installation(benchmark, "benchmark")
+
+
+def get_agent_setup_script_path(agent: str) -> str:
+    entries = get_agent_entries()
+    entry = entries.get(agent)
+    if entry is None:
+        raise ValueError(f"Unknown agent slug '{agent}'. " f"Available: {', '.join(sorted(entries.keys()))}")
+    parts = entry.module.split(".")
+    if len(parts) < 3:
+        raise ValueError(f"Invalid module path for agent '{agent}'.")
+
+    # For CLI agents with nested structure (e.g., exgentic.agents.cli.claude.agent),
+    # use 4 parts to get the specific CLI agent directory
+    # For other agents (e.g., exgentic.agents.openai.openai_mcp_agent), use 3 parts
+    if len(parts) >= 4 and parts[2] == "cli":
+        package = ".".join(parts[:4])
+    else:
+        package = ".".join(parts[:3])
+
+    try:
+        setup_path = resources.files(package) / "setup.sh"
+    except Exception as exc:
+        raise ValueError(f"Unable to locate setup.sh for agent '{agent}'.") from exc
+    if not setup_path.is_file():
+        raise ValueError(f"setup.sh not found for agent '{agent}'.")
+    return str(setup_path)
+
+
+def setup_agent(agent: str) -> None:
+    setup_path = get_agent_setup_script_path(agent)
+    subprocess.run(["bash", setup_path], check=True)
+    record_installation(agent, "agent")
 
 
 def _describe_init_args(cls: type) -> list[str]:
@@ -574,4 +629,8 @@ __all__ = [
     "status",
     "preview",
     "results",
+    "setup_benchmark",
+    "setup_agent",
+    "get_setup_script_path",
+    "get_agent_setup_script_path",
 ]

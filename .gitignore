@@ -12,7 +12,7 @@ downloads/
 eggs/
 .eggs/
 lib/
-!src/exgentic/interfaces/lib
+!src/exgentic/interfaces/lib/
 lib64/
 parts/
 sdist/
@@ -23,6 +23,9 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
+# Installation tracking
+.exgentic_installations/
 
 # Virtual environments
 .env

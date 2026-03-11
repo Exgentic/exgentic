@@ -8,6 +8,7 @@ import json
 import rich_click as click
 
 from ....core.types import RunConfig, SessionConfig
+from ....utils.installation_tracker import is_installed
 from ...lib.api import aggregate, evaluate, execute
 from ..options import add_run_options, has_run_options, run_with
 
@@ -113,6 +114,19 @@ def evaluate_cmd(
         return
     if not benchmark or not agent:
         raise click.ClickException("--benchmark and --agent are required.")
+
+    # Check if benchmark and agent are installed
+    errors = []
+    if not is_installed(benchmark, "benchmark"):
+        errors.append(
+            f"Benchmark '{benchmark}' has not been set up. "
+            f"Run 'exgentic setup --benchmark {benchmark}' to install it."
+        )
+    if not is_installed(agent, "agent"):
+        errors.append(f"Agent '{agent}' has not been set up. " f"Run 'exgentic setup --agent {agent}' to install it.")
+    if errors:
+        raise click.ClickException("\n".join(errors))
+
     run_with(
         evaluate,
         benchmark=benchmark,

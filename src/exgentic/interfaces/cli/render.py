@@ -44,14 +44,42 @@ def render_named_list(
     if output_format == "json":
         print_json(items)
         return
+
+    # Check if items have installation info
+    has_install_info = items and "installed" in items[0]
+
     table = Table(title=title, box=box.SIMPLE, show_header=True, header_style="bold magenta")
     table.add_column("Slug")
     table.add_column("Name")
+    if has_install_info:
+        table.add_column("Installed", justify="center")
+        table.add_column("Installed At")
+
     if not items:
-        table.add_row("[dim]none[/dim]", "[dim]none[/dim]")
+        if has_install_info:
+            table.add_row("[dim]none[/dim]", "[dim]none[/dim]", "[dim]-[/dim]", "[dim]-[/dim]")
+        else:
+            table.add_row("[dim]none[/dim]", "[dim]none[/dim]")
     else:
         for item in items:
-            table.add_row(str(item[fields[0]]), str(item[fields[1]]))
+            slug = str(item[fields[0]])
+            name = str(item[fields[1]])
+            if has_install_info:
+                installed = item.get("installed", False)
+                installed_at = item.get("installed_at", "")
+                status = "[green]✓[/green]" if installed else "[dim]-[/dim]"
+                # Format the timestamp to be more readable
+                if installed_at:
+                    try:
+                        from datetime import datetime
+
+                        dt = datetime.fromisoformat(installed_at.replace("Z", "+00:00"))
+                        installed_at = dt.strftime("%Y-%m-%d %H:%M UTC")
+                    except Exception:
+                        pass
+                table.add_row(slug, name, status, installed_at if installed_at else "[dim]-[/dim]")
+            else:
+                table.add_row(slug, name)
     CONSOLE.print(table)
 
 

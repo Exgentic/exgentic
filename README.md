@@ -53,15 +53,24 @@ Set up your environment:
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -e ".[smolagents]"
+
 ```
 
-### 🔧 Benchmark Setup
+### 🔧 Setup
 
-Run the setup command for each benchmark before first use:
+Run the setup command for benchmarks and agents before first use:
+
+**Benchmarks:**
 ```bash
-exgentic setup appworld
-exgentic setup tau2
+exgentic setup --benchmark appworld
+exgentic setup --benchmark tau2
+```
+
+**Agents:**
+```bash
+exgentic setup --agent smolagents
+exgentic setup --agent openai
+exgentic setup --agent claude
 ```
 ### 🔑 API Credentials
 
@@ -126,17 +135,15 @@ There are two simple example benchmarks:
 ## 🤖 Available Agents
 
 ### ⚡ LiteLLM Tool Calling
-**Setup:** `pip install -e ".[litellm]"`
-
+**Setup:** `exgentic setup --agent litellm_tool_calling` 
 ### 🧠 SmolAgents Tool calling and Code Agents
+**Setup:** `exgentic setup --agent smolagents` "`
 
-**Setup:** `pip install -e ".[smolagents]"`
-
-### 🔷 OpenAI Solo
-**Setup:** `pip install -e ".[openaimacp]"`
+### 🔷 OpenAI MCP
+**Setup:** `exgentic setup --agent openai`  
 
 ### 🎨 Claude Code
-**Setup:** To be added...
+**Setup:** `exgentic setup --agent claude`   
 
 ---
 
@@ -265,7 +272,7 @@ The Exgentic stops a session when it reaches either limit and records a `limit_r
 
 ### 🔍 OpenTelemetry Tracing
 
-Enable distributed tracing for your agent evaluations:
+Agent trajectories can be recorded as OTel traces and emitted to a collector server. Exgentic traces follow the OTel semantic conventions for GenAI. For more information see [`OTEL_SEMANTIC_CONVENTIONS.md`](./OTEL_SEMANTIC_CONVENTIONS.md). Enable OTel distributed tracing for your agent evaluations:
 
 1. **Install dependencies:**
    ```bash
@@ -277,12 +284,18 @@ Enable distributed tracing for your agent evaluations:
 
 3. **Configure environment variables:**
    ```bash
-   export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+   export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 # typical for self-hosted Jaeger server
    export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf  # or 'grpc'
    export EXGENTIC_OTEL_ENABLED=true
    ```
 
-4. **View traces:**
+4. **Content Recording:**
+  LLM inputs and outputs are not emitted to OTel by default. To enable, set the environment variable:
+   ```bash
+   export EXGENTIC_OTEL_RECORD_CONTENT=true
+   ```
+
+5. **View traces:**
    OTEL logs are written to `<session_root>/otel.log`
 
 ---

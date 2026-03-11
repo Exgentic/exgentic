@@ -110,6 +110,10 @@ class Tracker(Observer, Controller):
         for controller in self._controllers:
             controller.on_run_error(error)
 
+    def on_session_creation(self, session) -> None:
+        for observer in self._observers:
+            observer.on_session_creation(session)
+
     def on_session_start(self, session, agent, observation) -> None:
         for observer in self._observers:
             observer.on_session_start(session, agent, observation)
