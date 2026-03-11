@@ -32,9 +32,10 @@ from ..options import apply_debug_mode
 )
 @click.option(
     "--task-id",
-    "task_id",
+    "task_ids",
     required=True,
-    help="Task ID to load",
+    multiple=True,
+    help="Task IDs to load (can be specified multiple times)",
 )
 @click.option(
     "--subset",
@@ -55,19 +56,19 @@ from ..options import apply_debug_mode
 def mcp_cmd(
     debug: bool,
     benchmark: str,
-    task_id: str,
+    task_ids: tuple[str, ...],
     subset: str | None,
     host: str,
     port: int | None,
 ) -> None:
-    """Start an MCP server with benchmark task actions.
+    """Start an MCP server with benchmark task actions for multiple tasks.
 
     This command creates an MCP server that exposes the actions available
-    for a specific benchmark task. This is useful for testing and debugging
-    benchmark tasks interactively.
+    for multiple benchmark tasks. Each tool call includes a task_id parameter
+    to route the action to the appropriate session.
 
     Example:
-        exgentic mcp --benchmark tau2 --task-id 1
+        exgentic mcp --benchmark tau2 --task-id 1 --task-id 2 --task-id 3
     """
     apply_debug_mode(debug)
     settings = get_settings()
@@ -93,52 +94,78 @@ def mcp_cmd(
     except Exception as exc:
         raise click.ClickException(f"Failed to create benchmark instance: {exc}") from exc
 
-    # Create a session for the task to get available actions
+    # Create sessions for all tasks
     output_dir = Path(settings.output_dir)
-    session_id = f"mcp_{benchmark}_{task_id}"
-    run_id = f"mcp_{benchmark}_{task_id}"
+    run_id = f"mcp_{benchmark}_{'_'.join(task_ids)}"
 
     # Initialize context using run_scope
     with run_scope(run_id=run_id, output_dir=str(output_dir)):
-        try:
-            session_index = SessionIndex(
-                benchmark=benchmark,
-                agent="mcp_server",
-                task_id=task_id,
-                session_id=session_id,
-                output_dir=str(output_dir),
-            )
-            session = benchmark_instance.create_session(session_index)
+        sessions = {}
+        action_types = None
 
-            # Start the session to get initial observation
-            click.echo("Starting session...")
-            _ = session.start()
-            click.echo("✓ Session started, received initial observation")
-        except Exception as exc:
-            raise click.ClickException(f"Failed to create/start session for task {task_id}: {exc}") from exc
+        click.echo(f"Creating sessions for {len(task_ids)} tasks...")
+        for task_id in task_ids:
+            session_id = f"mcp_{benchmark}_{task_id}"
+            try:
+                session_index = SessionIndex(
+                    benchmark=benchmark,
+                    agent="mcp_server",
+                    task_id=task_id,
+                    session_id=session_id,
+                    output_dir=str(output_dir),
+                )
+                session = benchmark_instance.create_session(session_index)
 
-        # Get actions from the session
-        try:
-            action_types = session.actions
-            if not action_types:
-                raise click.ClickException(f"No actions available for task {task_id}")
+                # Start the session to get initial observation
+                click.echo(f"  Starting session for task {task_id}...")
+                _ = session.start()
+                click.echo(f"  ✓ Task {task_id} session started")
 
-            click.echo(f"Loaded {len(action_types)} actions from {benchmark} task {task_id}")
-        except Exception as exc:
-            raise click.ClickException(f"Failed to get actions from session: {exc}") from exc
+                sessions[task_id] = session
+
+                # Get actions from the first session (all tasks should have same actions)
+                if action_types is None:
+                    action_types = session.actions
+                    if not action_types:
+                        raise click.ClickException(f"No actions available for task {task_id}")
+
+            except Exception as exc:
+                # Clean up any created sessions
+                for sess in sessions.values():
+                    try:
+                        sess.close()
+                    except Exception:
+                        pass
+                raise click.ClickException(f"Failed to create/start session for task {task_id}: {exc}") from exc
+
+        click.echo(f"\n✓ Created {len(sessions)} sessions")
+
+        if action_types is None:
+            raise click.ClickException("No actions available from any task")
+
+        click.echo(f"✓ Loaded {len(action_types)} actions from {benchmark}")
 
         # Convert action types to callable tools that execute via session.step()
+        # Each tool will include a task_id parameter to route to the correct session
         tools = []
         for action_type in action_types:
             # Get the schema for this action's arguments
             args_model = action_type.arguments
 
             # Create a callable function for each action with proper signature
-            def make_tool_fn(at, sess, args_cls):
+            def make_tool_fn(at, sessions_dict, args_cls):
                 # Create a dynamic function with the correct signature
                 # by using the args model directly as a parameter
-                def tool_fn(**kwargs):
+                def tool_fn(task_id: str, **kwargs):
                     """Tool function that executes action via session.step()."""
+                    # Validate task_id
+                    if task_id not in sessions_dict:
+                        return {
+                            "error": f"Invalid task_id: {task_id}. Available task IDs: {list(sessions_dict.keys())}"
+                        }
+
+                    sess = sessions_dict[task_id]
+
                     # Create an instance of the arguments model
                     try:
                         args_instance = args_cls(**kwargs)
@@ -159,7 +186,6 @@ def mcp_cmd(
                     def execute_step():
                         try:
                             observation = sess.step(action)
-                            # observation = "mock"
                             result_container["observation"] = observation
                         except Exception as e:
                             error_container["error"] = e
@@ -183,6 +209,7 @@ def mcp_cmd(
                     # Format observation for return
                     result = {
                         "status": "success",
+                        "task_id": task_id,
                         "observation": str(observation),
                     }
 
@@ -198,8 +225,15 @@ def mcp_cmd(
                 # Create proper signature from the args model
                 import inspect
 
-                # Build parameters from the model fields
-                params = []
+                # Build parameters - add task_id as first required parameter
+                params = [
+                    inspect.Parameter(
+                        "task_id",
+                        inspect.Parameter.KEYWORD_ONLY,
+                        annotation=str,
+                    )
+                ]
+
                 for field_name, field_info in args_cls.model_fields.items():
                     annotation = field_info.annotation
                     default = field_info.default if field_info.default is not None else inspect.Parameter.empty
@@ -216,17 +250,18 @@ def mcp_cmd(
 
                 return tool_fn
 
-            tools.append(make_tool_fn(action_type, session, args_model))
+            tools.append(make_tool_fn(action_type, sessions, args_model))
 
         # Create log directory
-        log_dir = output_dir / "mcp_logs" / session_id
+        log_dir = output_dir / "mcp_logs" / f"multi_{benchmark}"
         log_dir.mkdir(parents=True, exist_ok=True)
 
         # Create logger
         logger = get_logger(__name__)
 
         # Create and start MCP server
-        click.echo(f"Starting MCP server for {benchmark} task {task_id}")
+        click.echo(f"\nStarting MCP server for {benchmark} with {len(task_ids)} tasks")
+        click.echo(f"Task IDs: {', '.join(task_ids)}")
         click.echo(f"Available actions: {len(tools)}")
         click.echo(f"Log directory: {log_dir}")
 
@@ -252,10 +287,12 @@ def mcp_cmd(
             def signal_handler(sig, frame):
                 click.echo("\n\nShutting down MCP server...")
                 server.stop()
-                try:
-                    session.close()
-                except Exception:
-                    pass
+                for task_id, sess in sessions.items():
+                    try:
+                        click.echo(f"  Closing session for task {task_id}...")
+                        sess.close()
+                    except Exception:
+                        pass
                 click.echo("Server stopped.")
                 sys.exit(0)
 
@@ -267,10 +304,11 @@ def mcp_cmd(
                 server.thread.join()
 
         except Exception as exc:
-            try:
-                session.close()
-            except Exception:
-                pass
+            for sess in sessions.values():
+                try:
+                    sess.close()
+                except Exception:
+                    pass
             raise click.ClickException(f"Failed to start MCP server: {exc}") from exc
 
 
