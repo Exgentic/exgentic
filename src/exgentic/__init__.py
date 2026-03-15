@@ -3,7 +3,16 @@
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version as package_version
 from typing import Any
+
+try:
+    from ._version import version as __version__
+except ImportError:
+    try:
+        __version__ = package_version("exgentic")
+    except PackageNotFoundError:
+        __version__ = "0+unknown"
 
 from .interfaces.lib.api import (
     aggregate,
@@ -20,6 +29,7 @@ from .interfaces.lib.api import (
 from .interfaces.registry import get_agent_entries, get_benchmark_entries
 
 __all__ = [
+    "__version__",
     "aggregate",
     "evaluate",
     "execute",
