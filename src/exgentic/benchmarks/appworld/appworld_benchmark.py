@@ -22,6 +22,7 @@ from pydantic import (
 from ...core.session import Session
 
 from ...core.benchmark import Benchmark
+from ...core.evaluator import Evaluator
 from ...core.types import (
     Action,
     ActionType,
@@ -35,7 +36,6 @@ from ...core.types import (
     EmptyObservation,
     SessionIndex,
 )
-from ...adapters.executors.executer import make_executer
 from ...utils.settings import get_settings
 from ...core.actions import ActionsHandler
 from ...utils.paths import get_run_id, get_run_paths
@@ -164,7 +164,7 @@ class AppWorldSession(Session):
                 " The available applications and their APIs are fixed for the task.\n"
                 "\n"
                 "Supervisor account credentials (such as emails, usernames, and passwords) are available through the supervisor "
-                "application’s APIs and are accessed from there when required.\n"
+                "application's APIs and are accessed from there when required.\n"
                 "\n"
                 "If an application requires an access token to perform authenticated operations, the access token is obtained by "
                 "calling that application's authentication/login API using the credentials retrieved from the supervisor application. "
@@ -486,35 +486,39 @@ class AppWorldSession(Session):
                 self.logger.exception("AppWorld temp experiment cleanup failed")
 
 
-class AppWorldBenchmark(Benchmark, BaseModel):
-    display_name: ClassVar[str] = "AppWorld"
-    slug_name: ClassVar[str] = "appworld"
-    available_subsets: ClassVar[List[str]] = ["train", "dev", "test_normal"]
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+class AppWorldEvaluator(Evaluator):
+    """Evaluator for AppWorld -- task discovery, session config, and aggregation."""
 
-    # Inputs
-    subset: Literal["train", "dev", "test_normal"] = "test_normal"
-    env_kwargs: Dict[str, Any] = Field(default_factory=dict)
-    max_interactions: int = 200
-    tool_name_separator: Literal[".", "__"] = "__"
-    SCORES_FILE_NAME: ClassVar[str] = "scores.json"
+    def __init__(
+        self,
+        subset: str = "test_normal",
+        env_kwargs: Optional[Dict[str, Any]] = None,
+        max_interactions: int = 200,
+        tool_name_separator: str = "__",
+        use_cache: bool = True,
+    ) -> None:
+        self._subset = subset
+        self._env_kwargs = env_kwargs or {}
+        self._max_interactions = max_interactions
+        self._tool_name_separator = tool_name_separator
+        self._use_cache = use_cache
+        self._experiment_name: str = ""
 
-    # Internals
-    _experiment_name: str = PrivateAttr(default="")
+    def _ensure_appworld_root(self) -> None:
+        from appworld import update_root  # type: ignore
 
-    def list_subsets(self) -> List[str]:  # type: ignore[override]
-        return list(self.available_subsets)
+        update_root(os.path.abspath(os.path.dirname(__file__)))
 
-    def list_tasks(self) -> List[str]:  # type: ignore[override]
+    def list_tasks(self) -> List[str]:
         from appworld.task import load_task_ids  # type: ignore
 
         self._ensure_appworld_root()
-        items: Optional[List[str]] = load_task_ids(self.subset)
+        items: Optional[List[str]] = load_task_ids(self._subset)
         if not items:
             return []
         return [str(t) for t in items]
 
-    def create_session(self, index: SessionIndex) -> AppWorldSession:
+    def get_session_kwargs(self, index: SessionIndex) -> Dict[str, Any]:
         self._ensure_appworld_root()
         if not self._experiment_name:
             self._experiment_name = get_run_id()
@@ -523,26 +527,18 @@ class AppWorldBenchmark(Benchmark, BaseModel):
         experiment_name = f"{self._experiment_name}__{session_id}"
         spec = {"task_id": task_id}
 
-        executer = make_executer(
-            self.executer,
-            AppWorldSession,
-            session_id=session_id,
-            task_spec=spec,
-            env_kwargs={
-                **self.env_kwargs,
-                "max_interactions": self.max_interactions,
+        return {
+            "session_id": session_id,
+            "task_spec": spec,
+            "env_kwargs": {
+                **self._env_kwargs,
+                "max_interactions": self._max_interactions,
                 "experiment_name": experiment_name,
             },
-            use_cache=self.use_cache,
-            tool_name_separator=self.tool_name_separator,
-            max_interactions=self.max_interactions,
-        )
-        return executer.get_proxy()  # type: ignore[return-value]
-
-    def _ensure_appworld_root(self) -> None:
-        from appworld import update_root  # type: ignore
-
-        update_root(os.path.abspath(os.path.dirname(__file__)))
+            "use_cache": self._use_cache,
+            "tool_name_separator": self._tool_name_separator,
+            "max_interactions": self._max_interactions,
+        }
 
     def _stage_task_outputs(
         self,
@@ -591,7 +587,7 @@ class AppWorldBenchmark(Benchmark, BaseModel):
             results_path = run_paths.session(session.session_id).results
             scores_path = (
                 run_paths.session(session.session_id).benchmark_dir
-                / self.SCORES_FILE_NAME
+                / AppWorldSession.SCORES_FILE_NAME
             )
 
             if scores_path.exists():
@@ -635,3 +631,32 @@ class AppWorldBenchmark(Benchmark, BaseModel):
             score=evaluation_dict["aggregate"]["task_goal_completion"] / 100,
             metrics=report,
         )
+
+
+class AppWorldBenchmark(Benchmark, BaseModel):
+    display_name: ClassVar[str] = "AppWorld"
+    slug_name: ClassVar[str] = "appworld"
+    available_subsets: ClassVar[List[str]] = ["train", "dev", "test_normal"]
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    evaluator_class: ClassVar[type[Evaluator]] = AppWorldEvaluator
+    session_class: ClassVar[type[Session]] = AppWorldSession
+
+    # Inputs
+    subset: Literal["train", "dev", "test_normal"] = "test_normal"
+    env_kwargs: Dict[str, Any] = Field(default_factory=dict)
+    max_interactions: int = 200
+    tool_name_separator: Literal[".", "__"] = "__"
+    SCORES_FILE_NAME: ClassVar[str] = "scores.json"
+
+    def list_subsets(self) -> List[str]:  # type: ignore[override]
+        return list(self.available_subsets)
+
+    def get_evaluator_kwargs(self) -> Dict[str, Any]:
+        return {
+            "subset": self.subset,
+            "env_kwargs": self.env_kwargs,
+            "max_interactions": self.max_interactions,
+            "tool_name_separator": self.tool_name_separator,
+            "use_cache": self.use_cache,
+        }

@@ -12,6 +12,7 @@ from ..types import (
     SessionIndex,
     SessionExecutionStatus,
 )
+from ...adapters.runners import with_runner
 from ...utils.paths import get_run_paths
 from ...observers.logging import get_logger
 from ...interfaces.registry import load_benchmark
@@ -139,11 +140,22 @@ def core_run(
                 )
             if not session_indexes:
                 log.warning("No completed sessions available for aggregation.")
+            # Create evaluator for aggregation.
             bench_cls = load_benchmark(run_config.benchmark)
             benchmark = bench_cls(**(run_config.benchmark_kwargs or {}))
+            evaluator = with_runner(
+                benchmark.evaluator_class,
+                runner=benchmark.resolve_runner(),
+                **benchmark.get_evaluator_kwargs(),
+                **benchmark.runner_kwargs(),
+            )
             try:
-                results = benchmark.aggregate_sessions(session_indexes)
+                results = evaluator.aggregate_sessions(session_indexes)
             finally:
+                try:
+                    evaluator.close()
+                except Exception:
+                    pass
                 benchmark.close()
         tracker.on_run_success(results, run_config)
         return tracker.results()

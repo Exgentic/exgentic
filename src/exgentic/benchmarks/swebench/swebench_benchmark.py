@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
+from __future__ import annotations
+
 import json
 import logging
 import subprocess
@@ -13,8 +15,8 @@ from datasets import load_dataset
 from pydantic import BaseModel, Field, PrivateAttr, ConfigDict
 from swebench.harness.constants import DOCKER_WORKDIR
 
-from ...adapters.executors.executer import make_executer
 from ...core import Benchmark
+from ...core.evaluator import Evaluator
 from ...core.session import Session
 from ...core.actions import ActionsHandler
 from ...core.types import (
@@ -424,66 +426,43 @@ class SWEBenchSession(Session):
 
 
 # =============================================================================
-# Benchmark
+# Evaluator
 # =============================================================================
 
 
-class SWEBenchBenchmark(Benchmark, BaseModel):
-    """Benchmark runner for SWE-bench evaluation."""
+class SWEBenchEvaluator(Evaluator):
+    """Evaluation logic for SWE-bench — task discovery, session config, aggregation."""
 
-    display_name: ClassVar[str] = "SWE-bench"
-    slug_name: ClassVar[str] = "swebench"
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-    subset: Optional[str] = None
-    require_submit_for_patch_evaluation: bool = True
+    def __init__(
+        self,
+        subset: str,
+        require_submit_for_patch_evaluation: bool = True,
+        max_interactions: Optional[int] = None,
+    ) -> None:
+        self._subset = subset
+        self._require_submit_for_patch_evaluation = require_submit_for_patch_evaluation
+        self._max_interactions = max_interactions
+        self._dataset: Any = None
+        self._instances_by_id: Dict[str, Dict[str, Any]] = {}
 
-    _dataset: Any = PrivateAttr(default=None)
-    _instances_by_id: Dict[str, Dict[str, Any]] = PrivateAttr(default_factory=dict)
-
-    def model_post_init(self, __context):
-        cfg = get_config()
-        benchmark_cfg = cfg["benchmark"]
-        session_cfg = cfg["session"]
-        if self.subset is None:
-            self.subset = benchmark_cfg["subset"]
-        if self.executer is None:
-            self.executer = benchmark_cfg["executer"]
-        if "seed" in benchmark_cfg:
-            self.seed = benchmark_cfg["seed"]
-        if (
-            "require_submit_for_patch_evaluation" in benchmark_cfg
-            and "require_submit_for_patch_evaluation" not in self.model_fields_set
-        ):
-            self.require_submit_for_patch_evaluation = bool(
-                benchmark_cfg["require_submit_for_patch_evaluation"]
-            )
-        if self.max_interactions is None:
-            self.max_interactions = session_cfg.get("max_interactions")
-
-    def list_tasks(self) -> List[str]:  # type: ignore[override]
+    def list_tasks(self) -> List[str]:
         self._ensure_dataset()
         return list(self._instances_by_id.keys())
 
-    def create_session(self, index: SessionIndex) -> SWEBenchSession:
+    def get_session_kwargs(self, index: SessionIndex) -> Dict[str, Any]:
         self._ensure_dataset()
-        task_id = index.task_id
-        task_id_str = str(task_id)
+        task_id_str = str(index.task_id)
         instance = self._instances_by_id.get(task_id_str)
         if instance is None:
-            raise KeyError(f"Unknown SWE-bench task id: {task_id}")
-        session_id = index.session_id
-        executer = make_executer(
-            self.executer,
-            SWEBenchSession,
-            get_settings(),
-            instance,
-            self.subset,
-            self.max_interactions,
-            require_submit_for_patch_evaluation=self.require_submit_for_patch_evaluation,
-            session_id=session_id,
-        )
-        proxy = executer.get_proxy()
-        return proxy
+            raise KeyError(f"Unknown SWE-bench task id: {index.task_id}")
+        return {
+            "settings": get_settings(),
+            "instance": instance,
+            "subset": self._subset,
+            "max_interactions": self._max_interactions,
+            "require_submit_for_patch_evaluation": self._require_submit_for_patch_evaluation,
+            "session_id": index.session_id,
+        }
 
     def aggregate_sessions(self, sessions: List[SessionIndex]) -> BenchmarkResults:
         scores: List[float] = []
@@ -509,14 +488,60 @@ class SWEBenchBenchmark(Benchmark, BaseModel):
     def _ensure_dataset(self) -> None:
         if self._dataset is not None:
             return
-        if self.subset is None:
+        if self._subset is None:
             raise ValueError("subset must be configured for SWE-bench.")
-        dataset = load_dataset(self.subset, split="test")
+        dataset = load_dataset(self._subset, split="test")
         instances = list(dataset)
         if not instances:
             raise RuntimeError(
-                f"SWE-bench dataset '{self.subset}' returned 0 instances. "
+                f"SWE-bench dataset '{self._subset}' returned 0 instances. "
                 "Check dataset availability and HF auth."
             )
         self._dataset = instances
         self._instances_by_id = {str(inst["instance_id"]): inst for inst in instances}
+
+
+# =============================================================================
+# Benchmark
+# =============================================================================
+
+
+class SWEBenchBenchmark(Benchmark):
+    """Benchmark configuration for SWE-bench evaluation."""
+
+    display_name: ClassVar[str] = "SWE-bench"
+    slug_name: ClassVar[str] = "swebench"
+    evaluator_class: ClassVar = SWEBenchEvaluator
+    session_class: ClassVar = SWEBenchSession
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    subset: Optional[str] = None
+    require_submit_for_patch_evaluation: bool = True
+    docker_socket: bool = True  # SWE-bench sessions create sibling Docker containers
+
+    def model_post_init(self, __context):
+        cfg = get_config()
+        benchmark_cfg = cfg["benchmark"]
+        session_cfg = cfg["session"]
+        if self.subset is None:
+            self.subset = benchmark_cfg["subset"]
+        if self.executer is None:
+            self.executer = benchmark_cfg["executer"]
+        if "seed" in benchmark_cfg:
+            self.seed = benchmark_cfg["seed"]
+        if (
+            "require_submit_for_patch_evaluation" in benchmark_cfg
+            and "require_submit_for_patch_evaluation" not in self.model_fields_set
+        ):
+            self.require_submit_for_patch_evaluation = bool(
+                benchmark_cfg["require_submit_for_patch_evaluation"]
+            )
+        if self.max_interactions is None:
+            self.max_interactions = session_cfg.get("max_interactions")
+
+    def get_evaluator_kwargs(self) -> Dict[str, Any]:
+        return {
+            "subset": self.subset,
+            "require_submit_for_patch_evaluation": self.require_submit_for_patch_evaluation,
+            "max_interactions": self.max_interactions,
+        }

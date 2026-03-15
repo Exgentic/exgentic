@@ -42,7 +42,7 @@ class RunResults(BaseModel):
     executed_session_ids: List[str] = Field(default_factory=list)
     max_workers: Optional[int] = None
     successful_sessions: int
-    # Primary benchmark-level outcome (from benchmark.aggregate_sessions())
+    # Primary benchmark-level outcome (from evaluator.aggregate_sessions())
     benchmark_score: Optional[float] = None
     benchmark_results: Optional[Dict[str, Any]] = None
     average_score: Optional[float] = None
@@ -284,6 +284,7 @@ class RunConfig(BaseEvaluationConfig):
         *,
         resolved_config: "RunConfig | None" = None,
     ) -> List[SessionConfig]:
+        from ...adapters.runners import with_runner
         from ...interfaces.registry import load_benchmark
 
         resolved = resolved_config or self
@@ -292,14 +293,24 @@ class RunConfig(BaseEvaluationConfig):
         if task_ids is None:
             bench_cls = load_benchmark(resolved.benchmark)
             benchmark = bench_cls(**(resolved.benchmark_kwargs or {}))
+            evaluator = with_runner(
+                benchmark.evaluator_class,
+                runner=benchmark.resolve_runner(),
+                **benchmark.get_evaluator_kwargs(),
+                **benchmark.runner_kwargs(),
+            )
             try:
-                selected = [str(t) for t in benchmark.list_tasks()]
+                selected = [str(t) for t in evaluator.list_tasks()]
                 if resolved.num_tasks is not None:
                     seed = benchmark.seed
                     rng = random.Random(seed if seed is not None else 0)
                     rng.shuffle(selected)
                     selected = selected[: int(resolved.num_tasks)]
             finally:
+                try:
+                    evaluator.close()
+                except Exception:
+                    pass
                 benchmark.close()
         else:
             selected = [str(t) for t in task_ids]

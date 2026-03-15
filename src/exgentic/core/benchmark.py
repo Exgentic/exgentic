@@ -1,20 +1,28 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-from abc import ABC, abstractmethod
-from typing import Dict, Any, List
+import inspect
+from abc import ABC
+from pathlib import Path
+from typing import ClassVar, Dict, Any, List, Type
 
 from pydantic import BaseModel, ConfigDict
 
 from ..utils.paths import SessionPaths, get_run_paths
-from ..utils.settings import ExecuterName
+from ..utils.settings import ExecuterName, RunnerName, get_settings
 
 from .session import Session
+from .evaluator import Evaluator
 from .types import SessionIndex
 
 
 class Benchmark(BaseModel, ABC):
-    """Benchmark interface - controls evaluation execution and provides sessions"""
+    """Benchmark configuration — lightweight config that lives on the host.
+
+    Points to an ``evaluator_class`` (task discovery & aggregation) and
+    a ``session_class`` (task execution). Both can be wrapped with
+    ``with_runner()`` for container isolation.
+    """
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
@@ -22,43 +30,16 @@ class Benchmark(BaseModel, ABC):
         validate_by_alias=True,
     )
 
+    # Subclasses must set these class variables.
+    evaluator_class: ClassVar[Type[Evaluator]]
+    session_class: ClassVar[Type[Session]]
+
     subset: str | None = None
     seed: int = 300
     executer: ExecuterName | None = None
+    runner: RunnerName | None = None
     use_cache: bool = True
     max_interactions: int | None = 150
-
-    @property
-    @abstractmethod
-    def display_name(self) -> str:
-        """Human-readable benchmark name."""
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def slug_name(self) -> str:
-        """Stable identifier for paths and CLI selection."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def list_tasks(self) -> List[str]:
-        """Return available task identifiers for this benchmark."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def create_session(self, index: SessionIndex) -> Session:
-        """Create a session for a specific task."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def aggregate_sessions(self, sessions: List[SessionIndex]) -> Dict[str, Any]:
-        """Aggregate results for the specified task sessions."""
-        raise NotImplementedError
-
-    def get_sessions_paths(self, sessions: List[SessionIndex]) -> List[SessionPaths]:
-        """Return ``SessionPaths`` for each session index."""
-        run_paths = get_run_paths()
-        return [run_paths.session(s.session_id) for s in sessions]
 
     @property
     def subset_name(self) -> str:
@@ -69,6 +50,59 @@ class Benchmark(BaseModel, ABC):
         """Return available subset identifiers for this benchmark."""
         subset = self.subset_name
         return [subset] if subset and subset != "unknown" else []
+
+    def get_evaluator_kwargs(self) -> Dict[str, Any]:
+        """Return kwargs for constructing the Evaluator.
+
+        Subclasses override this to pass benchmark-specific config.
+        """
+        return {}
+
+    _EXECUTER_TO_RUNNER: dict[str, RunnerName] = {
+        "inprocess": "direct",
+        "remote_process": "process",
+    }
+
+    def resolve_runner(self) -> RunnerName:
+        """Resolve the runner name from ``runner``, ``executer``, or settings."""
+        if self.runner is not None:
+            return self.runner
+        if self.executer is not None:
+            return self._EXECUTER_TO_RUNNER.get(self.executer, "process")  # type: ignore[arg-type]
+        return get_settings().default_runner
+
+    @property
+    def setup_script(self) -> str | None:
+        """Auto-discover ``setup.sh`` next to the benchmark module.
+
+        Subclasses can override this to point to a different script.
+        """
+        module_dir = Path(inspect.getfile(type(self))).parent
+        script = module_dir / "setup.sh"
+        return str(script) if script.exists() else None
+
+    # Override in subclasses that need Docker socket access (e.g. SWE-bench).
+    docker_socket: bool = False
+
+    def runner_kwargs(self) -> Dict[str, Any]:
+        """Return extra kwargs for ``with_runner()`` based on runner type.
+
+        When the runner is ``"docker"``, this includes the setup script,
+        docker socket, and output volume mount. For other runners these
+        are ignored.
+        """
+        runner = self.resolve_runner()
+        if runner != "docker":
+            return {}
+        kw: Dict[str, Any] = {}
+        if self.setup_script:
+            kw["setup_script"] = self.setup_script
+        if self.docker_socket:
+            kw["docker_socket"] = True
+        # Mount the output directory so results are visible on the host.
+        output_dir = str(Path(get_settings().output_dir).resolve())
+        kw["volumes"] = {output_dir: output_dir}
+        return kw
 
     def close(self) -> None:
         """Optional cleanup hook."""

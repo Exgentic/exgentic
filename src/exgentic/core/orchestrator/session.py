@@ -24,21 +24,20 @@ def _close_session_agent(session, agent_instance) -> None:
 
 def run_session(
     session_config: SessionConfig,
-    benchmark,
+    session,
     agent,
     observers: list[Observer] | None = None,
     controllers: list[Controller] | None = None,
     *,
     tracker: Tracker | None = None,
 ) -> None:
-    """Process a single session."""
+    """Process a single session.
+
+    The *session* must already be created (e.g. via ``with_runner()``).
+    """
     if tracker is None:
         tracker = Tracker(observers=observers, controllers=controllers)
 
-    session_id = session_config.get_session_id()
-    session = benchmark.create_session(
-        SessionIndex(task_id=str(session_config.task_id), session_id=session_id)
-    )
     with session_scope(session.session_id, task_id=session.task_id):
         agent_instance = agent.assign(
             task=session.task,
@@ -86,16 +85,15 @@ def run_session(
             raise AgentTermination()
 
         except KeyboardInterrupt:
-            _close_session_agent(session, agent_instance)
             tracker.on_session_error(session, RunCancel())
+            _close_session_agent(session, agent_instance)
             raise
         except AgentError as exc:
-            _close_session_agent(session, agent_instance)
             tracker.on_session_error(session, exc)
+            _close_session_agent(session, agent_instance)
         except SessionLimitReached as exc:
             with benchmark_scope():
                 tracker.on_session_scoring(session)
-            _close_session_agent(session, agent_instance)
             with benchmark_scope():
                 score = session.score()
             score.is_finished = False
@@ -109,22 +107,23 @@ def run_session(
                 "actions": exc.actions,
             }
             tracker.on_session_success(session, score, agent_instance)
+            _close_session_agent(session, agent_instance)
         except (AgentTermination, BenchmarkTermination):
             with benchmark_scope():
                 tracker.on_session_scoring(session)
-            _close_session_agent(session, agent_instance)
             with benchmark_scope():
                 score = session.score()
             if score.is_finished is None:
                 score.is_finished = True
             tracker.on_session_success(session, score, agent_instance)
+            _close_session_agent(session, agent_instance)
         except BenchmarkError as exc:
+            tracker.on_session_error(session, exc)
             agent_instance.close()
-            tracker.on_session_error(session, exc)
         except SessionCancel as exc:
-            _close_session_agent(session, agent_instance)
             tracker.on_session_error(session, exc)
+            _close_session_agent(session, agent_instance)
         except RunCancel as exc:
-            _close_session_agent(session, agent_instance)
             tracker.on_session_error(session, exc)
+            _close_session_agent(session, agent_instance)
             raise

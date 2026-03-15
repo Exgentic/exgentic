@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 from .agent_instance import AgentInstance
 from .types import ActionType
 from .types.model_settings import ModelSettings
+from ..utils.settings import RunnerName
 
 
 class Agent(BaseModel, ABC):
@@ -19,6 +20,7 @@ class Agent(BaseModel, ABC):
     display_name: ClassVar[str]
     slug_name: ClassVar[str]
     model_settings: ModelSettings | None = None
+    runner: RunnerName | None = None
 
     @abstractmethod
     def assign(

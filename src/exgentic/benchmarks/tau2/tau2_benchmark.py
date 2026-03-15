@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict
 from ...utils.cost import CostReport, LiteLLMCostReport, UpdatableCostReport
 
 from ...core import Benchmark
+from ...core.evaluator import Evaluator
 from ...core.types import (
     Action,
     ActionType,
@@ -31,7 +32,6 @@ from ...core.types import (
 )
 from ...core.actions import ActionsHandler
 from ...adapters.executors.proxy import PairableProxySession, PairableProxyAgent
-from ...adapters.executors.executer import make_executer
 from ...integrations.litellm.config import configure_litellm
 from ...utils.settings import get_settings
 from ...utils.paths import get_run_id
@@ -554,39 +554,44 @@ class TAU2ProxyAgent(LLMAgent, PairableProxyAgent[TAU2Session]):
         return expanded
 
 
-class TAU2Benchmark(Benchmark, BaseModel):
-    display_name: ClassVar[str] = "Tau Bench 2"
-    slug_name: ClassVar[str] = "tau2"
-    available_subsets: ClassVar[List[str]] = ["mock", "retail", "airline", "telecom"]
-    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
+class TAU2Evaluator(Evaluator):
+    """Evaluation logic for TAU2 — task discovery, session kwargs, aggregation."""
 
-    subset: Literal["mock", "retail", "airline", "telecom"] = "retail"
-    user_simulator_model: str = "openai/Azure/gpt-4.1"
-    llm_temperature_user: float = 0.0
-    llm_user_input_cost_per_token: float | None = None
-    llm_user_output_cost_per_token: float | None = None
-    max_steps: int = 200
-    max_errors: int = 10
-    num_trials: int = 1
-    # Optional dotted path selecting the final score inside Tau2's metrics dict
-    # Example: "aggregate/final_score" or "overall/score"
-    score_path: Optional[str] = None
+    def __init__(
+        self,
+        subset: str,
+        user_simulator_model: str,
+        llm_temperature_user: float,
+        llm_user_input_cost_per_token: float | None,
+        llm_user_output_cost_per_token: float | None,
+        max_steps: int,
+        max_errors: int,
+        num_trials: int,
+        seed: int,
+        score_path: str | None,
+        use_cache: bool,
+    ):
+        self._subset = subset
+        self._user_simulator_model = user_simulator_model
+        self._llm_temperature_user = llm_temperature_user
+        self._llm_user_input_cost_per_token = llm_user_input_cost_per_token
+        self._llm_user_output_cost_per_token = llm_user_output_cost_per_token
+        self._max_steps = max_steps
+        self._max_errors = max_errors
+        self._num_trials = num_trials
+        self._seed = seed
+        self._score_path = score_path
+        self._use_cache = use_cache
 
-    # Internals
-
-    def list_subsets(self) -> List[str]:  # type: ignore[override]
-        return list(self.available_subsets)
-
-    def list_tasks(self) -> List[str]:  # type: ignore[override]
-        tasks = load_tasks(task_set_name=self.subset)
+    def list_tasks(self) -> List[str]:
+        tasks = load_tasks(task_set_name=self._subset)
         return [str(t.id) for t in tasks]
 
-    def create_session(self, index: SessionIndex) -> TAU2Session:
+    def get_session_kwargs(self, index: SessionIndex) -> Dict[str, Any]:
         task_id = index.task_id
-        session_id = index.session_id
 
         cfg = RunConfig(
-            domain=self.subset,
+            domain=self._subset,
             user="user_simulator",
             task_set_name=None,
             task_ids=[str(task_id)],
@@ -594,40 +599,35 @@ class TAU2Benchmark(Benchmark, BaseModel):
             agent=PROXY_AGENT_NAME,
             llm_agent="unknown",
             llm_args_agent={},
-            llm_user=self.user_simulator_model,
+            llm_user=self._user_simulator_model,
             llm_args_user={
-                "temperature": self.llm_temperature_user,
+                "temperature": self._llm_temperature_user,
                 "caching": settings.litellm_caching,
             },
-            num_trials=self.num_trials,
-            max_steps=self.max_steps,
-            max_errors=self.max_errors,
-            seed=self.seed,
+            num_trials=self._num_trials,
+            max_steps=self._max_steps,
+            max_errors=self._max_errors,
+            seed=self._seed,
             log_level=settings.log_level,
             max_concurrency=1,
             is_remote=False,
             save_to=None,  # Will be overridden by TauSession.
         )
-        if self.llm_user_input_cost_per_token is not None:
+        if self._llm_user_input_cost_per_token is not None:
             cfg.llm_args_user[
                 "input_cost_per_token"
-            ] = self.llm_user_input_cost_per_token
-        if self.llm_user_output_cost_per_token is not None:
+            ] = self._llm_user_input_cost_per_token
+        if self._llm_user_output_cost_per_token is not None:
             cfg.llm_args_user[
                 "output_cost_per_token"
-            ] = self.llm_user_output_cost_per_token
+            ] = self._llm_user_output_cost_per_token
 
-        executer = make_executer(
-            self.executer,
-            TAU2Session,
-            cfg,
-            settings.output_dir,
-            self.use_cache,
-            session_id=session_id,
-        )
-        session_proxy = executer.get_proxy()
-
-        return session_proxy  # type: ignore[return-value]
+        return {
+            "run_config": cfg,
+            "output_dir": settings.output_dir,
+            "use_cache": self._use_cache,
+            "session_id": index.session_id,
+        }
 
     def aggregate_sessions(self, sessions: List[SessionIndex]) -> BenchmarkResults:
         """Aggregate per-session Tau2 result files and expose a final score.
@@ -675,8 +675,49 @@ class TAU2Benchmark(Benchmark, BaseModel):
         m = compute_metrics(combined)
 
         return BenchmarkResults(
-            benchmark_name=f"tau2-{self.subset}",
+            benchmark_name=f"tau2-{self._subset}",
             total_tasks=total_sessions,
             score=m.avg_reward,
             metrics=m.as_dict(),
         )
+
+
+class TAU2Benchmark(Benchmark, BaseModel):
+    display_name: ClassVar[str] = "Tau Bench 2"
+    slug_name: ClassVar[str] = "tau2"
+    available_subsets: ClassVar[List[str]] = ["mock", "retail", "airline", "telecom"]
+    evaluator_class: ClassVar = TAU2Evaluator
+    session_class: ClassVar = TAU2Session
+    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
+
+    subset: Literal["mock", "retail", "airline", "telecom"] = "retail"
+    user_simulator_model: str = "openai/Azure/gpt-4.1"
+    llm_temperature_user: float = 0.0
+    llm_user_input_cost_per_token: float | None = None
+    llm_user_output_cost_per_token: float | None = None
+    max_steps: int = 200
+    max_errors: int = 10
+    num_trials: int = 1
+    # Optional dotted path selecting the final score inside Tau2's metrics dict
+    # Example: "aggregate/final_score" or "overall/score"
+    score_path: Optional[str] = None
+
+    # Internals
+
+    def list_subsets(self) -> List[str]:  # type: ignore[override]
+        return list(self.available_subsets)
+
+    def get_evaluator_kwargs(self) -> Dict[str, Any]:
+        return {
+            "subset": self.subset,
+            "user_simulator_model": self.user_simulator_model,
+            "llm_temperature_user": self.llm_temperature_user,
+            "llm_user_input_cost_per_token": self.llm_user_input_cost_per_token,
+            "llm_user_output_cost_per_token": self.llm_user_output_cost_per_token,
+            "max_steps": self.max_steps,
+            "max_errors": self.max_errors,
+            "num_trials": self.num_trials,
+            "seed": self.seed,
+            "score_path": self.score_path,
+            "use_cache": self.use_cache,
+        }

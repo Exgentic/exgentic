@@ -23,6 +23,7 @@ from ...adapters.schemas.openai import (
 )
 
 from ...core.benchmark import Benchmark
+from ...core.evaluator import Evaluator
 from ...core.types import (
     Action,
     ActionType,
@@ -35,9 +36,7 @@ from ...core.types import (
     EmptyObservation,
     SessionIndex,
 )
-from ...adapters.executors.executer import make_executer
-from ...utils.settings import get_settings, ExecuterName, ExgenticSettings
-from datasets import load_dataset
+from ...utils.settings import get_settings, ExecuterName, ExgenticSettings, RunnerName
 
 # Copied scoring functions from https://github.com/hotpotqa/hotpot/blob/master/hotpot_evaluate_v1.py
 from ...core.actions import ActionsHandler, extract_argument
@@ -314,53 +313,46 @@ class HotpotQASession(Session):
         return result
 
 
-class HotpotQABenchmark(Benchmark, BaseModel):
-    display_name: ClassVar[str] = "HotpotQA"
-    slug_name: ClassVar[str] = "hotpotqa"
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+# ── Evaluator ────────────────────────────────────────────────────────
 
-    subset: Literal["distractor"] = "distractor"
-    with_search_tools: bool = True
-    executer: Optional[ExecuterName] = "inprocess"  # Code is threadsafe
 
-    # Internals
-    _dataset: Any = None
+class HotpotQAEvaluator(Evaluator):
+    """Evaluator for HotpotQA — task discovery, session kwargs, aggregation."""
 
-    def list_tasks(self) -> List[str]:  # type: ignore[override]
-        return [str(i) for i in range(HOTPOTQA_TOTAL_TASKS)]
+    def __init__(self, subset: str = "distractor", with_search_tools: bool = True) -> None:
+        self._subset = subset
+        self._with_search_tools = with_search_tools
+        self._dataset = None
 
     def _ensure_dataset(self) -> None:
         if self._dataset is None:
+            from datasets import load_dataset
             self._dataset = load_dataset("hotpotqa/hotpot_qa", "distractor")[
                 "validation"
             ]
 
-    def create_session(self, index: SessionIndex) -> HotpotQASession:
+    def list_tasks(self) -> List[str]:
+        return [str(i) for i in range(HOTPOTQA_TOTAL_TASKS)]
+
+    def get_session_kwargs(self, index: SessionIndex) -> Dict[str, Any]:
         self._ensure_dataset()
-        task_id = index.task_id
-        idx = int(task_id)
+        idx = int(index.task_id)
         if idx < 0 or idx >= len(self._dataset):
-            raise IndexError(f"Task id {task_id} out of range for HotpotQA.")
+            raise IndexError(f"Task id {index.task_id} out of range for HotpotQA.")
         instance = {"task_id": idx, **self._dataset[idx]}
-        session_id = index.session_id
-        executer = make_executer(
-            self.executer,
-            HotpotQASession,
-            get_settings(),
-            self.with_search_tools,
-            instance,
-            session_id=session_id,
-        )
-        proxy = executer.get_proxy()
-        return proxy  # type: ignore[return-value]
+        return {
+            "settings": get_settings(),
+            "with_search_tools": self._with_search_tools,
+            "instance": instance,
+            "session_id": index.session_id,
+        }
 
     def aggregate_sessions(self, sessions: List[SessionIndex]) -> BenchmarkResults:
-        # Aggregate per-session scores written by sessions
         scores: List[float] = []
         for paths in self.get_sessions_paths(sessions):
             with open(paths.benchmark_results, "r", encoding="utf-8-sig") as f:
                 payload = json.load(f)
-            s = float(payload["score"])  # minimal: assume exists
+            s = float(payload["score"])
             scores.append(s)
         avg = sum(scores) / len(scores) if scores else 0.0
         return BenchmarkResults(
@@ -369,3 +361,25 @@ class HotpotQABenchmark(Benchmark, BaseModel):
             score=avg,
             metrics={},
         )
+
+
+# ── Benchmark config ─────────────────────────────────────────────────
+
+
+class HotpotQABenchmark(Benchmark, BaseModel):
+    display_name: ClassVar[str] = "HotpotQA"
+    slug_name: ClassVar[str] = "hotpotqa"
+    evaluator_class: ClassVar[type] = HotpotQAEvaluator
+    session_class: ClassVar[type] = HotpotQASession
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    subset: Literal["distractor"] = "distractor"
+    with_search_tools: bool = True
+    executer: Optional[ExecuterName] = "inprocess"  # Deprecated, use runner
+    runner: RunnerName | None = "direct"  # Code is threadsafe
+
+    def get_evaluator_kwargs(self) -> Dict[str, Any]:
+        return {
+            "subset": self.subset,
+            "with_search_tools": self.with_search_tools,
+        }

@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from ..integrations.litellm.config import LitellmSettings
 
 ExecuterName = Literal["inprocess", "remote_process"]
+RunnerName = Literal["direct", "thread", "process", "service", "docker"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
@@ -38,6 +39,7 @@ class ExgenticSettings(BaseSettings):
     """
 
     default_executer: ExecuterName = "remote_process"
+    default_runner: RunnerName = "process"
     output_dir: str = "./outputs"
     # Logging level (env: EXGENTIC_LOG_LEVEL)
     log_level: LogLevel = "INFO"

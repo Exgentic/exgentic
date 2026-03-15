@@ -7,6 +7,7 @@ import json
 from typing import Any, ClassVar, Dict, List
 
 from exgentic.core.benchmark import Benchmark
+from exgentic.core.evaluator import Evaluator
 from exgentic.core.session import Session
 from exgentic.core.types import (
     Action,
@@ -25,45 +26,6 @@ from .test_agent import (
     BadAction,
     FinishAction,
 )
-
-
-class TestBenchmark(Benchmark):
-    __test__ = False
-    display_name: ClassVar[str] = "Test Benchmark"
-    slug_name: ClassVar[str] = "test_benchmark"
-
-    tasks: List[str] = ["task-1", "task-2", "task-3"]
-    stop_on_step: bool = False
-    invalid_observation: bool = False
-
-    def list_tasks(self) -> List[str]:
-        return list(self.tasks)
-
-    def create_session(self, index: SessionIndex) -> Session:
-        return TestSession(
-            index=index,
-            stop_on_step=self.stop_on_step,
-            invalid_observation=self.invalid_observation,
-        )
-
-    def aggregate_sessions(self, sessions: List[SessionIndex]) -> BenchmarkResults:
-        scores: List[float] = []
-        for paths in self.get_sessions_paths(sessions):
-            if not paths.results.exists():
-                continue
-            payload = json.loads(paths.results.read_text(encoding="utf-8"))
-            try:
-                score = float(payload["score"])
-            except Exception:
-                continue
-            scores.append(score)
-        avg = sum(scores) / len(scores) if scores else 0.0
-        return BenchmarkResults(
-            benchmark_name="test_benchmark",
-            total_tasks=len(sessions),
-            score=avg,
-            metrics={},
-        )
 
 
 class TestSession(Session):
@@ -145,3 +107,66 @@ class TestSession(Session):
 
     def close(self) -> None:
         return None
+
+
+class TestEvaluator(Evaluator):
+    __test__ = False
+
+    def __init__(
+        self,
+        *,
+        tasks: List[str] | None = None,
+        stop_on_step: bool = False,
+        invalid_observation: bool = False,
+    ) -> None:
+        self._tasks = tasks or ["task-1", "task-2", "task-3"]
+        self._stop_on_step = stop_on_step
+        self._invalid_observation = invalid_observation
+
+    def list_tasks(self) -> List[str]:
+        return list(self._tasks)
+
+    def get_session_kwargs(self, index: SessionIndex) -> Dict[str, Any]:
+        return {
+            "index": index,
+            "stop_on_step": self._stop_on_step,
+            "invalid_observation": self._invalid_observation,
+        }
+
+    def aggregate_sessions(self, sessions: List[SessionIndex]) -> BenchmarkResults:
+        scores: List[float] = []
+        for paths in self.get_sessions_paths(sessions):
+            if not paths.results.exists():
+                continue
+            payload = json.loads(paths.results.read_text(encoding="utf-8"))
+            try:
+                score = float(payload["score"])
+            except Exception:
+                continue
+            scores.append(score)
+        avg = sum(scores) / len(scores) if scores else 0.0
+        return BenchmarkResults(
+            benchmark_name="test_benchmark",
+            total_tasks=len(sessions),
+            score=avg,
+            metrics={},
+        )
+
+
+class TestBenchmark(Benchmark):
+    __test__ = False
+    display_name: ClassVar[str] = "Test Benchmark"
+    slug_name: ClassVar[str] = "test_benchmark"
+    evaluator_class: ClassVar = TestEvaluator
+    session_class: ClassVar = TestSession
+
+    tasks: List[str] = ["task-1", "task-2", "task-3"]
+    stop_on_step: bool = False
+    invalid_observation: bool = False
+
+    def get_evaluator_kwargs(self) -> Dict[str, Any]:
+        return {
+            "tasks": self.tasks,
+            "stop_on_step": self.stop_on_step,
+            "invalid_observation": self.invalid_observation,
+        }

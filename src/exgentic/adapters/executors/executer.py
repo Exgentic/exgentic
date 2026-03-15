@@ -436,21 +436,55 @@ class InProcessExecuter(BaseExecuter):
         return self._target
 
 
+class _RunnerAdapter(BaseExecuter):
+    """Wraps an ObjectProxy from the new runner system to match BaseExecuter API."""
+
+    def __init__(self, proxy: Any) -> None:
+        self._proxy = proxy
+
+    def start(self) -> None:
+        pass  # Already started by with_runner
+
+    def call(self, name: str, *args: Any, **kwargs: Any) -> Any:
+        return getattr(self._proxy, name)(*args, **kwargs)
+
+    def get(self, name: str) -> Any:
+        return getattr(self._proxy, name)
+
+    def set(self, name: str, value: Any) -> None:
+        setattr(self._proxy, name, value)
+
+    def delete(self, name: str) -> None:
+        delattr(self._proxy, name)
+
+    def shutdown(self) -> None:
+        self._proxy.close()
+
+    def get_proxy(self) -> Any:
+        return self._proxy
+
+
+# Map old executer names to new runner names.
+_EXECUTER_TO_RUNNER = {
+    "inprocess": "direct",
+    "remote_process": "process",
+}
+
+
 def make_executer(
     kind: Optional[ExecuterName], target_cls: type, *args: Any, **kwargs: Any
 ) -> BaseExecuter:
+    from ..runners import with_runner
+
     if kind is None:
         kind = get_settings().default_executer
-    if kind == "inprocess":
-        return InProcessExecuter(target_cls, *args, **kwargs)
-    if kind == "remote_process":
-        # Ensure child process inherits context via env vars.
-        ctx = get_context()
-        os.environ.update(ctx.to_env())
-        exe = RemoteProcessExecuter(target_cls, *args, **kwargs)
-        exe.start()
-        return exe
-    raise ValueError(f"Unknown executer kind: {kind}")
+
+    runner_name = _EXECUTER_TO_RUNNER.get(kind)  # type: ignore[arg-type]
+    if runner_name is None:
+        raise ValueError(f"Unknown executer kind: {kind}")
+
+    proxy = with_runner(target_cls, *args, runner=runner_name, **kwargs)
+    return _RunnerAdapter(proxy)
 
 
 if __name__ == "__main__":

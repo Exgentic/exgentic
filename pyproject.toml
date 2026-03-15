@@ -82,3 +82,8 @@ include = [
 override-dependencies = [
   "rich>=13.9.4",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.1",
+]

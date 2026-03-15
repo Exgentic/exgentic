@@ -5,6 +5,7 @@ from .session import Session
 from .agent import Agent
 from .agent_instance import AgentInstance
 from .benchmark import Benchmark
+from .evaluator import Evaluator
 from .types import (
     RunConfig,
     SessionResults,
@@ -23,6 +24,7 @@ from .types import (
 __all__ = [
     # Core interfaces
     "Benchmark",
+    "Evaluator",
     "Session",
     "Agent",
     "AgentInstance",

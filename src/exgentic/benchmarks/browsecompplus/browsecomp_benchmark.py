@@ -24,21 +24,21 @@ from .browsecomp_eval import (
 from .searcher_cache import SearchDiskCacheSession
 from ...utils.cost import CostReport, LiteLLMCostReport
 from ...core import Benchmark, Session
+from ...core.evaluator import Evaluator
 from ...core.types import (
     Action,
     MessageAction,
     FinishAction,
     SingleAction,
-    ActionType,
     SingleObservation,
     Observation,
     BenchmarkResults,
     SessionScore,
     EmptyObservation,
     SessionIndex,
+    ActionType,
 )
-from ...adapters.executors.executer import make_executer
-from ...utils.settings import ExecuterName, ExgenticSettings, get_settings
+from ...utils.settings import ExecuterName, ExgenticSettings, RunnerName, get_settings
 
 
 # Paper-reported total for the full BrowseCompPlus dataset.
@@ -366,38 +366,37 @@ Finish the session always by calling `submit`. If you fail to find the answer, s
         }
 
 
-class BrowseCompPlusBenchmark(Benchmark, BaseModel):
-    display_name: ClassVar[str] = "BrowseCompPlus"
-    slug_name: ClassVar[str] = "browsecompplus"
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-    subset: Literal["main"] = "main"
+# ── Evaluator ────────────────────────────────────────────────────────
 
-    executer: Optional[ExecuterName] = "inprocess"  # Code is threadsafe
 
-    # Internals
-    _dataset: List[Dict[str, Any]] | None = None
-    _task_lookup: Dict[str, Dict[str, Any]] | None = None
+class BrowseCompPlusEvaluator(Evaluator):
+    """Evaluator for BrowseCompPlus — task discovery, session kwargs, aggregation."""
 
-    # Agent inference params (for logging)
-    inference_model: str = "N/A"
-
-    # searcher params
-    searcher_type: str = "faiss"  # "bm25" or "faiss"
-    searcher_model_name: str = "Qwen/Qwen3-Embedding-8B"  # Used for faiss only
-    max_snippet_length: int = 512
-    top_k_docs: int = 5
-    include_get_document: bool = True
-    normalize_search: bool = True
-    full_doc_max_tokens: int = 2048
-    max_interactions: Optional[int] = 100
-
-    def model_post_init(self, __context) -> None:
-        # Initialize dataset and task lookup
-        self._ensure_dataset()
-
-    def list_tasks(self) -> List[str]:  # type: ignore[override]
-        self._ensure_dataset()
-        return [str(item["query_id"]) for item in self._dataset]
+    def __init__(
+        self,
+        subset: str = "main",
+        searcher_type: str = "faiss",
+        searcher_model_name: str = "Qwen/Qwen3-Embedding-8B",
+        max_snippet_length: int = 512,
+        top_k_docs: int = 5,
+        include_get_document: bool = True,
+        normalize_search: bool = True,
+        full_doc_max_tokens: int = 2048,
+        max_interactions: Optional[int] = 100,
+        inference_model: str = "N/A",
+    ) -> None:
+        self._subset = subset
+        self._searcher_type = searcher_type
+        self._searcher_model_name = searcher_model_name
+        self._max_snippet_length = max_snippet_length
+        self._top_k_docs = top_k_docs
+        self._include_get_document = include_get_document
+        self._normalize_search = normalize_search
+        self._full_doc_max_tokens = full_doc_max_tokens
+        self._max_interactions = max_interactions
+        self._inference_model = inference_model
+        self._dataset: List[Dict[str, Any]] | None = None
+        self._task_lookup: Dict[str, Dict[str, Any]] | None = None
 
     @property
     def assets_dir(self):
@@ -432,14 +431,18 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
             self._dataset = self.extract_dataset()
             self._task_lookup = {str(item["query_id"]): item for item in self._dataset}
 
+    def list_tasks(self) -> List[str]:
+        self._ensure_dataset()
+        return [str(item["query_id"]) for item in self._dataset]
+
     def _get_searcher_params(self) -> Dict[str, Any]:
         """Get searcher parameters to pass to session."""
         index_dir = self.assets_dir / "indexes"
-        if self.searcher_type == "bm25":
+        if self._searcher_type == "bm25":
             index_dir = index_dir / "bm25"
             searcher_args = {"index_path": str(index_dir)}
         else:
-            model_dir_name = self.searcher_model_name.lower().split("/")[-1]
+            model_dir_name = self._searcher_model_name.lower().split("/")[-1]
             index_dir = index_dir / model_dir_name
             if not os.path.exists(index_dir):
                 available_models = os.listdir(self.assets_dir / "indexes")
@@ -450,37 +453,32 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
             index_path = index_dir / "corpus.shard*_of_4.pkl"
             searcher_args = {
                 "index_path": str(index_path),
-                "model_name": self.searcher_model_name,
-                "normalize": self.normalize_search,
+                "model_name": self._searcher_model_name,
+                "normalize": self._normalize_search,
             }
 
         return {
-            "searcher_type": self.searcher_type,
-            "max_snippet_length": self.max_snippet_length,
-            "top_k_docs": self.top_k_docs,
-            "include_get_document": self.include_get_document,
-            "full_doc_max_tokens": self.full_doc_max_tokens,
+            "searcher_type": self._searcher_type,
+            "max_snippet_length": self._max_snippet_length,
+            "top_k_docs": self._top_k_docs,
+            "include_get_document": self._include_get_document,
+            "full_doc_max_tokens": self._full_doc_max_tokens,
             **searcher_args,
         }
 
-    def create_session(self, index: SessionIndex) -> BrowseCompPlusSession:
+    def get_session_kwargs(self, index: SessionIndex) -> Dict[str, Any]:
         self._ensure_dataset()
         task_id = index.task_id
         if self._task_lookup is None or task_id not in self._task_lookup:
             raise KeyError(f"Unknown BrowseCompPlus task id '{task_id}'.")
         instance = {"task_id": task_id, **self._task_lookup[task_id]}
-        session_id = index.session_id
-        executer = make_executer(
-            self.executer,
-            BrowseCompPlusSession,
-            get_settings(),
-            instance,
-            self._get_searcher_params(),
-            max_interactions=self.max_interactions,
-            session_id=session_id,
-        )
-        proxy = executer.get_proxy()
-        return proxy  # type: ignore[return-value]
+        return {
+            "settings": get_settings(),
+            "instance": instance,
+            "searcher_params": self._get_searcher_params(),
+            "max_interactions": self._max_interactions,
+            "session_id": index.session_id,
+        }
 
     def aggregate_sessions(self, sessions: List[SessionIndex]) -> BenchmarkResults:
         # Aggregate per-session scores written by sessions
@@ -553,12 +551,12 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
                 )
                 calibration_error = 0
         metrics = {
-            "LLM": self.inference_model,
+            "LLM": self._inference_model,
             "Accuracy (%)": avg,
             "Recall (%)": avg_retrieval_recalls,
             "avg_tool_stats": avg_tool_use_counts,
             "Calibration Error (%)": calibration_error,
-            "Retriever": self.searcher_model_name,
+            "Retriever": self._searcher_model_name,
             "Link": "change me when submitting",
             "Evaluation Date": datetime.datetime.now().date().isoformat(),
         }
@@ -568,3 +566,45 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
             score=avg,
             metrics=metrics,
         )
+
+
+# ── Benchmark config ─────────────────────────────────────────────────
+
+
+class BrowseCompPlusBenchmark(Benchmark, BaseModel):
+    display_name: ClassVar[str] = "BrowseCompPlus"
+    slug_name: ClassVar[str] = "browsecompplus"
+    evaluator_class: ClassVar[type] = BrowseCompPlusEvaluator
+    session_class: ClassVar[type] = BrowseCompPlusSession
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    subset: Literal["main"] = "main"
+
+    executer: Optional[ExecuterName] = "inprocess"  # Deprecated, use runner
+    runner: RunnerName | None = "direct"  # Code is threadsafe
+
+    # Agent inference params (for logging)
+    inference_model: str = "N/A"
+
+    # searcher params
+    searcher_type: str = "faiss"  # "bm25" or "faiss"
+    searcher_model_name: str = "Qwen/Qwen3-Embedding-8B"  # Used for faiss only
+    max_snippet_length: int = 512
+    top_k_docs: int = 5
+    include_get_document: bool = True
+    normalize_search: bool = True
+    full_doc_max_tokens: int = 2048
+    max_interactions: Optional[int] = 100
+
+    def get_evaluator_kwargs(self) -> Dict[str, Any]:
+        return {
+            "subset": self.subset,
+            "searcher_type": self.searcher_type,
+            "searcher_model_name": self.searcher_model_name,
+            "max_snippet_length": self.max_snippet_length,
+            "top_k_docs": self.top_k_docs,
+            "include_get_document": self.include_get_document,
+            "normalize_search": self.normalize_search,
+            "full_doc_max_tokens": self.full_doc_max_tokens,
+            "max_interactions": self.max_interactions,
+            "inference_model": self.inference_model,
+        }
