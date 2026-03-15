@@ -5,20 +5,18 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from argparse import Action
-from typing import Any, Generic, Optional, TypeVar
 from queue import Queue
 from threading import Event, Lock, Semaphore
+from typing import Any, Generic, Optional, TypeVar
 
 from ...core.session import Session
 from ...core.types import Observation
-
 
 DONE = object()
 
 
 class BaseProxySession(Session, ABC):
-    """
-    Generic queue-based proxy session.
+    """Generic queue-based proxy session.
 
     Implements a simple rendezvous between an external driver (agent/framework)
     and a foreign environment adapter via two blocking queues.
@@ -79,7 +77,7 @@ class BaseProxySession(Session, ABC):
 
 _PAIRING_SEMAPHORE: Semaphore = Semaphore(1)  # Only 1 session can be staged at a time
 _PAIRING_LOCK: Lock = Lock()
-_CURRENT_SESSION: Optional["PairableProxySession"] = None
+_CURRENT_SESSION: Optional[PairableProxySession] = None
 
 
 class PairableProxySession(BaseProxySession):
@@ -133,9 +131,9 @@ SessionT = TypeVar("SessionT", bound=BaseProxySession)
 
 
 class BaseProxyAgent(ABC, Generic[SessionT]):
-    """
-    Base mixin providing generic step handling between a proxy session and
-    an external environment. Uses core terms (session, observation, action).
+    """Base mixin providing generic step handling between a proxy session and an external environment.
+
+    Uses core terms (session, observation, action).
 
     Adapters should call `handle_observation(observation, state)` from their
     environment-specific entrypoint.

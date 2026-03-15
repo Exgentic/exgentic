@@ -2,6 +2,7 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 import json
+
 from transformers import AutoTokenizer
 
 
@@ -28,10 +29,9 @@ class BCPSearchToolHandler:
     def execute_tool(self, tool_name: str, arguments: dict):
         if tool_name == "search":
             return self._search(arguments["query"])
-        elif tool_name == "get_document":
+        if tool_name == "get_document":
             return self._get_document(arguments["docid"])
-        else:
-            raise ValueError(f"Unknown tool: {tool_name}")
+        raise ValueError(f"Unknown tool: {tool_name}")
 
     def _search(self, query: str):
         candidates = self.searcher.search(query, self.k)
@@ -78,5 +78,4 @@ class BCPSearchToolHandler:
         if max_len and len(tokens) > max_len:
             truncated_tokens = tokens[:max_len]
             return self.tokenizer.decode(truncated_tokens, skip_special_tokens=True)
-        else:
-            return text
+        return text

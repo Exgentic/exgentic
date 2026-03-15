@@ -6,10 +6,10 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DOTENV_PATH = Path(os.environ.get("EXGENTIC_DOTENV_PATH", ".env"))
 
@@ -51,6 +51,7 @@ class ExgenticSettings(BaseSettings):
     litellm_cache_dir: str = ".litellm_cache"
     dotenv_path: str = str(DOTENV_PATH)
     otel_enabled: bool = False
+    otel_record_content: bool = False
 
     _litellm_cache_configured: bool = False
 
@@ -61,7 +62,7 @@ class ExgenticSettings(BaseSettings):
         """Return env vars for all settings fields (EXGENTIC_*)."""
         env: dict[str, str] = {}
         prefix = self.model_config.get("env_prefix") or ""
-        for name, field in type(self).model_fields.items():
+        for name, _field in type(self).model_fields.items():
             if name.startswith("_"):
                 continue
             value = getattr(self, name, None)
@@ -99,7 +100,7 @@ class ExgenticSettings(BaseSettings):
 
         configure_litellm(config=self.to_litellm_config(), cache_only=cache_only)
 
-    def to_litellm_config(self) -> "LitellmSettings":
+    def to_litellm_config(self) -> LitellmSettings:
         from ..integrations.litellm.config import LitellmSettings
 
         return LitellmSettings(

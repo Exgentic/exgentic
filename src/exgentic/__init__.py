@@ -44,9 +44,7 @@ def _find_component_export(name: str):
         return None
     if len(matches) > 1:
         slugs = ", ".join(sorted(entry.slug_name for entry in matches))
-        raise AttributeError(
-            f"Ambiguous exgentic export '{name}' found in registry entries: {slugs}."
-        )
+        raise AttributeError(f"Ambiguous exgentic export '{name}' found in registry entries: {slugs}.")
     return matches[0]
 
 

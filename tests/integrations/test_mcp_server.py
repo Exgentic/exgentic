@@ -7,12 +7,11 @@ from datetime import timedelta
 
 import httpx
 import pytest
-
+from exgentic.adapters.agents import mcp_server as mcp_srv
+from exgentic.utils.sync import run_sync
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
-from exgentic.adapters.agents import mcp_server as mcp_srv
-from exgentic.utils.sync import run_sync
 
 
 class FakeMCP:
@@ -27,7 +26,7 @@ class FakeMCP:
             (),
             {"streamable_http_path": "/mcp", "transport_security": fake_ts},
         )()
-        return None
+        return
 
     def add_tool(self, fn, **kwargs) -> None:
         return None
@@ -62,7 +61,7 @@ def _patch_uvicorn(monkeypatch):
 
     def _noop_run_sync(coro, timeout=None):
         coro.close()
-        return None
+        return
 
     monkeypatch.setattr(mcp_srv, "run_sync", _noop_run_sync)
     monkeypatch.setattr(mcp_srv.socket, "socket", _fake_socket_factory())
@@ -277,8 +276,7 @@ def test_mcp_server_invalid_tool_argument_name(tmp_path):
     result = run_sync(_call_tool(app, "echo", {"wrong": "hi"}))
     assert result.isError is True
     assert any(
-        "Error executing tool echo:" in block.text
-        and "validation error" in block.text.lower()
+        "Error executing tool echo:" in block.text and "validation error" in block.text.lower()
         for block in result.content
     )
 
@@ -299,8 +297,7 @@ def test_mcp_server_invalid_tool_argument_type(tmp_path):
     result = run_sync(_call_tool(app, "echo", {"text": 123}))
     assert result.isError is True
     assert any(
-        "Error executing tool echo:" in block.text
-        and "validation error" in block.text.lower()
+        "Error executing tool echo:" in block.text and "validation error" in block.text.lower()
         for block in result.content
     )
 

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List, Optional
 
 from exgentic.core.agent import Agent
 from exgentic.core.agent_instance import AgentInstance
@@ -9,11 +9,9 @@ from exgentic.core.types import ModelSettings
 
 
 class SimpleTestAgentInstance(AgentInstance):
-    """Simple test agent that responds with basic actions"""
+    """Simple test agent that responds with basic actions."""
 
-    def __init__(
-        self, session_id: str, task: str, context: Dict[str, Any], actions: List[str]
-    ):
+    def __init__(self, session_id: str, task: str, context: Dict[str, Any], actions: List[str]):
         super().__init__(session_id)
         self.task = task
         self.context = context or {}
@@ -21,7 +19,7 @@ class SimpleTestAgentInstance(AgentInstance):
         self.step_count = 0
 
     def react(self, observation: Optional[str]) -> Optional[str]:
-        """React to observation with simple response"""
+        """React to observation with simple response."""
         self.step_count += 1
 
         if observation is None:
@@ -31,16 +29,15 @@ class SimpleTestAgentInstance(AgentInstance):
         # Simple logic: respond a few times then finish
         if self.step_count <= 2:
             return f"Responding to: {observation}"
-        else:
-            # Signal completion
-            return None
+        # Signal completion
+        return None
 
     def close(self):
         pass
 
 
 class SimpleTestAgent(Agent):
-    """Agent factory that creates simple test agents"""
+    """Agent factory that creates simple test agents."""
 
     display_name: str = "Simple Test Agent"
     slug_name: str = "simple_test"
@@ -50,9 +47,7 @@ class SimpleTestAgent(Agent):
             raise ValueError("model_settings must be a ModelSettings instance.")
         self.model_settings = model_settings
 
-    def assign(
-        self, task: str, context: Dict[str, Any], actions: List[str], session_id: str
-    ) -> AgentInstance:
+    def assign(self, task: str, context: Dict[str, Any], actions: List[str], session_id: str) -> AgentInstance:
         return SimpleTestAgentInstance(session_id, task, context, actions)
 
     def get_models_names(self) -> List[str]:  # type: ignore[override]

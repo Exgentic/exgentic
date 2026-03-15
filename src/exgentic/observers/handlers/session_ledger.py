@@ -6,7 +6,6 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass
-from typing import Dict
 
 
 @dataclass
@@ -19,8 +18,8 @@ class SessionLedger:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._counter = 0
-        self._numbers: Dict[str, int] = {}
-        self._states: Dict[str, SessionState] = {}
+        self._numbers: dict[str, int] = {}
+        self._states: dict[str, SessionState] = {}
 
     def register(self, session_id: str) -> int:
         with self._lock:

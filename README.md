@@ -4,11 +4,20 @@
   <strong>Evaluate any agent on any benchmark in the simplest way possible</strong>
 </p>
 
+--- 
+## 🎯 What is Exgentic?
+
+Exgentic is a universal evaluation framework that enables standardized testing of AI agents across diverse benchmarks and domains. It provides a consistent interface for evaluating any agent on any benchmark, making it easy to compare performance, reproduce results, and ensure your agent works reliably across different tasks and environments.
+
+## 👥 Who is it for?
+Exgentic serves multiple audiences in the AI agent ecosystem:
+1. **General Audience** - Visit [www.exgentic.ai](https://www.exgentic.ai) to explore the first general agent leaderboard comparing leading agents and frontier models across varied tasks.
+2. **Agent Builders** - Evaluate your agents comprehensively across multiple domains and benchmarks to ensure robust performance and identify areas for improvement.
+3. **Researchers & Component Developers** - Test general agentic components (such as memory systems, context compression, planning modules) across different agents and domains to validate their effectiveness and generalizability.
+4. **Benchmark Builders** - Evaluate your benchmark across multiple agents to ensure it provides meaningful differentiation and works reliably with different agent architectures.
+
 ---
-
-## ✨ Features & Benefits
-
-### 🎯 Key Features
+## ✨ Key Features 
 
 - 🔄 **Universal Evaluation Framework** - Evaluate any agent on any benchmark with a consistent, standardized interface
 - 🤖 **Multi-Agent Support** - Built-in support for LiteLLM, SmolAgents, OpenAI MCP, and Claude Code agents
@@ -20,14 +29,8 @@
 - ⚙️ **Fine-Grained Control** - Configure model parameters, run limits, and benchmark/agent-specific settings
 - 📁 **Structured Output** - Organized directory structure with session-level and run-level artifacts for easy analysis
 - 💰 **Cost Tracking** - Automatic tracking of API costs and performance metrics
-
-### 🚀 Benefits
-
-- ✅ **Standardization** - Consistent evaluation methodology enables fair comparisons across agents and benchmarks
-- 🔁 **Reproducibility** - Comprehensive logging and configuration snapshots enable exact reproduction of any run
+- 🏭 **Scalable** - Built-in caching, optimization, and monitoring features for scaled evaluations
 - 🧩 **Extensibility** - Modular architecture makes it easy to add new agents or benchmarks
-- 🏭 **Production-Ready** - Built-in caching, optimization, and monitoring features for real-world deployments
-- 👨‍💻 **Developer-Friendly** - Simple setup with clear documentation and examples
 
 ---
 
@@ -42,23 +45,32 @@
 
 Clone the repository:
 ```bash
-git clone <repository-url>
-cd exgentic-research
+git clone  https://github.com/Exgentic/exgentic.git
+cd exgentic
 ```
 
 Set up your environment:
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -e ".[litellm,smolagents]"
+
 ```
 
-### 🔧 Benchmark Setup
+### 🔧 Setup
 
-Run the setup command for each benchmark before first use:
+Run the setup command for benchmarks and agents before first use:
+
+**Benchmarks:**
 ```bash
-exgentic setup appworld
-exgentic setup tau2
+exgentic setup --benchmark appworld
+exgentic setup --benchmark tau2
+```
+
+**Agents:**
+```bash
+exgentic setup --agent smolagents
+exgentic setup --agent openai
+exgentic setup --agent claude
 ```
 ### 🔑 API Credentials
 
@@ -123,17 +135,15 @@ There are two simple example benchmarks:
 ## 🤖 Available Agents
 
 ### ⚡ LiteLLM Tool Calling
-**Setup:** `pip install -e ".[litellm]"`
-
+**Setup:** `exgentic setup --agent litellm_tool_calling` 
 ### 🧠 SmolAgents Tool calling and Code Agents
+**Setup:** `exgentic setup --agent smolagents` "`
 
-**Setup:** `pip install -e ".[smolagents]"`
-
-### 🔷 OpenAI Solo
-**Setup:** `pip install -e ".[openaimacp]"`
+### 🔷 OpenAI MCP
+**Setup:** `exgentic setup --agent openai`  
 
 ### 🎨 Claude Code
-**Setup:** To be added...
+**Setup:** `exgentic setup --agent claude`   
 
 ---
 
@@ -230,7 +240,7 @@ For Python API usage examples, see the [`examples/`](./examples/) directory.
 
 ## 📖 How It Works
 
-To learn more about Exgentic's architecture and design, see our arXiv paper: [Coming soon]
+To learn more about Exgentic's architecture and design, see our [arXiv paper](https://arxiv.org/abs/2602.22953).
 
 ## 🤝 Contributing
 
@@ -262,11 +272,11 @@ The Exgentic stops a session when it reaches either limit and records a `limit_r
 
 ### 🔍 OpenTelemetry Tracing
 
-Enable distributed tracing for your agent evaluations:
+Agent trajectories can be recorded as OTel traces and emitted to a collector server. Exgentic traces follow the OTel semantic conventions for GenAI. For more information see [`OTEL_SEMANTIC_CONVENTIONS.md`](./OTEL_SEMANTIC_CONVENTIONS.md). Enable OTel distributed tracing for your agent evaluations:
 
 1. **Install dependencies:**
    ```bash
-   pip install -e .[otel]
+   pip install -e '.[otel]'
    ```
 
 2. **Set up an OTEL Collector:**
@@ -274,15 +284,33 @@ Enable distributed tracing for your agent evaluations:
 
 3. **Configure environment variables:**
    ```bash
-   export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+   export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 # typical for self-hosted Jaeger server with http
    export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf  # or 'grpc'
-   export EXGENTIC_OTEL_ENABLED=true
+   export EXGENTIC_OTEL_ENABLED=true 
    ```
 
-4. **View traces:**
+4. **Content Recording:**
+  LLM inputs and outputs are not emitted to OTel by default. To enable, set the environment variable:
+   ```bash
+   export EXGENTIC_OTEL_RECORD_CONTENT=true
+   ```
+
+5. **View traces:**
    OTEL logs are written to `<session_root>/otel.log`
 
 ---
+## 📖 Citing Exgentic
+
+If you use Exgentic or Exgentic harness in your research, please cite it by using the following BibTeX entry.
+```bash
+@misc{bandel2026generalagentevaluation,
+      title={General Agent Evaluation}, 
+      author={Elron Bandel and Asaf Yehudai and Lilach Eden and Yehoshua Sagron and Yotam Perlitz and Elad Venezian and Natalia Razinkov and Natan Ergas and Shlomit Shachor Ifergan and Segev Shlomov and Michal Jacovi and Leshem Choshen and Liat Ein-Dor and Yoav Katz and Michal Shmueli-Scheuer},
+      year={2026},
+      url={https://arxiv.org/abs/2602.22953}, 
+}
+```
+
 
 ## 📄 License
 

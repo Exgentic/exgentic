@@ -3,6 +3,7 @@
 
 import json
 from typing import Dict, List
+
 from ...utils.paths import RunPaths
 
 FUNNEL = [
@@ -27,6 +28,5 @@ def collect_metrics(run_id, session_ids: List[str]) -> Dict:
             summaries.append(json.loads(path.read_text()).get("summary", {}))
 
     return {
-        "funnel": {"total": len(summaries)}
-        | {name: sum(1 for s in summaries if check(s)) for name, check in FUNNEL}
+        "funnel": {"total": len(summaries)} | {name: sum(1 for s in summaries if check(s)) for name, check in FUNNEL}
     }

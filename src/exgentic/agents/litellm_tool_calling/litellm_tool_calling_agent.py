@@ -3,9 +3,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Union, ClassVar
 import json
 import time
+from typing import Any, ClassVar, Optional, Union
 
 import litellm
 from litellm import (
@@ -15,24 +15,24 @@ from litellm import (
     ChatCompletionUserMessage,
 )
 
-from ...utils.cost import LiteLLMCostReport
-from ...utils.settings import get_settings
-
 from ...core.agent import Agent
 from ...core.agent_instance import AgentInstance
 from ...core.context import get_context
 from ...core.types import (
     Action,
     ActionType,
-    Observation,
+    Message,
+    MessageAction,
     MessageObservation,
     MessagePayload,
-    MessageAction,
-    Message,
     ModelSettings,
+    Observation,
     RetryStrategy,
 )
-from .utils import ToolsActionsRegistry, ToolCall
+from ...integrations.litellm.health import check_model_accessible_sync
+from ...utils.cost import LiteLLMCostReport
+from ...utils.settings import get_settings
+from .utils import ToolCall, ToolsActionsRegistry
 
 settings = get_settings()
 
@@ -53,8 +53,8 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         self,
         session_id: str,
         task: str,
-        context: Dict[str, Any],
-        actions: List[ActionType],
+        context: dict[str, Any],
+        actions: list[ActionType],
         model: str = "gpt-4o-mini",
         max_steps: int = 150,
         enable_tool_shortlisting: bool = True,
@@ -88,10 +88,10 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
             settings.resolved_litellm_cache_dir(),
         )
 
-        self._all_actions: List[ActionType] = list(actions)
+        self._all_actions: list[ActionType] = list(actions)
         self._registry = ToolsActionsRegistry(self._all_actions)
 
-        self.messages: List[
+        self.messages: list[
             Union[
                 ChatCompletionAssistantMessage,
                 ChatCompletionToolMessage,
@@ -104,16 +104,15 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         ctx = ""
         if self.context:
             ctx = "".join(f"\n<{k}>\n{v}\n</{k}>" for k, v in self.context.items())
-        self._add_message(
-            ChatCompletionUserMessage(role="user", content=f"{task}\n{ctx}")
-        )
+        self._add_message(ChatCompletionUserMessage(role="user", content=f"{task}\n{ctx}"))
 
         self._cost_data = LiteLLMCostReport.initialize_empty(model_name=self.model)
 
+        # Check model accessibility
+        check_model_accessible_sync(self.model, logger=self.logger)
+
     def _register_cost(self, usage: litellm.Usage):
-        self._cost_data.update_cost_from_tokens(
-            usage.prompt_tokens, usage.completion_tokens
-        )
+        self._cost_data.update_cost_from_tokens(usage.prompt_tokens, usage.completion_tokens)
 
     def _add_message(self, message):
         self.logger.info(f"Adding message to chat history: {message}")
@@ -133,52 +132,32 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
 
         for obs in observations:
             # Structured user messages: add and move on
-            if isinstance(obs, MessageObservation) and isinstance(
-                obs.result, MessagePayload
-            ):
-                self._add_message(
-                    ChatCompletionUserMessage(role="user", content=obs.result.message)
-                )
+            if isinstance(obs, MessageObservation) and isinstance(obs.result, MessagePayload):
+                self._add_message(ChatCompletionUserMessage(role="user", content=obs.result.message))
                 continue
 
             if len(obs.invoking_actions) > 0:
                 invoking = obs.invoking_actions[0]
                 if invoking.name == "message":
                     # Fallback: treat as user-visible content
-                    self._add_message(
-                        ChatCompletionUserMessage(role="user", content=str(obs))
-                    )
+                    self._add_message(ChatCompletionUserMessage(role="user", content=str(obs)))
                     continue
                 action_id = invoking.id
                 tool_call_id = invoking.id
-                if not (
-                    isinstance(tool_call_id, str) and tool_call_id.startswith("call_")
-                ):
-                    tool_call_id = self._registry.action_id_to_tool_call_id.get(
-                        action_id
-                    )
+                if not (isinstance(tool_call_id, str) and tool_call_id.startswith("call_")):
+                    tool_call_id = self._registry.action_id_to_tool_call_id.get(action_id)
                 if tool_call_id is None:
-                    raise RuntimeError(
-                        f"Unable to map tool call id for action {action_id}"
-                    )
+                    raise RuntimeError(f"Unable to map tool call id for action {action_id}")
                 value = obs.result
                 try:
-                    content = json.dumps(
-                        value, ensure_ascii=False, separators=(",", ":")
-                    )
+                    content = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
                 except TypeError:
                     content = str(value)
-                self._add_message(
-                    ChatCompletionToolMessage(
-                        role="tool", tool_call_id=tool_call_id, content=content
-                    )
-                )
+                self._add_message(ChatCompletionToolMessage(role="tool", tool_call_id=tool_call_id, content=content))
             else:
-                self._add_message(
-                    ChatCompletionUserMessage(role="user", content=str(obs))
-                )
+                self._add_message(ChatCompletionUserMessage(role="user", content=str(obs)))
 
-    def _assistant_tools(self) -> List[Dict[str, Any]]:
+    def _assistant_tools(self) -> list[dict[str, Any]]:
         """Returns list of available tools in openai format.
 
         If the number of available tools is less the max_selected_tools parameter,
@@ -213,9 +192,7 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
 
         names_str = ""
         for tool in tools:
-            names_str += (
-                f"\n- {tool['function']['name']}: {tool['function']['description']}"
-            )
+            names_str += f"\n- {tool['function']['name']}: {tool['function']['description']}"
 
         history_text = self._render_history_for_shortlist()
         self.logger.info("Tool shortlist history chars: %d", len(history_text))
@@ -223,11 +200,13 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         dev = ChatCompletionDeveloperMessage(
             role="developer",
             content=(
-                f"Please before providing your next move list the names of the top {self.max_selected_tools} tools that are somewhat relevant for the next step, "
+                f"Please before providing your next move list the names of the top "
+                f"{self.max_selected_tools} tools that are somewhat relevant for the next step, "
                 "ordered by relevancy (most to least). Return ONLY a JSON object with this shape: "
                 '{\n  "tools": ["tool_name_1", "tool_name_2", ...]\n}.\n'
                 f"Choose from these tools only: {names_str}.\n"
-                f"Do not call any of those tools just return the list of the top {self.max_selected_tools} relevant tools names in the required format."
+                f"Do not call any of those tools just return the list of the top "
+                f"{self.max_selected_tools} relevant tools names in the required format."
             ),
         )
         history = ChatCompletionUserMessage(
@@ -305,7 +284,7 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         return "\n".join(parts)
 
     @staticmethod
-    def _message_to_dict(message: Any) -> Dict[str, Any]:
+    def _message_to_dict(message: Any) -> dict[str, Any]:
         if isinstance(message, dict):
             return message
         if hasattr(message, "model_dump"):
@@ -314,13 +293,12 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
             return message.dict()
         raise TypeError(f"Unsupported message type: {type(message).__name__}")
 
-    def _extract_tool_calls(self, message: litellm.Message) -> List[ToolCall]:
+    def _extract_tool_calls(self, message: litellm.Message) -> list[ToolCall]:
         """Extract tool calls from the message object returned from the litellm call."""
-
         if not message.tool_calls:
             return []
 
-        tool_calls: List[ToolCall] = []
+        tool_calls: list[ToolCall] = []
 
         for tool_call in message.tool_calls:
             tool_calls.append(
@@ -391,7 +369,8 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
             exclude={"num_retries", "retry_after", "retry_strategy"},
         )
         call_kwargs.update(kwargs)
-        call_kwargs.setdefault("litellm_metadata", {})["context"] = get_context()
+        # Use 'metadata' parameter instead of 'litellm_metadata' - LiteLLM passes this to callbacks
+        call_kwargs.setdefault("metadata", {})["context"] = get_context()
         return self._completion_with_retries(call_kwargs)
 
     def _completion_with_retries(self, call_kwargs: dict[str, Any]):
@@ -419,6 +398,7 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
                 )
                 if delay > 0:
                     time.sleep(delay)
+        return None
 
     def _raise_if_invalid_completion(self, response: Any) -> None:
         try:
@@ -442,8 +422,7 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         if finish_reason != "tool_calls":
             if message is None or message.content is None:
                 self.logger.error(
-                    "LiteLLM completion missing assistant content "
-                    "(finish_reason=%s). Raw response: %s",
+                    "LiteLLM completion missing assistant content " "(finish_reason=%s). Raw response: %s",
                     finish_reason,
                     response,
                 )
@@ -473,14 +452,14 @@ class LiteLLMToolCallingAgent(Agent):
     def model_name(self) -> str:  # type: ignore[override]
         return str(self.model).split("/")[-1]
 
-    def get_models_names(self) -> List[str]:  # type: ignore[override]
+    def get_models_names(self) -> list[str]:  # type: ignore[override]
         return [str(self.model)]
 
     def assign(
         self,
         task: str,
-        context: Dict[str, Any],
-        actions: List[ActionType],
+        context: dict[str, Any],
+        actions: list[ActionType],
         session_id: str,
     ) -> AgentInstance:
         return LiteLLMToolCallingAgentInstance(

@@ -15,6 +15,10 @@
 
 set -euo pipefail
 
+# Tracking arrays for summary report
+SETUP_PASSED=()
+SETUP_FAILED=()
+
 # Get the project root (two levels up from this script in misc/security/)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -51,7 +55,10 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 # Parse command line arguments
-REQUESTED_BENCHMARKS=("$@")
+REQUESTED_BENCHMARKS=()
+if [ $# -gt 0 ]; then
+    REQUESTED_BENCHMARKS=("$@")
+fi
 ALL_BENCHMARKS=("gsm8k" "hotpotqa" "appworld" "browsecompplus" "swebench" "tau2")
 
 # Determine which benchmarks to create
@@ -108,7 +115,7 @@ if [ "$CREATE_CORE" = true ]; then
 
     # Install project with all optional dependencies
     log_info "Installing base project with all optional dependencies..."
-    uv pip install -e "${PROJECT_ROOT}[smolagents,openaimacp,wxo,otel,cli,dev]"
+    uv pip install -e "${PROJECT_ROOT}[smolagents,openaimacp,otel,cli,dev]"
 
     # Generate requirements.txt for core environment
     log_info "Generating requirements.txt for core environment..."
@@ -149,7 +156,7 @@ for benchmark in "${BENCHMARKS[@]}"; do
     
     # Install base project with all optional dependencies
     log_info "Installing base project with all optional dependencies for ${benchmark}..."
-    uv pip install -e "${PROJECT_ROOT}[smolagents,openaimacp,wxo,otel,cli,dev]"
+    uv pip install -e "${PROJECT_ROOT}[smolagents,openaimacp,otel,cli,dev]"
     
     # Run benchmark-specific setup script
     log_info "Running setup script for ${benchmark}..."
@@ -158,18 +165,31 @@ for benchmark in "${BENCHMARKS[@]}"; do
     # (some scripts expect to be run from project root)
     cd "${PROJECT_ROOT}"
     
-    if bash "${SETUP_SCRIPT}"; then
-        log_success "${benchmark} setup completed successfully"
-    else
-        log_warning "${benchmark} setup script encountered issues (exit code: $?)"
+    SETUP_EXTRA_ARGS=""
+    if [ "${benchmark}" = "appworld" ]; then
+        SETUP_EXTRA_ARGS="--no-tests"
     fi
     
-    # Generate requirements.txt for benchmark environment
-    log_info "Generating requirements.txt for ${benchmark} environment..."
-    mkdir -p "${REQUIREMENTS_DIR}/${benchmark}"
-    uv pip freeze | grep -v "^-e " | grep -v " @ file://" | grep -v "github.ibm.com" | grep -v " @ git+https://" | grep -v " @ git+ssh://" > "${REQUIREMENTS_DIR}/${benchmark}/requirements.txt"
-    bench_pkg_count=$(wc -l < "${REQUIREMENTS_DIR}/${benchmark}/requirements.txt" | tr -d ' ')
-    log_success "Saved ${bench_pkg_count} packages to ${REQUIREMENTS_DIR}/${benchmark}/requirements.txt"
+    SETUP_OK=true
+    if bash "${SETUP_SCRIPT}" ${SETUP_EXTRA_ARGS}; then
+        log_success "${benchmark} setup completed successfully"
+        SETUP_PASSED+=("${benchmark}")
+    else
+        log_warning "${benchmark} setup script encountered issues (exit code: $?)"
+        SETUP_FAILED+=("${benchmark}")
+        SETUP_OK=false
+    fi
+    
+    # Generate requirements.txt only when setup succeeded
+    if [ "${SETUP_OK}" = true ]; then
+        log_info "Generating requirements.txt for ${benchmark} environment..."
+        mkdir -p "${REQUIREMENTS_DIR}/${benchmark}"
+        uv pip freeze | grep -v "^-e " | grep -v " @ file://" | grep -v "github.ibm.com" | grep -v " @ git+https://" | grep -v " @ git+ssh://" > "${REQUIREMENTS_DIR}/${benchmark}/requirements.txt"
+        bench_pkg_count=$(wc -l < "${REQUIREMENTS_DIR}/${benchmark}/requirements.txt" | tr -d ' ')
+        log_success "Saved ${bench_pkg_count} packages to ${REQUIREMENTS_DIR}/${benchmark}/requirements.txt"
+    else
+        log_warning "Skipping requirements.txt generation for ${benchmark} due to setup failure"
+    fi
     
     deactivate
     log_success "${benchmark} environment created at ${VENV_DIR}/${benchmark}"
@@ -267,3 +287,22 @@ echo "Usage examples:"
 echo "  ./misc/security/setup_environments.sh                    # Create all environments"
 echo "  ./misc/security/setup_environments.sh gsm8k hotpotqa     # Create specific benchmarks"
 echo "  ./misc/security/setup_environments.sh core               # Create only core environment"
+
+# Setup script pass/fail summary
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Setup Script Results"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+if [ ${#SETUP_PASSED[@]} -gt 0 ]; then
+    for b in "${SETUP_PASSED[@]}"; do
+        echo -e "  ${GREEN}✔ PASSED${NC}  ${b}"
+    done
+else
+    echo "  (no benchmark setup scripts ran)"
+fi
+if [ ${#SETUP_FAILED[@]} -gt 0 ]; then
+    for b in "${SETUP_FAILED[@]}"; do
+        echo -e "  ${RED}✘ FAILED${NC}  ${b}"
+    done
+fi
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

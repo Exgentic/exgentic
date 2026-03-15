@@ -3,11 +3,12 @@
 
 import os
 import sys
+
 import pytest
 
 # Make package importable
 sys.path.insert(0, os.path.abspath("src"))
-from exgentic.utils.cost import litellm_tokens_cost, TokensCost  # noqa: E402
+from exgentic.utils.cost import TokensCost, litellm_tokens_cost  # noqa: E402
 
 # All models mentioned across examples and scripts
 EXAMPLE_MODELS = [
@@ -63,11 +64,11 @@ EXAMPLE_MODELS = [
             ),
         ),
         (
-            "openai/GCP/claude-3-5-haiku",
+            "openai/GCP/claude-haiku-4-5-20251001",
             TokensCost(
-                input_cost=7.999999999999999e-05,
-                output_cost=0.00039999999999999996,
-                total_cost=0.00047999999999999996,
+                input_cost=9.999999999999999e-05,
+                output_cost=0.0005,
+                total_cost=0.0006000000000000001,
             ),
         ),
         (

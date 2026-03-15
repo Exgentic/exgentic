@@ -12,6 +12,7 @@ from .action import (
     SingleAction,
     ValidationReport,
 )
+from .evaluation import BaseEvaluationConfig
 from .model_settings import ModelSettings, RetryStrategy
 from .observation import (
     EmptyObservation,
@@ -21,23 +22,22 @@ from .observation import (
     Observation,
     SingleObservation,
 )
-from .evaluation import BaseEvaluationConfig
 from .run import (
     BenchmarkResults,
     Integration,
     RunConfig,
     RunPlan,
-    RunStatus,
     RunResults,
+    RunStatus,
 )
 from .session import (
     SessionConfig,
     SessionExecutionStatus,
+    SessionIndex,
     SessionOutcomeStatus,
+    SessionResults,
     SessionScore,
     SessionStatus,
-    SessionResults,
-    SessionIndex,
 )
 
 __all__ = [

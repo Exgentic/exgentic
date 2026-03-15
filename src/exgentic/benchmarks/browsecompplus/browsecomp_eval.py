@@ -2,16 +2,20 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 import json
-from typing import Dict, Any
+from typing import Any, Dict
+
 import litellm
 from pydantic import BaseModel
 from scripts_evaluation.evaluate_with_openai import (
     GRADER_TEMPLATE as GRADER_TEMPLATE_OPENAI,
-    parse_judge_response,
-    extract_citations_from_response,
+)
+from scripts_evaluation.evaluate_with_openai import (
     compute_citation_metrics,
+    extract_citations_from_response,
+    parse_judge_response,
 )
 from search_agent.prompts import GRADER_TEMPLATE_QWEN
+
 from ...core.context import try_get_context
 from ...core.types import SessionScore
 from ...utils.settings import get_settings
@@ -42,9 +46,9 @@ class BrowseCompEvaluator(BaseModel):
 
         # compute retrieval recall
         if retrieved_docids_set is not None:
-            retrieval_recall = len(
-                retrieved_docids_set.intersection(set(positives_for_query))
-            ) / float(len(positives_for_query))
+            retrieval_recall = len(retrieved_docids_set.intersection(set(positives_for_query))) / float(
+                len(positives_for_query)
+            )
 
         if not agent_response:  # run was halted without a final answer
             is_successful = False
@@ -79,9 +83,7 @@ class BrowseCompEvaluator(BaseModel):
                 extracted_final_answer = answer_metrics.get("extracted_final_answer")
                 cited_docids = extract_citations_from_response(agent_response)
 
-        citation_metrics_positives = compute_citation_metrics(
-            cited_docids, positives_for_query
-        )
+        citation_metrics_positives = compute_citation_metrics(cited_docids, positives_for_query)
         scores = {
             "Accuracy": score,
             "Retrieval_recall": retrieval_recall,
@@ -90,9 +92,7 @@ class BrowseCompEvaluator(BaseModel):
         }
         meta_data = {
             "instance": instance.copy(),
-            "retrieved_docids": list(retrieved_docids_set)
-            if retrieved_docids_set
-            else [],
+            "retrieved_docids": list(retrieved_docids_set) if retrieved_docids_set else [],
             "response": agent_response,
             "extracted_final_answer": extracted_final_answer,
             "judge_model": self.eval_model_id,
@@ -112,12 +112,8 @@ class BrowseCompEvaluator(BaseModel):
 
         return all_scores, judge_usage
 
-    def create_judge_prompt(
-        self, question: str, response: str, correct_answer: str
-    ) -> str:
-        return self.grader_template.format(
-            question=question, response=response, correct_answer=correct_answer
-        )
+    def create_judge_prompt(self, question: str, response: str, correct_answer: str) -> str:
+        return self.grader_template.format(question=question, response=response, correct_answer=correct_answer)
 
 
 class BrowseCompEvaluatorOpenai(BrowseCompEvaluator):

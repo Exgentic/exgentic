@@ -15,9 +15,7 @@ from exgentic import SmolagentCodeAgent, TAU2Benchmark, evaluate
 
 
 def main() -> None:
-    benchmark = TAU2Benchmark(
-        subset="retail", user_simulator_model="gpt-4o"
-    )
+    benchmark = TAU2Benchmark(subset="retail", user_simulator_model="gpt-4o")
     agent = SmolagentCodeAgent(model="gpt-4o")
     evaluate(benchmark=benchmark, agent=agent, output_dir="./outputs", num_tasks=30)
 

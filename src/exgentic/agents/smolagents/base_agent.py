@@ -1,27 +1,41 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
+import functools
+import logging
+from abc import abstractmethod
+from typing import Any, Callable, ClassVar, Dict, List, Type
+
+from rich.console import Console
 from smolagents import LiteLLMModel
 from smolagents.models import is_rate_limit_error
 from smolagents.monitoring import AgentLogger, LogLevel
-from rich.console import Console
-from smolagents.tools import tool, Tool
-from smolagents.utils import Retrying, AgentError
-import functools
-from abc import abstractmethod
-from typing import Any, Callable, Dict, List, Type, ClassVar
-import logging
-from ...utils.settings import get_settings
-from ...core.types import ModelSettings, RetryStrategy
-from ...core.agent import Agent
-from ...core.agent_instance import AgentInstance
-from ...observers.logging import close_logger
+from smolagents.tools import Tool, tool
+from smolagents.utils import AgentError, Retrying
 
 from ...adapters.agents.code_agent import CodeAgentInstance
-from ...core.types import ActionType
+from ...core.agent import Agent
+from ...core.agent_instance import AgentInstance
+from ...core.context import get_context
+from ...core.types import ActionType, ModelSettings, RetryStrategy
+from ...integrations.litellm.health import check_model_accessible_sync
+from ...observers.logging import close_logger
 from ...utils.cost import CostReport, LiteLLMCostReport
+from ...utils.settings import get_settings
 
 settings = get_settings()
+
+
+class ContextInjectingLiteLLMModel(LiteLLMModel):
+    """Wrapper around LiteLLMModel that injects context into litellm_metadata."""
+
+    def generate(self, *args, **kwargs):
+        """Inject context into litellm_metadata before calling the model."""
+        # Use 'metadata' parameter instead of 'litellm_metadata'
+        # LiteLLM passes 'metadata' to callbacks in litellm_params.metadata
+        kwargs.setdefault("metadata", {})["context"] = get_context()
+
+        return super().generate(*args, **kwargs)
 
 
 class SmolagentBaseAgentInstance(CodeAgentInstance):
@@ -49,6 +63,9 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
         self._agent = None
         self._model = None
 
+        # Check model accessibility
+        check_model_accessible_sync(self.model_id, logger=self.logger)
+
     def run_code_agent(self, functions: List[Callable]) -> None:
         def _wrap_tool(fn: Callable) -> Callable:
             @functools.wraps(fn)
@@ -63,9 +80,7 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
                                 console=Console(),
                                 level=LogLevel.ERROR,
                             )
-                        raise AgentError(
-                            "Agent interrupted (session closed).", agent_logger
-                        ) from exc
+                        raise AgentError("Agent interrupted (session closed).", agent_logger) from exc
                     raise
 
             return wrapper
@@ -89,7 +104,7 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
     def get_internal_model(self):
         if self._model is None:
             temperature = self.model_settings.temperature
-            self._model = LiteLLMModel(
+            self._model = ContextInjectingLiteLLMModel(
                 model_id=self.model_id,
                 temperature=temperature if temperature is not None else 1.0,
                 max_tokens=self.model_settings.max_tokens,
@@ -98,11 +113,7 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
             num_retries = self.model_settings.num_retries or 0
             max_attempts = num_retries + 1 if num_retries > 0 else 1
             retry_strategy = self.model_settings.retry_strategy.value
-            exponential_base = (
-                2.0
-                if retry_strategy == RetryStrategy.EXPONENTIAL_BACKOFF.value
-                else 1.0
-            )
+            exponential_base = 2.0 if retry_strategy == RetryStrategy.EXPONENTIAL_BACKOFF.value else 1.0
             log_level = logging._nameToLevel.get(settings.log_level, logging.INFO)
             self._model.retryer = Retrying(
                 max_attempts=max_attempts,

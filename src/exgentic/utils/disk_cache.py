@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, ClassVar, Dict, Optional
+from typing import Any, ClassVar, Optional
 
 from diskcache import Cache, JSONDisk
 
@@ -25,16 +25,16 @@ class DiskCacheSessionMixin:
     logger: Any | None = None
     use_cache: bool = True
     _cache_hit: bool = False
-    _cache_payload: Optional[Dict[str, Any]] = None
-    _cached_score: Optional[Dict[str, Any]] = None
-    _results_payload: Optional[Dict[str, Any]] = None
+    _cache_payload: Optional[dict[str, Any]] = None
+    _cached_score: Optional[dict[str, Any]] = None
+    _results_payload: Optional[dict[str, Any]] = None
 
     def _init_cache_mixin(self, use_cache: bool = True) -> None:
         self.use_cache = use_cache
         self._cache_hit = False
-        self._cache_payload: Optional[Dict[str, Any]] = None
-        self._cached_score: Optional[Dict[str, Any]] = None
-        self._results_payload: Optional[Dict[str, Any]] = None
+        self._cache_payload: Optional[dict[str, Any]] = None
+        self._cached_score: Optional[dict[str, Any]] = None
+        self._results_payload: Optional[dict[str, Any]] = None
 
     # --- Logging helpers -------------------------------------------------
     def _log_debug(self, message: str) -> None:
@@ -59,7 +59,7 @@ class DiskCacheSessionMixin:
             cls._cache_instance = cache
         return cache
 
-    def build_cache_key_payload(self) -> Dict[str, Any]:
+    def build_cache_key_payload(self) -> dict[str, Any]:
         raise NotImplementedError
 
     def build_cache_key(self) -> Optional[str]:
@@ -70,13 +70,13 @@ class DiskCacheSessionMixin:
             self._log_warning(f"Failed to serialize cache key payload: {exc}")
             return None
 
-    def on_cache_hit(self, payload: Dict[str, Any]) -> bool:
+    def on_cache_hit(self, payload: dict[str, Any]) -> bool:
         """Hook invoked when cache payload is loaded. Return False to ignore."""
         return True
 
-    def prepare_cache_payload(self, score: Dict[str, Any]) -> Dict[str, Any]:
+    def prepare_cache_payload(self, score: dict[str, Any]) -> dict[str, Any]:
         """Hook used to create payload to store in cache."""
-        payload: Dict[str, Any] = {"score": score}
+        payload: dict[str, Any] = {"score": score}
         results_payload = self.get_results_payload()
         if results_payload is not None:
             payload["results"] = results_payload
@@ -85,7 +85,7 @@ class DiskCacheSessionMixin:
             payload["metadata"] = metadata
         return payload
 
-    def build_additional_cache_metadata(self) -> Dict[str, Any]:
+    def build_additional_cache_metadata(self) -> dict[str, Any]:
         """Hook for subclasses to include extra metadata in the cache entry."""
         return {}
 
@@ -95,17 +95,17 @@ class DiskCacheSessionMixin:
         return self._cache_hit
 
     @property
-    def cache_payload(self) -> Optional[Dict[str, Any]]:
+    def cache_payload(self) -> Optional[dict[str, Any]]:
         return self._cache_payload
 
     @property
-    def cached_score(self) -> Optional[Dict[str, Any]]:
+    def cached_score(self) -> Optional[dict[str, Any]]:
         return self._cached_score
 
-    def set_results_payload(self, payload: Optional[Dict[str, Any]]) -> None:
+    def set_results_payload(self, payload: Optional[dict[str, Any]]) -> None:
         self._results_payload = payload
 
-    def get_results_payload(self) -> Optional[Dict[str, Any]]:
+    def get_results_payload(self) -> Optional[dict[str, Any]]:
         return self._results_payload
 
     def handle_cache_start(self) -> bool:
@@ -128,12 +128,10 @@ class DiskCacheSessionMixin:
         self.set_results_payload(payload.get("results"))
         self._cache_hit = True
         self._cache_payload = payload
-        self._log_info(
-            f"Reusing session results found in disk cache at {self.CACHE_DIR}"
-        )
+        self._log_info(f"Reusing session results found in disk cache at {self.CACHE_DIR}")
         return True
 
-    def write_cache_entry(self, payload: Dict[str, Any]) -> None:
+    def write_cache_entry(self, payload: dict[str, Any]) -> None:
         if not self.use_cache:
             return
         cache_key = self.build_cache_key()
@@ -146,7 +144,7 @@ class DiskCacheSessionMixin:
         except Exception as exc:  # pragma: no cover - defensive
             self._log_warning(f"Failed to write cache entry: {exc}")
 
-    def cache_score(self, score: Dict[str, Any]) -> None:
+    def cache_score(self, score: dict[str, Any]) -> None:
         self._set_cached_score(score)
         payload = self.prepare_cache_payload(score)
         self.write_cache_entry(payload)
@@ -156,9 +154,9 @@ class DiskCacheSessionMixin:
         if payload:
             self.on_cache_restore(payload)
 
-    def on_cache_restore(self, payload: Dict[str, Any]) -> None:
+    def on_cache_restore(self, payload: dict[str, Any]) -> None:
         """Optional hook to restore artifacts from cache."""
-        return None
+        return
 
-    def _set_cached_score(self, score: Optional[Dict[str, Any]]) -> None:
+    def _set_cached_score(self, score: Optional[dict[str, Any]]) -> None:
         self._cached_score = score

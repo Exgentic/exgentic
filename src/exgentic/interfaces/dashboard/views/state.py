@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from ....observers.handlers.dashboard_events import DashboardEventsObserver
 
@@ -15,8 +15,8 @@ class RunState:
     events: list[dict] = field(default_factory=list)
     sessions: dict[str, dict] = field(default_factory=dict)
     turns: dict[str, list] = field(default_factory=dict)
-    bench_controls: Dict[str, Any] = field(default_factory=dict)
-    agent_controls: Dict[str, Any] = field(default_factory=dict)
+    bench_controls: dict[str, Any] = field(default_factory=dict)
+    agent_controls: dict[str, Any] = field(default_factory=dict)
     tracker: DashboardEventsObserver | None = None
     thread: threading.Thread | None = None
     run_id: str | None = None

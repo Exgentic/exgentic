@@ -4,31 +4,29 @@
 import json
 import logging
 import threading
-from pathlib import Path
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict
 
-from rich.console import Console
 from rich.columns import Columns
+from rich.console import Console
 from rich.panel import Panel
 from rich.progress import (
     BarColumn,
-    ProgressColumn,
     Progress,
+    ProgressColumn,
     SpinnerColumn,
     TextColumn,
 )
 from rich.table import Table
 from rich.text import Text
 
-
-from ...core.types import Action, SessionOutcomeStatus
-from ...core.orchestrator.observer import Observer
-from ...core.orchestrator.termination import RunCancel, SessionCancel
 from ...core.context import get_context
+from ...core.orchestrator.observer import Observer
+from ...core.orchestrator.termination import RunCancelError, SessionCancelError
+from ...core.types import Action, ModelSettings, SessionOutcomeStatus
 from ...utils.paths import RunPaths, get_run_paths, get_session_paths
 from ...utils.settings import get_settings
-from ...core.types import ModelSettings
 from .recap import RunRecapMixin
 from .session_ledger import SessionLedger
 
@@ -83,6 +81,27 @@ class ConsoleLoggerObserver(Observer, RunRecapMixin):
         self._start_time = datetime.now()
         run_ctx = get_context()
         run_id = run_ctx.run_id
+
+        # Display OTEL configuration if enabled
+        settings = get_settings()
+        if settings.otel_enabled:
+            import os
+
+            endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "not set")
+            protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+            service_name = os.getenv("OTEL_SERVICE_NAME", "exgentic")
+            record_content = "yes" if settings.otel_record_content else "no"
+
+            otel_lines = [
+                "[bold cyan]📊 OpenTelemetry Tracing ENABLED[/bold cyan]",
+                f"[bold]Service Name:[/bold]     {service_name}",
+                f"[bold]Collector:[/bold]        {endpoint}",
+                f"[bold]Protocol:[/bold]         {protocol}",
+                f"[bold]Record Content:[/bold]   {record_content}",
+            ]
+            otel_body = "\n".join(otel_lines)
+            self._print(Panel(otel_body, border_style="cyan", padding=(1, 2), title="OpenTelemetry"))
+
         lines = [f"[bold]Run:[/bold] [cyan]{run_id}[/cyan]"]
         overrides = {}
         if run_config.max_steps != 100:
@@ -144,9 +163,7 @@ class ConsoleLoggerObserver(Observer, RunRecapMixin):
             link = self._format_path_link(session.paths.root)
             desc = f"Session {session_number} ⏹ {outcome} ({link})"
             color = "yellow"
-        self._update_session_progress_description(
-            session_id, f"[{color}]{desc}[/{color}]"
-        )
+        self._update_session_progress_description(session_id, f"[{color}]{desc}[/{color}]")
         self._stop_session_progress(session_id)
         self._advance_run_progress()
 
@@ -157,9 +174,7 @@ class ConsoleLoggerObserver(Observer, RunRecapMixin):
         session_number = self._ledger.get_number(session_id)
         link = self._format_path_link(session.paths.root)
         desc = f"Session {session_number} ⏳ scoring ({link})"
-        self._update_session_progress_description(
-            session_id, f"[yellow]{desc}[/yellow]"
-        )
+        self._update_session_progress_description(session_id, f"[yellow]{desc}[/yellow]")
         if self._progress is None:
             self._print(Text.from_markup(f"[yellow]{desc}[/yellow]"))
         else:
@@ -179,7 +194,7 @@ class ConsoleLoggerObserver(Observer, RunRecapMixin):
         session_number = self._ledger.get_number(session_id)
         if not self._enabled(logging.INFO):
             return
-        if isinstance(error, (SessionCancel, RunCancel, KeyboardInterrupt)):
+        if isinstance(error, (SessionCancelError, RunCancelError, KeyboardInterrupt)):
             desc = f"[yellow]Session {session_number} ⏹ cancelled"
         else:
             desc = f"[red]Session {session_number} ✖ error"
@@ -222,9 +237,7 @@ class ConsoleLoggerObserver(Observer, RunRecapMixin):
         self._add_completed_session_task(
             desc,
             total=total,
-            duration=execution_time
-            if isinstance(execution_time, (int, float))
-            else None,
+            duration=execution_time if isinstance(execution_time, (int, float)) else None,
         )
         self._advance_run_progress()
 
@@ -276,9 +289,7 @@ class ConsoleLoggerObserver(Observer, RunRecapMixin):
         self._print(Panel(results_table, border_style="magenta", title="Results"))
 
     def _enabled(self, level: int) -> bool:
-        configured = logging._nameToLevel.get(
-            get_settings().log_level.upper(), logging.INFO
-        )
+        configured = logging._nameToLevel.get(get_settings().log_level.upper(), logging.INFO)
         return level >= configured
 
     def _format_value(self, value) -> str:
@@ -294,9 +305,7 @@ class ConsoleLoggerObserver(Observer, RunRecapMixin):
             return None
         bench_overrides = dict(self._run_config.benchmark_kwargs or {})
         agent_overrides = dict(self._run_config.agent_kwargs or {})
-        model_value = (
-            self._run_config.model or agent_overrides.get("model") or "unknown"
-        )
+        model_value = self._run_config.model or agent_overrides.get("model") or "unknown"
         model_settings = agent_overrides.pop("model_settings", None)
         agent_overrides = {
             "model": str(model_value),
@@ -316,12 +325,8 @@ class ConsoleLoggerObserver(Observer, RunRecapMixin):
 
         bench_name = self._run_config.benchmark
         agent_name = self._run_config.agent
-        bench_panel = self._build_config_panel(
-            f"Benchmark: {bench_name}", bench_overrides, border_style="cyan"
-        )
-        agent_panel = self._build_config_panel(
-            f"Agent: {agent_name}", agent_overrides, border_style="green"
-        )
+        bench_panel = self._build_config_panel(f"Benchmark: {bench_name}", bench_overrides, border_style="cyan")
+        agent_panel = self._build_config_panel(f"Agent: {agent_name}", agent_overrides, border_style="green")
         console_width = self._console.width
         gap = 2
         panel_width = max(20, (console_width - gap) // 2)
@@ -408,13 +413,9 @@ class ConsoleLoggerObserver(Observer, RunRecapMixin):
             transient=False,
         )
         self._progress.start()
-        self._run_task_id = self._progress.add_task(
-            "Run", total=total if total else None, unit="sessions"
-        )
+        self._run_task_id = self._progress.add_task("Run", total=total if total else None, unit="sessions")
 
-    def _start_session_progress(
-        self, session_id: str, session_number: int, agent, session
-    ) -> None:
+    def _start_session_progress(self, session_id: str, session_number: int, agent, session) -> None:
         if self._progress is None:
             return
         total = agent.max_steps
@@ -426,9 +427,7 @@ class ConsoleLoggerObserver(Observer, RunRecapMixin):
         )
         self._session_tasks[session_id] = (task_id, total)
 
-    def _update_session_progress_description(
-        self, session_id: str, description: str
-    ) -> None:
+    def _update_session_progress_description(self, session_id: str, description: str) -> None:
         if self._progress is None:
             return
         entry = self._session_tasks.get(session_id)

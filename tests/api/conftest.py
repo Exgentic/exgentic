@@ -6,7 +6,6 @@ from __future__ import annotations
 from typing import Iterator
 
 import pytest
-
 from exgentic.interfaces import registry
 from exgentic.interfaces.registry import RegistryEntry
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any, Dict, List
+from typing import Any
 
 from rich import box
 from rich.align import Align
@@ -20,7 +20,7 @@ def print_json(data: Any) -> None:
     CONSOLE.print_json(json.dumps(data, ensure_ascii=False, indent=2))
 
 
-def render_list(items: List[str], output_format: str, *, title: str = "Items") -> None:
+def render_list(items: list[str], output_format: str, *, title: str = "Items") -> None:
     if output_format == "json":
         print_json(items)
         return
@@ -35,7 +35,7 @@ def render_list(items: List[str], output_format: str, *, title: str = "Items") -
 
 
 def render_named_list(
-    items: List[Dict[str, Any]],
+    items: list[dict[str, Any]],
     output_format: str,
     *,
     fields: tuple[str, str] = ("slug_name", "display_name"),
@@ -44,16 +44,42 @@ def render_named_list(
     if output_format == "json":
         print_json(items)
         return
-    table = Table(
-        title=title, box=box.SIMPLE, show_header=True, header_style="bold magenta"
-    )
+
+    # Check if items have installation info
+    has_install_info = items and "installed" in items[0]
+
+    table = Table(title=title, box=box.SIMPLE, show_header=True, header_style="bold magenta")
     table.add_column("Slug")
     table.add_column("Name")
+    if has_install_info:
+        table.add_column("Installed", justify="center")
+        table.add_column("Installed At")
+
     if not items:
-        table.add_row("[dim]none[/dim]", "[dim]none[/dim]")
+        if has_install_info:
+            table.add_row("[dim]none[/dim]", "[dim]none[/dim]", "[dim]-[/dim]", "[dim]-[/dim]")
+        else:
+            table.add_row("[dim]none[/dim]", "[dim]none[/dim]")
     else:
         for item in items:
-            table.add_row(str(item[fields[0]]), str(item[fields[1]]))
+            slug = str(item[fields[0]])
+            name = str(item[fields[1]])
+            if has_install_info:
+                installed = item.get("installed", False)
+                installed_at = item.get("installed_at", "")
+                status = "[green]✓[/green]" if installed else "[dim]-[/dim]"
+                # Format the timestamp to be more readable
+                if installed_at:
+                    try:
+                        from datetime import datetime
+
+                        dt = datetime.fromisoformat(installed_at.replace("Z", "+00:00"))
+                        installed_at = dt.strftime("%Y-%m-%d %H:%M UTC")
+                    except Exception:
+                        pass
+                table.add_row(slug, name, status, installed_at if installed_at else "[dim]-[/dim]")
+            else:
+                table.add_row(slug, name)
     CONSOLE.print(table)
 
 
@@ -73,9 +99,7 @@ def render_run_status(status: Any, output_format: str) -> None:
     meta.add_column()
     meta.add_row("Run", str(status.run_id))
     meta.add_row("Results", "yes" if status.results_exists else "no")
-    meta.add_row(
-        "Benchmark Results", "yes" if status.benchmark_results_exists else "no"
-    )
+    meta.add_row("Benchmark Results", "yes" if status.benchmark_results_exists else "no")
     CONSOLE.print(Panel(meta, title="Run Status", border_style="cyan"))
 
     counts = Table(
@@ -99,7 +123,7 @@ def render_run_status(status: Any, output_format: str) -> None:
     CONSOLE.print(counts)
 
 
-def render_batch_status(rows: List[Dict[str, str]]) -> None:
+def render_batch_status(rows: list[dict[str, str]]) -> None:
     total_configs = len(rows)
     done_configs = sum(1 for row in rows if row.get("ready") == row.get("finished"))
     total_sessions = 0
@@ -185,13 +209,7 @@ def render_run_plan(plan: Any, output_format: str) -> None:
     counts.add_column("Running", justify="right")
     counts.add_column("Missing", justify="right")
     counts.add_column("Incomplete", justify="right")
-    total_sessions = (
-        len(plan.to_run)
-        + len(plan.reuse)
-        + len(plan.running)
-        + len(plan.missing)
-        + len(plan.incomplete)
-    )
+    total_sessions = len(plan.to_run) + len(plan.reuse) + len(plan.running) + len(plan.missing) + len(plan.incomplete)
     counts.add_row(
         str(total_sessions),
         str(len(plan.to_run)),
@@ -241,7 +259,5 @@ def should_print_banner() -> bool:
 
 
 def print_banner() -> None:
-    title = Align.center(
-        "[bold magenta]EXGENTIC[/bold magenta]\n" "[dim]General Agent Evaluation[/dim]"
-    )
+    title = Align.center("[bold magenta]EXGENTIC[/bold magenta]\n" "[dim]General Agent Evaluation[/dim]")
     CONSOLE.print(Panel(title, border_style="magenta", padding=(1, 8)))

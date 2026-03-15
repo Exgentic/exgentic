@@ -5,9 +5,9 @@ import json
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
+from logging import Logger
 from pathlib import Path
 from typing import Any, Dict, Optional
-from logging import Logger
 
 from ...utils.logging import capture_stdio_to_session
 from ...utils.paths import SessionPaths
@@ -25,9 +25,7 @@ class HarnessResult:
 def is_patch_valid(patch: str) -> bool:
     if not patch or not patch.strip():
         return False
-    return any(
-        m in patch for m in ["---", "+++", "@@", "diff --git", "*** Begin Patch"]
-    )
+    return any(m in patch for m in ["---", "+++", "@@", "diff --git", "*** Begin Patch"])
 
 
 @contextmanager
@@ -92,13 +90,9 @@ def run_harness(
                 rewrite_reports=False,
                 modal=False,
             )
-            report = (
-                json.loads(Path(report_path).read_text())
-                if report_path and Path(report_path).is_file()
-                else {}
-            )
+            report = json.loads(Path(report_path).read_text()) if report_path and Path(report_path).is_file() else {}
         logger.info("EVAL | Harness evaluation completed")
         return HarnessResult(report, patch, True, True)
     except Exception as e:
-        logger.error(f"EVAL | Harness evaluation failed: {e}", exc_info=True)
+        logger.exception(f"EVAL | Harness evaluation failed: {e}")
         return HarnessResult({}, patch, True, True, str(e))

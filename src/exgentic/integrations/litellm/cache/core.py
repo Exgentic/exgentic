@@ -14,14 +14,13 @@ from litellm.main import ModelResponse
 
 from ....utils.settings import resolve_cache_path
 from .key import (
+    _NOT_HANDLED,
     CacheKeyBuilder,
     MessageNormalizer,
-    _NOT_HANDLED,
     _hash_text,
     _resolve_custom_param,
 )
 from .log import CacheLogger
-
 
 # ---------------------------------------------------------------------------
 # Cache key store (sync/async boundary bookkeeping)
@@ -92,11 +91,7 @@ def _extract_max_age(kwargs: dict[str, Any]) -> float:
 
 
 def _classify_miss(cached_result: Any, max_age: float) -> tuple[str, Optional[int]]:
-    if (
-        isinstance(cached_result, dict)
-        and "timestamp" in cached_result
-        and max_age is not None
-    ):
+    if isinstance(cached_result, dict) and "timestamp" in cached_result and max_age is not None:
         age = time.time() - cached_result["timestamp"]
         if age > max_age:
             return "expired", int(age)
@@ -117,9 +112,7 @@ def _dump_raw_key(raw_key: Optional[str]) -> Optional[str]:
 class LLMCache(Cache):
     """Disk-backed LLM response cache with deterministic keys and diagnostics."""
 
-    def __init__(
-        self, *, delete_time_from_messages: bool = False, **kwargs: Any
-    ) -> None:
+    def __init__(self, *, delete_time_from_messages: bool = False, **kwargs: Any) -> None:
         self._normalizer = MessageNormalizer(strip_time=delete_time_from_messages)
         self._key_store = CacheKeyStore()
         self._log = CacheLogger(
@@ -153,17 +146,11 @@ class LLMCache(Cache):
             self._log_miss(reason="cache_key_none", source=source, kwargs=kwargs)
             return None
 
-        backend = (
-            dynamic_cache_object if dynamic_cache_object is not None else self.cache
-        )
+        backend = dynamic_cache_object if dynamic_cache_object is not None else self.cache
         cached_result = backend.get_cache(key, **kwargs)
-        return self._finalize_lookup(
-            cached_result, key, source, raw_key, kwargs, max_age
-        )
+        return self._finalize_lookup(cached_result, key, source, raw_key, kwargs, max_age)
 
-    async def async_get_cache(
-        self, dynamic_cache_object: Any = None, **kwargs: Any
-    ) -> Any:  # type: ignore[override]
+    async def async_get_cache(self, dynamic_cache_object: Any = None, **kwargs: Any) -> Any:  # type: ignore[override]
         if self.should_use_cache(**kwargs) is not True:
             self._log.detail("skip", reason="disabled", model=kwargs.get("model"))
             return None
@@ -180,9 +167,7 @@ class LLMCache(Cache):
             cached_result = await dynamic_cache_object.async_get_cache(key, **kwargs)
         else:
             cached_result = await self.cache.async_get_cache(key, **kwargs)
-        return self._finalize_lookup(
-            cached_result, key, source, raw_key, kwargs, max_age
-        )
+        return self._finalize_lookup(cached_result, key, source, raw_key, kwargs, max_age)
 
     def add_cache(self, result: Any, **kwargs: Any) -> None:  # type: ignore[override]
         self._log.detail(
@@ -191,9 +176,7 @@ class LLMCache(Cache):
             model=kwargs.get("model"),
         )
         if _is_empty_response(result):
-            self._log.detail(
-                "skip", reason="empty_assistant_content", model=kwargs.get("model")
-            )
+            self._log.detail("skip", reason="empty_assistant_content", model=kwargs.get("model"))
             return
         self._key_store.inject_sync_key(kwargs)
         super().add_cache(result, **kwargs)
@@ -203,9 +186,7 @@ class LLMCache(Cache):
             model=kwargs.get("model"),
         )
 
-    async def async_add_cache(
-        self, result: Any, dynamic_cache_object: Any = None, **kwargs: Any
-    ) -> None:  # type: ignore[override]
+    async def async_add_cache(self, result: Any, dynamic_cache_object: Any = None, **kwargs: Any) -> None:  # type: ignore[override]
         call_id = kwargs.get("litellm_call_id")
         self._log.detail(
             "async_add_cache_called",
@@ -216,9 +197,7 @@ class LLMCache(Cache):
 
         if _is_empty_response(result):
             self._key_store.clear_async(call_id)
-            self._log.detail(
-                "skip", reason="empty_assistant_content", model=kwargs.get("model")
-            )
+            self._log.detail("skip", reason="empty_assistant_content", model=kwargs.get("model"))
             return
 
         stored_key = self._key_store.pop_async(call_id)
@@ -226,9 +205,7 @@ class LLMCache(Cache):
             self._verify_async_key_if_debug(stored_key, kwargs)
             cached_data = {"timestamp": time.time(), "response": result}
             if dynamic_cache_object is not None:
-                await dynamic_cache_object.async_set_cache(
-                    stored_key, cached_data, **kwargs
-                )
+                await dynamic_cache_object.async_set_cache(stored_key, cached_data, **kwargs)
             else:
                 await self.cache.async_set_cache(stored_key, cached_data, **kwargs)
             self._log.detail(
@@ -239,9 +216,7 @@ class LLMCache(Cache):
             )
             return
 
-        await super().async_add_cache(
-            result, dynamic_cache_object=dynamic_cache_object, **kwargs
-        )
+        await super().async_add_cache(result, dynamic_cache_object=dynamic_cache_object, **kwargs)
         self._log.detail(
             "async_add_cache_written",
             result_type=type(result).__name__,
@@ -270,9 +245,7 @@ class LLMCache(Cache):
         result = self._get_cache_logic(cached_result=cached_result, max_age=max_age)
         if result is not None:
             self._log.hit()
-            self._log.detail(
-                "hit", key=key, key_source=source, model=kwargs.get("model")
-            )
+            self._log.detail("hit", key=key, key_source=source, model=kwargs.get("model"))
         else:
             reason, age_seconds = _classify_miss(cached_result, max_age)
             self._log.miss()
@@ -290,13 +263,9 @@ class LLMCache(Cache):
 
     def _log_miss(self, *, reason: str, source: str, kwargs: dict[str, Any]) -> None:
         self._log.miss()
-        self._log.detail(
-            "miss", reason=reason, model=kwargs.get("model"), source=source
-        )
+        self._log.detail("miss", reason=reason, model=kwargs.get("model"), source=source)
 
-    def _build_key_logged(
-        self, kwargs: dict[str, Any]
-    ) -> tuple[Optional[str], Optional[str], str, list[str]]:
+    def _build_key_logged(self, kwargs: dict[str, Any]) -> tuple[Optional[str], Optional[str], str, list[str]]:
         if self._log.is_debug:
             from .key import _EXCLUDED_KEY_FIELDS
 
@@ -331,16 +300,12 @@ class LLMCache(Cache):
 
         return key, raw_key, source, fields
 
-    def _verify_async_key_if_debug(
-        self, stored_key: str, kwargs: dict[str, Any]
-    ) -> None:
+    def _verify_async_key_if_debug(self, stored_key: str, kwargs: dict[str, Any]) -> None:
         if not self._log.is_debug:
             return
         current_key, _, _, _ = self._key_builder.build(dict(kwargs))
         if current_key and current_key != stored_key:
-            self._log.detail(
-                "cache_key_mismatch", stored_key=stored_key, current_key=current_key
-            )
+            self._log.detail("cache_key_mismatch", stored_key=stored_key, current_key=current_key)
         else:
             self._log.detail("cache_key_async_reuse", key=stored_key)
 

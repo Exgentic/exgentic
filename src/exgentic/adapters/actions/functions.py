@@ -3,12 +3,12 @@
 
 import inspect
 from typing import Any, Callable
-from pydantic_core import PydanticUndefined
-
-from ...core.types import ActionType, SingleAction, SingleObservation, MultiObservation
-from ...core.actions import build_action
 
 from pydantic import BaseModel
+from pydantic_core import PydanticUndefined
+
+from ...core.actions import build_action
+from ...core.types import ActionType, MultiObservation, SingleAction, SingleObservation
 
 
 def action_type_to_function(
@@ -31,12 +31,8 @@ def action_type_to_function(
     docstring_parts = [action_type.description]
 
     arguments_type = action_type.arguments
-    if not isinstance(arguments_type, type) or not issubclass(
-        arguments_type, BaseModel
-    ):
-        raise TypeError(
-            f"Action arguments must be a Pydantic BaseModel, got {arguments_type!r}"
-        )
+    if not isinstance(arguments_type, type) or not issubclass(arguments_type, BaseModel):
+        raise TypeError(f"Action arguments must be a Pydantic BaseModel, got {arguments_type!r}")
 
     params = []
     annotations: dict[str, Any] = {}
@@ -78,9 +74,7 @@ def action_type_to_function(
     return function
 
 
-def bind_arguments(
-    cls: type[BaseModel], args: list[Any], kwargs: dict[str, Any]
-) -> dict[str, Any]:
+def bind_arguments(cls: type[BaseModel], args: list[Any], kwargs: dict[str, Any]) -> dict[str, Any]:
     """Bind positional args to Pydantic model fields by declaration order."""
     field_names = list(cls.model_fields.keys())
     if len(args) > len(field_names):

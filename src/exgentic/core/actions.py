@@ -6,20 +6,19 @@ from __future__ import annotations
 import json
 from collections import Counter
 from logging import Logger
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Optional
 
 from pydantic import BaseModel, ValidationError
 
+from ..observers.logging import get_disabled_logger
 from .types import (
     Action,
     ActionType,
+    MultiObservation,
     SingleAction,
     SingleObservation,
-    MultiObservation,
     ValidationReport,
 )
-from ..observers.logging import get_disabled_logger
-
 
 ActionHandler = Callable[[SingleAction], Optional[Any]]
 
@@ -43,13 +42,11 @@ def _validation_report_error(report: ValidationReport) -> Optional[str]:
     return None
 
 
-def build_action(
-    action_type: ActionType, arguments: Any, *, action_id: Optional[str] = None
-) -> SingleAction:
+def build_action(action_type: ActionType, arguments: Any, *, action_id: Optional[str] = None) -> SingleAction:
     """Best-effort construction of a SingleAction with validity flag and optional ID."""
     parsed_args = _parse_arguments_payload(arguments)
 
-    data: Dict[str, Any] = {"name": action_type.name, "arguments": parsed_args}
+    data: dict[str, Any] = {"name": action_type.name, "arguments": parsed_args}
     if action_id is not None:
         data["id"] = action_id
 
@@ -62,11 +59,7 @@ def build_action(
         report.error = format_validation_errors(exc)
         report.details = {"errors": exc.errors()}
         args_cls = action_type.arguments
-        if (
-            isinstance(parsed_args, dict)
-            and isinstance(args_cls, type)
-            and issubclass(args_cls, BaseModel)
-        ):
+        if isinstance(parsed_args, dict) and isinstance(args_cls, type) and issubclass(args_cls, BaseModel):
             try:
                 parsed_args = args_cls.model_validate(parsed_args)
                 data["arguments"] = parsed_args
@@ -86,9 +79,7 @@ def build_action(
     return action
 
 
-def build_unknown_action(
-    name: str, arguments: Any = None, *, action_id: Optional[str] = None
-) -> SingleAction:
+def build_unknown_action(name: str, arguments: Any = None, *, action_id: Optional[str] = None) -> SingleAction:
     """Construct a best-effort unknown action marked invalid for name lookup paths."""
     parsed_args = _parse_arguments_payload(arguments)
 
@@ -99,7 +90,7 @@ def build_unknown_action(
         error="Unknown action",
         details={"reason": "unknown_action"},
     )
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "name": name,
         "arguments": parsed_args if parsed_args is not None else {},
         "validation": report,
@@ -114,9 +105,7 @@ def format_validation_errors(error: ValidationError) -> str:
     """Format pydantic validation errors into a compact human-readable string."""
     result = ""
     for err in error.errors():
-        loc = (
-            ".".join(str(x) for x in err.get("loc", ()) if x is not Ellipsis) or "value"
-        )
+        loc = ".".join(str(x) for x in err.get("loc", ()) if x is not Ellipsis) or "value"
         msg = err.get("msg", "Invalid value")
         input_value = err.get("input", None)
         input_type = type(input_value).__name__
@@ -124,10 +113,7 @@ def format_validation_errors(error: ValidationError) -> str:
         if err.get("type") == "missing":
             result += f"The field '{loc}' is required but was not provided."
         else:
-            result += (
-                f"Field '{loc}': {msg} "
-                f"(received {input_value!r} of type {input_type})."
-            )
+            result += f"Field '{loc}': {msg} " f"(received {input_value!r} of type {input_type})."
     return result
 
 
@@ -149,30 +135,20 @@ class ActionsHandler:
         *,
         warn_on_validation_error: bool = True,
         warn_on_unknown_action: bool = True,
-        handle_validation_error: Optional[
-            Callable[[SingleAction, str], Optional[SingleObservation]]
-        ] = None,
-        handle_unknown_action: Optional[
-            Callable[[SingleAction], Optional[SingleObservation]]
-        ] = None,
+        handle_validation_error: Optional[Callable[[SingleAction, str], Optional[SingleObservation]]] = None,
+        handle_unknown_action: Optional[Callable[[SingleAction], Optional[SingleObservation]]] = None,
     ):
         if warn_on_unknown_action and handle_unknown_action is not None:
-            raise ValueError(
-                "Cannot both warn and custom-handle unknown actions; set warn_on_unknown_action=False"
-            )
+            raise ValueError("Cannot both warn and custom-handle unknown actions; set warn_on_unknown_action=False")
         if warn_on_validation_error and handle_validation_error is not None:
-            raise ValueError(
-                "Cannot both warn and custom-handle validation errors; set warn_on_validation_error=False"
-            )
+            raise ValueError("Cannot both warn and custom-handle validation errors; set warn_on_validation_error=False")
         self._logger = logger or get_disabled_logger()
-        self._actions: Dict[str, ActionType] = {}
-        self._handlers: Dict[str, ActionHandler] = {}
+        self._actions: dict[str, ActionType] = {}
+        self._handlers: dict[str, ActionHandler] = {}
         self._warn_on_validation_error = warn_on_validation_error
         self._warn_on_unknown_action = warn_on_unknown_action
         self._handle_validation_error = handle_validation_error
-        self._handle_unknown_action = (
-            handle_unknown_action or self._default_unknown_action
-        )
+        self._handle_unknown_action = handle_unknown_action or self._default_unknown_action
         self._stats: Counter[str] = Counter()
 
     # Registration ----------------------------------------------------------------
@@ -180,7 +156,7 @@ class ActionsHandler:
         self,
         name: str,
         description: str,
-        action_cls: Type[SingleAction],
+        action_cls: type[SingleAction],
         handler: ActionHandler,
         *,
         is_finish: bool = False,
@@ -205,13 +181,13 @@ class ActionsHandler:
             raise ValueError("action must be an ActionType")
         self._store_action(action, handler)
 
-    def add_actions(self, actions: List[ActionType], handler: ActionHandler) -> None:
+    def add_actions(self, actions: list[ActionType], handler: ActionHandler) -> None:
         for action in actions:
             self.add_action_type(action, handler)
 
     # Accessors -------------------------------------------------------------------
     @property
-    def actions(self) -> List[ActionType]:
+    def actions(self) -> list[ActionType]:
         all_actions = list(self._actions.values())
         return list(filter(lambda action: not action.is_hidden, all_actions))
 
@@ -231,7 +207,7 @@ class ActionsHandler:
         if action is None:
             return None
 
-        observations: List[SingleObservation] = []
+        observations: list[SingleObservation] = []
 
         for single_action in action.to_action_list():
             outcome = self._execute_single(single_action)
@@ -250,9 +226,7 @@ class ActionsHandler:
         if handler is None:
             self._logger.error(f"Unknown action requested: {action.name}")
             self._record_error("unknown_action")
-            return self._normalize_handler_result(
-                self._handle_unknown_action(action), action
-            )
+            return self._normalize_handler_result(self._handle_unknown_action(action), action)
 
         validation_error = self._validate_arguments(action)
         if validation_error:
@@ -301,11 +275,7 @@ class ActionsHandler:
             return None
 
         # If we know the expected type and got a dict, try to validate/construct
-        if (
-            expected_type
-            and issubclass(expected_type, BaseModel)
-            and isinstance(arguments, dict)
-        ):
+        if expected_type and issubclass(expected_type, BaseModel) and isinstance(arguments, dict):
             try:
                 expected_type.model_validate(arguments)
             except ValidationError as e:
@@ -334,7 +304,7 @@ class ActionsHandler:
     def _record_error(self, key: str) -> None:
         self._stats[key] += 1
 
-    def get_errors_stats(self) -> Dict[str, int]:
+    def get_errors_stats(self) -> dict[str, int]:
         return dict(self._stats)
 
     def _default_unknown_action(self, action: SingleAction) -> SingleObservation:
@@ -345,9 +315,7 @@ class ActionsHandler:
         return SingleObservation(invoking_actions=[action], result=text)
 
     @staticmethod
-    def _normalize_handler_result(
-        raw_result: Any, action: SingleAction
-    ) -> Optional[SingleObservation]:
+    def _normalize_handler_result(raw_result: Any, action: SingleAction) -> Optional[SingleObservation]:
         if raw_result is None:
             return None
         if isinstance(raw_result, SingleObservation):

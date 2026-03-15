@@ -12,8 +12,7 @@ from .mcp_server import MCPServer
 
 
 class MCPAgentInstance(CodeAgentInstance, abc.ABC):
-    """
-    Sync-first base class.
+    """Sync-first base class.
 
     - run_code_agent(): sync
     - run_mcp_agent(): ABSTRACT SYNC (subclass decides implementation strategy)
@@ -34,9 +33,7 @@ class MCPAgentInstance(CodeAgentInstance, abc.ABC):
         functions: List[Callable[..., Any]] = []
         for action_type in self.actions:
             if action_type.is_finish:
-                function = action_type_to_function(
-                    action_type, self._submit_finish_action
-                )
+                function = action_type_to_function(action_type, self._submit_finish_action)
             else:
                 function = action_type_to_function(action_type, self.execute)
             functions.append(function)
@@ -49,9 +46,7 @@ class MCPAgentInstance(CodeAgentInstance, abc.ABC):
             self.execute(None)
 
     def run_code_agent(self, functions: List[Callable[..., Any]]) -> Any:
-        """
-        Fully synchronous entrypoint.
-        """
+        """Fully synchronous entrypoint."""
         self.logger.info("Starting MCP server for agent tools")
         server = MCPServer(
             tools=functions,
@@ -84,12 +79,12 @@ class MCPAgentInstance(CodeAgentInstance, abc.ABC):
             if self._closed:
                 if action is not None:
                     raise RuntimeError("execute() called after close()")
-                return None
+                return
 
             self.logger.info("Received finish action (turn=%s): %s", self._turn, action)
             self._pending_actions.append(action)
             self._condition.notify_all()
-            return None
+            return
 
     def close_mcp_agent(self) -> None:
         self.close()
@@ -102,8 +97,8 @@ class MCPAgentInstance(CodeAgentInstance, abc.ABC):
 
     @abstractmethod
     def run_mcp_agent(self, mcp_host: str, mcp_port: int) -> Any:
-        """
-        ABSTRACT SYNC.
+        """ABSTRACT SYNC.
+
         Subclass may implement:
           - purely sync logic, OR
           - a sync wrapper over an async core (via run_sync, etc.)

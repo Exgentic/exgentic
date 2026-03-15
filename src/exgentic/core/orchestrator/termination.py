@@ -2,27 +2,27 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 
-class SessionTermination(Exception):
+class SessionTerminationError(Exception):
     """Internal control-flow signal for clean session termination."""
 
 
-class SessionCancel(SessionTermination):
+class SessionCancelError(SessionTerminationError):
     pass
 
 
-class RunCancel(SessionTermination):
+class RunCancelError(SessionTerminationError):
     pass
 
 
-class AgentTermination(SessionTermination):
+class AgentTerminationError(SessionTerminationError):
     pass
 
 
-class BenchmarkTermination(SessionTermination):
+class BenchmarkTerminationError(SessionTerminationError):
     pass
 
 
-class SessionLimitReached(SessionTermination):
+class SessionLimitReachedError(SessionTerminationError):
     def __init__(
         self,
         *,
@@ -47,13 +47,13 @@ class SessionLimitReached(SessionTermination):
         )
 
 
-class AgentError(SessionTermination):
+class AgentError(SessionTerminationError):
     def __init__(self, error: Exception | None = None) -> None:
         super().__init__()
         self.error = error
 
 
-class BenchmarkError(SessionTermination):
+class BenchmarkError(SessionTerminationError):
     def __init__(self, error: Exception | None = None) -> None:
         super().__init__()
         self.error = error

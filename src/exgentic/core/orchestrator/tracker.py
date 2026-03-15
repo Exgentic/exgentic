@@ -3,9 +3,8 @@
 
 from __future__ import annotations
 
-from typing import Iterable
 import threading
-
+from typing import Iterable
 
 from ...observers.handlers.configs import ConfigsObserver
 from ...observers.handlers.file_logger import FileLoggerObserver
@@ -13,8 +12,8 @@ from ...observers.handlers.logger import ConsoleLoggerObserver
 from ...observers.handlers.recap import RunRecapObserver
 from ...observers.handlers.results import ResultsObserver
 from ...observers.handlers.warnings import WarningsObserver
-from ..context import get_context
 from ...utils.settings import get_settings
+from ..context import get_context
 from .controller import CleanupController, Controller, CoreController, LimitController
 from .observer import Observer
 from .termination import AgentError, BenchmarkError
@@ -48,9 +47,7 @@ class Tracker(Observer, Controller):
                 from ...observers.handlers.otel import OtelTracingObserver
 
                 self._register_observer(OtelTracingObserver())
-            self._register_controller(
-                LimitController(max_steps=max_steps, max_actions=max_actions)
-            )
+            self._register_controller(LimitController(max_steps=max_steps, max_actions=max_actions))
             self._register_controller(CleanupController())
         if observers:
             for observer in observers:
@@ -113,6 +110,10 @@ class Tracker(Observer, Controller):
         for controller in self._controllers:
             controller.on_run_error(error)
 
+    def on_session_creation(self, session) -> None:
+        for observer in self._observers:
+            observer.on_session_creation(session)
+
     def on_session_start(self, session, agent, observation) -> None:
         for observer in self._observers:
             observer.on_session_start(session, agent, observation)
@@ -161,9 +162,7 @@ class Tracker(Observer, Controller):
 
     def _ensure_core_controller(self) -> None:
         cores = [item for item in self._controllers if isinstance(item, CoreController)]
-        non_cores = [
-            item for item in self._controllers if not isinstance(item, CoreController)
-        ]
+        non_cores = [item for item in self._controllers if not isinstance(item, CoreController)]
         if not cores:
             self._controllers = [*non_cores, CoreController()]
             return

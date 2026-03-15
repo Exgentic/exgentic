@@ -33,6 +33,9 @@ class Observer:
     def on_run_error(self, error) -> None:
         return None
 
+    def on_session_creation(self, session) -> None:
+        return None
+
     def on_session_start(self, session, agent, observation) -> None:
         return None
 

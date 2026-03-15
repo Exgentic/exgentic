@@ -15,18 +15,18 @@ import rich_click as click
 
 from ....core.types import RunConfig, SessionConfig
 from ....core.types.session import SessionExecutionStatus, SessionOutcomeStatus
-from ....utils.paths import get_session_paths, get_run_paths
-from ...lib.api import status, evaluate, execute, aggregate
+from ....utils.paths import get_run_paths, get_session_paths
+from ...lib.api import aggregate, evaluate, execute, status
 from ..options import (
-    apply_debug_mode,
     _format_exception_for_cli,
     _should_show_traceback,
+    apply_debug_mode,
 )
 from ..render import render_batch_status
 
 
 def _load_config_file(path: str) -> dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -64,13 +64,7 @@ def _state_from_counts(
 ) -> str:
     if total > 0 and completed == total and running == 0 and incomplete == 0:
         return "complete"
-    if (
-        total > 0
-        and completed == 0
-        and running == 0
-        and incomplete == 0
-        and missing == total
-    ):
+    if total > 0 and completed == 0 and running == 0 and incomplete == 0 and missing == total:
         return "not_started"
     return "in_progress"
 
@@ -165,9 +159,7 @@ def _compute_session_id(config: dict[str, Any]) -> str:
     return session_cfg.get_session_id()
 
 
-def _results_path_from_config_location(
-    config_path: str, config_obj: RunConfig | SessionConfig
-) -> Path:
+def _results_path_from_config_location(config_path: str, config_obj: RunConfig | SessionConfig) -> Path:
     run_id = getattr(config_obj, "run_id", None)
     if not run_id:
         raise click.ClickException(f"Missing run_id in config: {config_path}")
@@ -179,9 +171,7 @@ def _parse_patch_values(pairs: tuple[str, ...]) -> dict[str, Any]:
     updates: dict[str, Any] = {}
     for pair in pairs:
         if "=" not in pair:
-            raise click.ClickException(
-                f"Invalid --set value (expected key=value): {pair}"
-            )
+            raise click.ClickException(f"Invalid --set value (expected key=value): {pair}")
         key, raw = pair.split("=", 1)
         key = key.strip()
         if not key:
@@ -340,11 +330,7 @@ def _expand_config_inputs(
         if not value:
             continue
         if glob.has_magic(value):
-            matches = [
-                str(Path(p))
-                for p in sorted(glob.glob(value, recursive=True))
-                if Path(p).is_file()
-            ]
+            matches = [str(Path(p)) for p in sorted(glob.glob(value, recursive=True)) if Path(p).is_file()]
             if not matches:
                 raise click.ClickException(f"No config files matched pattern: {value}")
             expanded.extend(matches)
@@ -516,10 +502,7 @@ def batch_evaluate_cmd(
             click.echo(f"Error: {config_path}\n  {_format_batch_error(exc)}")
 
     if failures:
-        raise click.ClickException(
-            "Batch evaluate completed with errors in "
-            + ", ".join(path for path, _ in failures)
-        )
+        raise click.ClickException("Batch evaluate completed with errors in " + ", ".join(path for path, _ in failures))
 
 
 @batch_cmd.command(
@@ -558,10 +541,7 @@ def batch_execute_cmd(
             click.echo(f"Error: {config_path}\n  {_format_batch_error(exc)}")
 
     if failures:
-        raise click.ClickException(
-            "Batch execute completed with errors in "
-            + ", ".join(path for path, _ in failures)
-        )
+        raise click.ClickException("Batch execute completed with errors in " + ", ".join(path for path, _ in failures))
 
 
 @batch_cmd.command(
@@ -610,19 +590,14 @@ def batch_prepare_cmd(
                     click.echo(f"Prepared {created}/{len(session_configs)} sessions.")
             else:
                 with cfg.get_context():
-                    created = (
-                        1 if _write_session_config(cfg, overwrite=overwrite) else 0
-                    )
+                    created = 1 if _write_session_config(cfg, overwrite=overwrite) else 0
                 click.echo(f"Prepared {created}/1 sessions.")
         except Exception as exc:
             failures.append((config_path, str(exc)))
             click.echo(f"Error: {config_path}\n  {_format_batch_error(exc)}")
 
     if failures:
-        raise click.ClickException(
-            "Batch prepare completed with errors in "
-            + ", ".join(path for path, _ in failures)
-        )
+        raise click.ClickException("Batch prepare completed with errors in " + ", ".join(path for path, _ in failures))
 
 
 @batch_cmd.command(
@@ -662,8 +637,7 @@ def batch_aggregate_cmd(
 
     if failures:
         raise click.ClickException(
-            "Batch aggregate completed with errors in "
-            + ", ".join(path for path, _ in failures)
+            "Batch aggregate completed with errors in " + ", ".join(path for path, _ in failures)
         )
 
 
@@ -741,11 +715,7 @@ def batch_patch_cmd(
                 with open(run_config_path, "w", encoding="utf-8") as f:
                     json.dump(run_config_payload, f, ensure_ascii=False, indent=2)
                     f.write("\n")
-        run_config_obj = (
-            RunConfig.model_validate(run_config_payload)
-            if run_config_payload is not None
-            else None
-        )
+        run_config_obj = RunConfig.model_validate(run_config_payload) if run_config_payload is not None else None
 
         sessions_root = root / "sessions"
         if not sessions_root.exists():
@@ -785,9 +755,7 @@ def batch_patch_cmd(
                     if target_dir.exists():
                         alt_name = f"{new_id}__dup__{old_id}"
                         target_dir = session_dir.with_name(alt_name)
-                        click.echo(
-                            f"{old_id} -> {new_id} (collision, renaming to {alt_name})"
-                        )
+                        click.echo(f"{old_id} -> {new_id} (collision, renaming to {alt_name})")
                     else:
                         click.echo(f"{old_id} -> {new_id} ({session_dir})")
                     if do_apply:
@@ -847,13 +815,9 @@ def batch_extract_cmd(
                 raise click.ClickException(f"Results not found: {results_path}")
             payload = _load_config_file(str(results_path))
             if not isinstance(payload, dict):
-                raise click.ClickException(
-                    f"Results JSON is not an object: {results_path}"
-                )
+                raise click.ClickException(f"Results JSON is not an object: {results_path}")
             if "benchmark_score" not in payload:
-                raise click.ClickException(
-                    f"Missing benchmark_score in results: {results_path}"
-                )
+                raise click.ClickException(f"Missing benchmark_score in results: {results_path}")
             row: dict[str, Any] = {
                 "config_path": config_path,
                 "results_path": str(results_path),
@@ -895,10 +859,7 @@ def batch_extract_cmd(
         click.echo(f"Wrote {len(rows)} row(s) to {out_file}.")
 
     if failures:
-        raise click.ClickException(
-            "Batch extract completed with errors in "
-            + ", ".join(path for path, _ in failures)
-        )
+        raise click.ClickException("Batch extract completed with errors in " + ", ".join(path for path, _ in failures))
 
 
 __all__ = [

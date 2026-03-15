@@ -6,23 +6,21 @@ from __future__ import annotations
 import json
 
 from exgentic import (
+    aggregate,
     evaluate,
     execute,
-    aggregate,
-    preview,
-    status,
-    results,
-    list_benchmarks,
     list_agents,
+    list_benchmarks,
     list_subsets,
     list_tasks,
+    preview,
+    results,
+    status,
 )
 from exgentic.core.types import RunConfig, SessionOutcomeStatus
 
 
-def _run_config(
-    tmp_path, *, run_id: str, policy: str = "good_then_finish"
-) -> RunConfig:
+def _run_config(tmp_path, *, run_id: str, policy: str = "good_then_finish") -> RunConfig:
     return RunConfig(
         benchmark="test_benchmark",
         agent="test_agent",

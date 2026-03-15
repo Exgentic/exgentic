@@ -5,14 +5,13 @@ from abc import abstractmethod
 from typing import Any, Callable, Dict, List, Optional
 
 from ...core import Observation
-
-from ..actions.functions import action_type_to_function
 from ...core.types import ActionType
-from .coordinator import CoordinatedAgent, AgentCoordinator
+from ..actions.functions import action_type_to_function
+from .coordinator import AgentCoordinator, CoordinatedAgent
 
 
 class CodeAgentInstance(CoordinatedAgent, AgentCoordinator):
-    """Base class for code-based agents that inherits both roles"""
+    """Base class for code-based agents that inherits both roles."""
 
     def __init__(
         self,
@@ -56,11 +55,9 @@ class CodeAgentInstance(CoordinatedAgent, AgentCoordinator):
         try:
             self.run_code_agent(functions)
         finally:
-            self.execute(
-                None
-            )  # Mark execution as done, by returning no action to the benchmark.
+            self.execute(None)  # Mark execution as done, by returning no action to the benchmark.
 
     @abstractmethod
     def run_code_agent(self, functions: List[Callable]) -> None:
-        """Subclasses implement their code agent logic here"""
+        """Subclasses implement their code agent logic here."""
         pass

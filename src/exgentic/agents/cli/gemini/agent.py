@@ -4,11 +4,10 @@
 from __future__ import annotations
 
 import os
-from typing import Any, ClassVar, Dict, List
+from typing import Any, ClassVar
 
-from ....core.types import ActionType
-from ....core.types import ModelSettings
-from ..base import ProxyBackedAgent, ProxyBackedMCPAgentInstance, ExecutionBackend
+from ....core.types import ActionType, ModelSettings
+from ..base import ExecutionBackend, ProxyBackedAgent, ProxyBackedMCPAgentInstance
 from .cli import GeminiCLI, GeminiCLIConfig
 
 
@@ -19,8 +18,8 @@ class GeminiAgentInstance(ProxyBackedMCPAgentInstance):
         self,
         session_id: str,
         task: str,
-        context: Dict[str, Any],
-        actions: List[ActionType],
+        context: dict[str, Any],
+        actions: list[ActionType],
         model_id: str,
         max_steps: int = 150,
         runner: ExecutionBackend = ExecutionBackend.PROCESS,
@@ -79,5 +78,5 @@ class GeminiAgent(ProxyBackedAgent):
     slug_name: ClassVar[str] = "gemini_cli"
     agent_cls: ClassVar[type[ProxyBackedMCPAgentInstance]] = GeminiAgentInstance
 
-    def get_models_names(self) -> List[str]:  # type: ignore[override]
+    def get_models_names(self) -> list[str]:  # type: ignore[override]
         return [str(self.model_id)]

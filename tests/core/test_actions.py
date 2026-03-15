@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-from pydantic import BaseModel
-
 from exgentic.core.actions import ActionsHandler, build_action, build_unknown_action
 from exgentic.core.types import ActionType, SingleAction, SingleObservation
+from pydantic import BaseModel
 
 
 class Args(BaseModel):

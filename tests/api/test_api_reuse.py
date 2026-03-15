@@ -27,9 +27,7 @@ def test_reuse_skips_completed_sessions(tmp_path):
     assert log_path.exists()
     session_id = config.to_session_config("task-1").get_session_id()
     results_path = output_dir / run_id / "sessions" / session_id / "results.json"
-    bench_results_path = (
-        output_dir / run_id / "sessions" / session_id / "benchmark" / "results.json"
-    )
+    bench_results_path = output_dir / run_id / "sessions" / session_id / "benchmark" / "results.json"
     assert results_path.exists()
     assert bench_results_path.exists()
     before_results_mtime = results_path.stat().st_mtime_ns

@@ -6,10 +6,8 @@ import time
 from typing import Literal
 
 import pytest
-from pydantic import BaseModel
-
-from exgentic.adapters.agents import mcp_agent as mcp
 from exgentic.adapters.actions.functions import action_type_to_function
+from exgentic.adapters.agents import mcp_agent as mcp
 from exgentic.core.types import (
     ActionType,
     MultiObservation,
@@ -17,6 +15,7 @@ from exgentic.core.types import (
     SingleAction,
     SingleObservation,
 )
+from pydantic import BaseModel
 
 
 class FakeMCPServer:
@@ -186,9 +185,7 @@ def test_mcp_agent_parallel_tool_calls_return_parallel_action(env, monkeypatch):
         pending = list(agent._pending_actions)
 
     observations = [
-        SingleObservation(
-            invoking_actions=[action], result={"ok": action.arguments.value}
-        )
+        SingleObservation(invoking_actions=[action], result={"ok": action.arguments.value})
         for action in pending
         if isinstance(action, SingleAction)
     ]

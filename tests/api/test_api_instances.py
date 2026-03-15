@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import pytest
-
 from exgentic import execute
 from exgentic.core.types import RunConfig
 

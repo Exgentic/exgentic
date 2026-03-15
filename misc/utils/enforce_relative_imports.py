@@ -12,7 +12,7 @@ library_name = "exgentic"
 
 def check_imports(file_path):
     success = True
-    with open(file_path, "r", encoding="utf-8") as file:
+    with open(file_path, encoding="utf-8") as file:
         for lineno, line in enumerate(file, start=1):
             if (
                 f"from {library_name} import" in line
@@ -22,9 +22,7 @@ def check_imports(file_path):
                 or "from src." in line
                 or "import src" in line
             ):
-                logger.error(
-                    f"Non relative import: {file_path}:{lineno}: {line.strip()[:30]}..."
-                )
+                logger.error(f"Non relative import: {file_path}:{lineno}: {line.strip()[:30]}...")
                 success = False
     return success
 

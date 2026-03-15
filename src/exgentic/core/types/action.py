@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 import inspect
 import uuid
-from typing import Any, List, Literal, Optional, Type, get_type_hints
+from abc import ABC, abstractmethod
+from typing import Any, Literal, Optional, get_type_hints
 
 from pydantic import BaseModel, Field
 
@@ -52,14 +52,14 @@ class FinishAction(SingleAction):
 
 
 class ParallelAction(Action):
-    actions: List[SingleAction]
+    actions: list[SingleAction]
 
     def to_action_list(self):
         return self.actions
 
 
 class SequentialAction(Action):
-    actions: List[SingleAction]
+    actions: list[SingleAction]
 
     def to_action_list(self):
         return self.actions
@@ -68,14 +68,14 @@ class SequentialAction(Action):
 class ActionType(BaseModel):
     name: str
     description: str
-    cls: Type[SingleAction]
+    cls: type[SingleAction]
     # Hints for agent/adapter handling (optional)
     is_message: bool = False
     is_finish: bool = False
     is_hidden: bool = False
 
     @property
-    def arguments(self) -> Type[BaseModel]:
+    def arguments(self) -> type[BaseModel]:
         """Return the resolved pydantic model type for the action's arguments.
 
         Handles forward-referenced annotations (e.g., from `from __future__ import annotations`).
@@ -101,9 +101,7 @@ class ActionType(BaseModel):
                 return resolved  # type: ignore[return-value]
         return arg_t  # type: ignore[return-value]
 
-    def build_action(
-        self, arguments: Any, *, action_id: Optional[str] = None
-    ) -> SingleAction:
+    def build_action(self, arguments: Any, *, action_id: Optional[str] = None) -> SingleAction:
         """Convenience wrapper around core.actions.build_action for this action type."""
         from ..actions import build_action  # Local import to avoid circular dependency
 

@@ -6,10 +6,15 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from typing import Any, Dict
+from typing import Any
 
 from nicegui import ui
 
+from ....core.context import run_scope
+from ....core.types import RunConfig
+from ....observers.handlers.dashboard_events import DashboardEventsObserver
+from ....utils.paths import RunPaths
+from ....utils.settings import get_settings
 from ...lib.api import (
     evaluate,
     get_agent_info,
@@ -17,11 +22,6 @@ from ...lib.api import (
     load_agent_class,
     load_benchmark_class,
 )
-from ....core.types import RunConfig
-from ....observers.handlers.dashboard_events import DashboardEventsObserver
-from ....core.context import run_scope
-from ....utils.settings import get_settings
-from ....utils.paths import RunPaths
 from .data import (
     _build_history_sessions,
     _load_history_turns,
@@ -125,9 +125,7 @@ def process_new_events(state: RunState) -> bool:
                 step_no = evt.get("n")
                 act_obj = evt.get("action_obj")
                 if act_obj is not None:
-                    turns.setdefault(sid, []).append(
-                        {"type": "action", "step": step_no, "content": act_obj}
-                    )
+                    turns.setdefault(sid, []).append({"type": "action", "step": step_no, "content": act_obj})
                     turns[sid] = turns[sid][-200:]
 
         elif et == "observation":
@@ -142,9 +140,7 @@ def process_new_events(state: RunState) -> bool:
                 if "benchmark_cost" in evt:
                     sessions[sid]["benchmark_cost"] = evt.get("benchmark_cost")
                 if obs_obj is not None:
-                    turns.setdefault(sid, []).append(
-                        {"type": "observation", "step": step_no, "content": obs_obj}
-                    )
+                    turns.setdefault(sid, []).append({"type": "observation", "step": step_no, "content": obs_obj})
                     turns[sid] = turns[sid][-200:]
 
         elif et == "session_finished":
@@ -153,9 +149,7 @@ def process_new_events(state: RunState) -> bool:
                 success = evt.get("success", False)
                 is_finished = evt.get("is_finished")
                 error_source = evt.get("error_source")
-                sessions[sid]["status"] = _status_from_outcome(
-                    success, is_finished, error_source
-                )
+                sessions[sid]["status"] = _status_from_outcome(success, is_finished, error_source)
                 sessions[sid]["success"] = success
                 sessions[sid]["score"] = evt.get("score")
                 if "steps" in evt:
@@ -398,9 +392,7 @@ def leaderboard_panel(state: RunState) -> None:
 
     filtered = [row for row in rows if _include(row)]
     with ui.card().classes("w-full card p-4"):
-        ui.table(columns=LEADERBOARD_COLUMNS, rows=filtered, row_key="run_id").classes(
-            "w-full"
-        ).props("flat")
+        ui.table(columns=LEADERBOARD_COLUMNS, rows=filtered, row_key="run_id").classes("w-full").props("flat")
 
 
 @ui.refreshable
@@ -453,13 +445,9 @@ def history_panel(state: RunState) -> None:
                     ui.label("Directory not found.").classes("text-negative")
                     return
                 parent = os.path.dirname(current.rstrip(os.sep))
-                entries = [
-                    name
-                    for name in sorted(os.listdir(current))
-                    if os.path.isdir(os.path.join(current, name))
-                ]
+                entries = [name for name in sorted(os.listdir(current)) if os.path.isdir(os.path.join(current, name))]
                 if parent and parent != current:
-                    entries = [".."] + entries
+                    entries = ["..", *entries]
                 if not entries:
                     ui.label("(empty)")
                     return
@@ -503,11 +491,7 @@ def history_panel(state: RunState) -> None:
                     .style("flex: 1;")
                 )
 
-            entries_box = (
-                ui.column()
-                .classes("w-full gap-2")
-                .style("max-height: 320px; overflow-y: auto;")
-            )
+            entries_box = ui.column().classes("w-full gap-2").style("max-height: 320px; overflow-y: auto;")
             refresh_entries(entries_box)
 
             def on_path_change(e) -> None:
@@ -535,15 +519,11 @@ def history_panel(state: RunState) -> None:
                 label="Run directory",
                 value=state.history_root or settings.output_dir,
                 placeholder=settings.output_dir,
-            ).props("dense").style("min-width: 360px;").on_value_change(
-                on_history_root_change
-            )
-            ui.button(icon="folder_open").props("dense flat").on_click(
-                open_history_browser
-            )
-        ui.select(runs, value=state.selected_history_run, label="Select run").props(
-            "dense"
-        ).style("min-width: 280px;").on_value_change(on_history_change)
+            ).props("dense").style("min-width: 360px;").on_value_change(on_history_root_change)
+            ui.button(icon="folder_open").props("dense flat").on_click(open_history_browser)
+        ui.select(runs, value=state.selected_history_run, label="Select run").props("dense").style(
+            "min-width: 280px;"
+        ).on_value_change(on_history_change)
         if not os.path.isdir(history_root):
             ui.label(f"Directory not found: {history_root}")
         if not state.selected_history_run:
@@ -567,9 +547,7 @@ def history_panel(state: RunState) -> None:
         )
 
     with ui.card().classes("w-full card p-4"):
-        tabs, tab_by_name, active_tab = _init_tabs(
-            state, "history", ["Overview", "Sessions", "Log"]
-        )
+        tabs, tab_by_name, active_tab = _init_tabs(state, "history", ["Overview", "Sessions", "Log"])
         overview_tab = tab_by_name["Overview"]
         sessions_tab = tab_by_name["Sessions"]
         log_tab = tab_by_name["Log"]
@@ -613,7 +591,7 @@ def _set_enabled(control: Any, enabled: bool) -> None:
         control.disable()
 
 
-def _set_controls_enabled(controls: Dict[str, Any], enabled: bool) -> None:
+def _set_controls_enabled(controls: dict[str, Any], enabled: bool) -> None:
     for data in controls.values():
         control = data[1]
         _set_enabled(control, enabled)
@@ -679,21 +657,17 @@ def build_run_tab(state: RunState) -> RunViews:
                         min=0,
                         step=1,
                     ).props("dense")
-                    max_workers_input = ui.number(
-                        label="Parallel Workers", value=state.max_workers, min=1
-                    ).props("dense")
+                    max_workers_input = ui.number(label="Parallel Workers", value=state.max_workers, min=1).props(
+                        "dense"
+                    )
                     start_button = (
                         ui.button("Start Run")
                         .classes("ml-auto start-run-btn")
-                        .style(
-                            "background:#39ff14 !important; color:#0b0f10 !important;"
-                        )
+                        .style("background:#39ff14 !important; color:#0b0f10 !important;")
                     )
 
             with ui.card().classes("w-full card p-4") as run_panel_box:
-                run_tabs, tab_by_name, active_tab = _init_tabs(
-                    state, "run", ["Overview", "Sessions", "Log"]
-                )
+                run_tabs, tab_by_name, active_tab = _init_tabs(state, "run", ["Overview", "Sessions", "Log"])
                 overview_tab = tab_by_name["Overview"]
                 sessions_tab = tab_by_name["Sessions"]
                 log_tab = tab_by_name["Log"]

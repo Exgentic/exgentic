@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import types
-from typing import Any, Dict, Tuple, Type, Union, get_args, get_origin, Literal
+from typing import Any, Literal, Union, get_args, get_origin
 
 from nicegui import ui
 
@@ -15,7 +15,7 @@ except Exception:  # pragma: no cover
     PydanticUndefined = None
 
 
-def _is_optional(ann: Any) -> Tuple[bool, Any]:
+def _is_optional(ann: Any) -> tuple[bool, Any]:
     origin = get_origin(ann)
     if origin in (Union, types.UnionType):
         args = list(get_args(ann))
@@ -25,11 +25,11 @@ def _is_optional(ann: Any) -> Tuple[bool, Any]:
     return False, ann
 
 
-def _build_pydantic_form(model_cls: Type[Any], disabled: bool) -> Dict[str, Any]:
-    controls: Dict[str, Any] = {}
+def _build_pydantic_form(model_cls: type[Any], disabled: bool) -> dict[str, Any]:
+    controls: dict[str, Any] = {}
     fields = model_cls.model_fields
     schema = model_cls.model_json_schema()
-    schema_props: Dict[str, Any] = schema.get("properties", {})
+    schema_props: dict[str, Any] = schema.get("properties", {})
 
     with ui.column().classes("w-full form-stack"):
         for name, form_field in fields.items():
@@ -60,7 +60,7 @@ def _build_pydantic_form(model_cls: Type[Any], disabled: bool) -> Dict[str, Any]
                 options = list(get_args(base))
 
             if options:
-                shown = [""] + options if is_opt and default is None else options
+                shown = ["", *options] if is_opt and default is None else options
                 value = default if default in shown else (shown[0] if shown else None)
                 control = ui.select(shown, value=value, label=name).props("dense")
                 control.enabled = not disabled
@@ -94,12 +94,12 @@ def _build_pydantic_form(model_cls: Type[Any], disabled: bool) -> Dict[str, Any]
     return controls
 
 
-def _build_agent_form(agent_cls: Type[Any], disabled: bool) -> Dict[str, Any]:
+def _build_agent_form(agent_cls: type[Any], disabled: bool) -> dict[str, Any]:
     return _build_pydantic_form(agent_cls, disabled)
 
 
-def _collect_values(controls: Dict[str, Any]) -> Dict[str, Any]:
-    values: Dict[str, Any] = {}
+def _collect_values(controls: dict[str, Any]) -> dict[str, Any]:
+    values: dict[str, Any] = {}
     for name, data in controls.items():
         kind = data[0]
         control = data[1]

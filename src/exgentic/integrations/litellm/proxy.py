@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-"""
-Lightweight helper to launch a single-model LiteLLM proxy for the lifetime of an object.
+"""Lightweight helper to launch a single-model LiteLLM proxy for the lifetime of an object.
 
 Usage (expects OPENAI_API_BASE/OPENAI_API_KEY already set for your backend):
     from . import LitellmProxy
@@ -20,18 +19,18 @@ import socket
 import subprocess
 import tempfile
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 
+from ...core.context import try_get_context
+from ...core.types.model_settings import ModelSettings
+from ...utils.paths import get_session_paths
+from ...utils.settings import get_settings
 from .trace_logger import (
     DEFAULT_FILE as DEFAULT_USAGE_FILE,
 )
-from ...core.context import try_get_context
-from ...utils.paths import get_session_paths
-from ...core.types.model_settings import ModelSettings
-from ...utils.settings import get_settings
 
 TRACE_CALLBACK = "exgentic.integrations.litellm.trace_logger.trace_logger"
 ASYNC_TRACE_CALLBACK = "exgentic.integrations.litellm.trace_logger.async_trace_logger"
@@ -44,8 +43,7 @@ def _get_free_port() -> int:
 
 
 class LitellmProxy:
-    """
-    Launch a LiteLLM proxy serving a single model.
+    """Launch a LiteLLM proxy serving a single model.
 
     The proxy process is started on creation (or __enter__) and torn down on close/__exit__.
     """
@@ -56,7 +54,7 @@ class LitellmProxy:
         *,
         port: Optional[int] = None,
         model_alias_map: Optional[dict[str, str]] = None,
-        env: Optional[Dict[str, str]] = None,
+        env: Optional[dict[str, str]] = None,
         log_path: Optional[str] = None,
         usage_log_path: Optional[str] = None,
         startup_timeout: float = 15.0,
@@ -83,9 +81,7 @@ class LitellmProxy:
             return
 
         env = self._build_env()
-        self._set_trace_log_env(
-            env, self._resolve_usage_log_path(), self._resolve_session_root()
-        )
+        self._set_trace_log_env(env, self._resolve_usage_log_path(), self._resolve_session_root())
         self._config_file = self._write_config_file()
         config_dir = str(self._config_file.parent)
         env["PYTHONPATH"] = os.pathsep.join([config_dir, env.get("PYTHONPATH", "")])
@@ -108,7 +104,7 @@ class LitellmProxy:
         cmd.extend(["--config", str(config_path)])
         return cmd
 
-    def _build_env(self) -> Dict[str, str]:
+    def _build_env(self) -> dict[str, str]:
         env = os.environ.copy()
         env.update(self._env_overrides)
 
@@ -131,7 +127,7 @@ class LitellmProxy:
         # Keep proxy cache bootstrap behavior enabled by default for subprocess startup.
         env["EXGENTIC_PROXY_CACHE_INIT"] = "true"
 
-        env["PYTHONPATH"] = os.pathsep.join(extra_paths + [env.get("PYTHONPATH", "")])
+        env["PYTHONPATH"] = os.pathsep.join([*extra_paths, env.get("PYTHONPATH", "")])
         return env
 
     def _resolve_usage_log_path(self) -> Path:
@@ -150,9 +146,7 @@ class LitellmProxy:
         return None
 
     @staticmethod
-    def _set_trace_log_env(
-        env: Dict[str, str], usage_path: Path, session_root: Optional[Path]
-    ) -> None:
+    def _set_trace_log_env(env: dict[str, str], usage_path: Path, session_root: Optional[Path]) -> None:
         from .trace_logger import FILE_ENV
 
         env.setdefault(FILE_ENV, str(usage_path))
@@ -196,9 +190,7 @@ class LitellmProxy:
         if self._log_path:
             cfg_path = Path(self._log_path).with_name("litellm_config.json")
         else:
-            cfg_path = Path(
-                tempfile.NamedTemporaryFile(delete=False, suffix=".json").name
-            )
+            cfg_path = Path(tempfile.NamedTemporaryFile(delete=False, suffix=".json").name)
         config_data = self._build_config_data()
         with open(cfg_path, "w", encoding="utf-8") as fh:
             json.dump(config_data, fh)
@@ -225,23 +217,18 @@ class LitellmProxy:
                 if self._log_path and os.path.exists(self._log_path):
                     with open(
                         self._log_path,
-                        "r",
                         encoding="utf-8-sig",
                         errors="replace",
                         newline="",
                     ) as lf:
                         last_err = lf.read()
-                raise RuntimeError(
-                    f"LiteLLM proxy exited early: {err or out or last_err or 'no output'}"
-                )
+                raise RuntimeError(f"LiteLLM proxy exited early: {err or out or last_err or 'no output'}")
             if _is_port_open("127.0.0.1", self.port):
                 if _is_proxy_ready("127.0.0.1", self.port):
                     return
             time.sleep(0.05)
 
-        raise RuntimeError(
-            f"LiteLLM proxy did not open port {self.port} within timeout"
-        )
+        raise RuntimeError(f"LiteLLM proxy did not open port {self.port} within timeout")
 
     def close(self) -> None:
         proc = self._proc
@@ -260,7 +247,7 @@ class LitellmProxy:
             self._log_file = None
         self._config_file = None
 
-    def __enter__(self) -> "LitellmProxy":
+    def __enter__(self) -> LitellmProxy:
         self.start()
         return self
 

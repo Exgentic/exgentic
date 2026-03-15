@@ -2,38 +2,37 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 from .controller import Controller, CoreController, LimitController
+from .observer import Observer
 from .run import core_aggregate, core_evaluate, core_execute
 from .session import run_session
-from .observer import Observer
-from .tracker import Tracker
 from .termination import (
     AgentError,
-    AgentTermination,
+    AgentTerminationError,
     BenchmarkError,
-    BenchmarkTermination,
+    BenchmarkTerminationError,
     InvalidActionError,
     InvalidObservationError,
-    RunCancel,
-    SessionCancel,
-    SessionLimitReached,
-    SessionTermination,
+    RunCancelError,
+    SessionCancelError,
+    SessionLimitReachedError,
 )
+from .tracker import Tracker
 
 __all__ = [
     "AgentError",
-    "AgentTermination",
+    "AgentTerminationError",
     "BenchmarkError",
-    "BenchmarkTermination",
+    "BenchmarkTerminationError",
     "Controller",
     "CoreController",
     "LimitController",
     "InvalidActionError",
     "InvalidObservationError",
     "Observer",
-    "RunCancel",
+    "RunCancelError",
     "Tracker",
-    "SessionCancel",
-    "SessionLimitReached",
+    "SessionCancelError",
+    "SessionLimitReachedError",
     "SessionTermination",
     "run_session",
     "core_aggregate",

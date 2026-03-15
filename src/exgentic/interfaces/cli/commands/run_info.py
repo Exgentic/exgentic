@@ -20,9 +20,7 @@ from ..render import render_run_plan, render_run_results, render_run_status
     "config_path",
     help="RunConfig or SessionConfig JSON file",
 )
-@click.option(
-    "--format", "output_format", type=click.Choice(["text", "json"]), default="text"
-)
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
 def status_cmd(
     benchmark: str | None,
     agent: str | None,
@@ -65,9 +63,7 @@ def status_cmd(
             run_id=run_id,
             max_workers=None,
         ):
-            raise click.ClickException(
-                "Do not pass run options together with --config."
-            )
+            raise click.ClickException("Do not pass run options together with --config.")
         payload = _load_config_file(config_path)
         try:
             config = RunConfig.model_validate(payload)
@@ -102,7 +98,7 @@ def status_cmd(
 
 
 def _load_config_file(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -123,9 +119,7 @@ def _run_config_from_session(session_config: SessionConfig) -> RunConfig:
 
 @click.command("preview")
 @add_run_options(include_overwrite=False, include_max_workers=False)
-@click.option(
-    "--format", "output_format", type=click.Choice(["text", "json"]), default="text"
-)
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
 def preview_cmd(
     benchmark: str,
     agent: str,
@@ -171,9 +165,7 @@ def preview_cmd(
 
 @click.command("results")
 @add_run_options(include_overwrite=False, include_max_workers=False)
-@click.option(
-    "--format", "output_format", type=click.Choice(["text", "json"]), default="text"
-)
+@click.option("--format", "output_format", type=click.Choice(["text", "json"]), default="text")
 def results_cmd(
     benchmark: str,
     agent: str,

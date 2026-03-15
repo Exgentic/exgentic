@@ -3,14 +3,14 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
 import hashlib
 import json
 from contextlib import contextmanager
-from typing import Dict, Optional, Any
+from enum import StrEnum
+from typing import Any, Optional
 
-from pydantic import BaseModel, Field, field_validator
 from filelock import FileLock, Timeout
+from pydantic import BaseModel, Field, field_validator
 
 from ...utils.cost import CostReport
 from .evaluation import BaseEvaluationConfig
@@ -47,16 +47,15 @@ class SessionResults(BaseModel):
     agent_cost: float
     benchmark_cost: float
     execution_time: float
-    details: Dict[str, Any] = {}
-    cost_reports: Dict[str, CostReport] = Field(default_factory=dict)
+    details: dict[str, Any] = {}
+    cost_reports: dict[str, CostReport] = Field(default_factory=dict)
     task_id: Optional[str] = None
 
     @field_validator("cost_reports", mode="before")
+    @classmethod
     def accept_instances(cls, v):
         if not isinstance(v, dict):
-            raise TypeError(
-                f"cost_reports must be a dict[str, CostReport | dict], got {type(v)}"
-            )
+            raise TypeError(f"cost_reports must be a dict[str, CostReport | dict], got {type(v)}")
 
         for key, val in v.items():
             if isinstance(val, CostReport) or isinstance(val, dict):
@@ -73,8 +72,8 @@ class SessionScore(BaseModel):
     score: float
     success: bool
     is_finished: Optional[bool] = None
-    session_metrics: Dict[str, Any] = {}
-    session_metadata: Dict[str, Any] = {}
+    session_metrics: dict[str, Any] = {}
+    session_metadata: dict[str, Any] = {}
 
 
 class SessionStatus(BaseModel):
@@ -121,27 +120,21 @@ class SessionStatus(BaseModel):
         if metadata.get("error") or error_source in ("agent", "benchmark"):
             return SessionOutcomeStatus.ERROR
         if is_finished is True:
-            return (
-                SessionOutcomeStatus.SUCCESS
-                if success
-                else SessionOutcomeStatus.UNSUCCESSFUL
-            )
+            return SessionOutcomeStatus.SUCCESS if success else SessionOutcomeStatus.UNSUCCESSFUL
         if is_finished is False:
             return SessionOutcomeStatus.UNFINISHED
         return None
 
     @classmethod
-    def from_config(cls, session_config, *, run_paths=None) -> "SessionStatus":
-        from ...utils.paths import RunPaths
+    def from_config(cls, session_config, *, run_paths=None) -> SessionStatus:
         from ...core.context import get_context
+        from ...utils.paths import RunPaths
 
         session_id = session_config.get_session_id()
         if run_paths is None:
             ctx = get_context()
             if session_config.run_id:
-                run_paths = RunPaths(
-                    run_id=session_config.run_id, output_dir=ctx.output_dir
-                )
+                run_paths = RunPaths(run_id=session_config.run_id, output_dir=ctx.output_dir)
             else:
                 run_paths = RunPaths.from_context(ctx)
         sess_paths = run_paths.session(session_id)
@@ -187,7 +180,7 @@ class SessionConfig(BaseEvaluationConfig):
     task_id: str
     overwrite_sessions: bool = False
 
-    def session_id_payload(self) -> Dict[str, Any]:
+    def session_id_payload(self) -> dict[str, Any]:
         return {
             "benchmark": self.benchmark,
             "benchmark_kwargs": dict(self.benchmark_kwargs or {}),
@@ -208,7 +201,7 @@ class SessionConfig(BaseEvaluationConfig):
         ).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()[:8]
 
-    def to_index(self) -> "SessionIndex":
+    def to_index(self) -> SessionIndex:
         return SessionIndex(
             task_id=str(self.task_id),
             session_id=self.get_session_id(),

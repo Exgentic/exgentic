@@ -2,9 +2,11 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 from __future__ import annotations
+
 import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
+
 from ..base import BaseCLIConfig, BaseCLIWrapper, ExecutionBackend
 
 
@@ -17,7 +19,7 @@ class ClaudeCLIConfig(BaseCLIConfig):
     skip_permissions: bool = True
     max_turns: int = 150
     mcp_only: bool = True  # New: only allow MCP tools
-    allowed_tools: Optional[List[str]] = None
+    allowed_tools: Optional[list[str]] = None
     image: str = "exgentic-claude-code:dev"
     image_workdir: str = "/work"
     mcp_timeout_ms: int = 600_000
@@ -29,7 +31,7 @@ class ClaudeCodeCLI(BaseCLIWrapper):
 
     def __init__(
         self,
-        env: Optional[Dict[str, str]] = None,
+        env: Optional[dict[str, str]] = None,
         log_path: Optional[Path] = None,
         config_dir: Optional[Path] = None,
         logger=None,
@@ -48,17 +50,13 @@ class ClaudeCodeCLI(BaseCLIWrapper):
 
     # Required hooks --------------------------------------------------
 
-    def build_env(
-        self, *, cfg_root: Path, prompt: str, config: ClaudeCLIConfig
-    ) -> Dict[str, str]:
+    def build_env(self, *, cfg_root: Path, prompt: str, config: ClaudeCLIConfig) -> dict[str, str]:
         env = self.env.copy()
         env["ANTHROPIC_BASE_URL"] = config.provider_url
         if config.env:
             env.update(config.env)
 
-        token = (
-            env.get(config.auth_token_env) or env.get(config.env_key) or "dummy-api-key"
-        )
+        token = env.get(config.auth_token_env) or env.get(config.env_key) or "dummy-api-key"
         env[config.env_key] = token
         env[config.auth_token_env] = token
 
@@ -67,9 +65,7 @@ class ClaudeCodeCLI(BaseCLIWrapper):
 
         return env
 
-    def build_command(
-        self, *, cfg_root: Path, prompt: str, config: ClaudeCLIConfig
-    ) -> List[str]:
+    def build_command(self, *, cfg_root: Path, prompt: str, config: ClaudeCLIConfig) -> list[str]:
         if not prompt or not prompt.strip():
             raise ValueError("Prompt cannot be empty")
 
@@ -80,10 +76,7 @@ class ClaudeCodeCLI(BaseCLIWrapper):
         mcp_host = config.mcp_host
         from ..command_runner import DockerRunner, PodmanRunner
 
-        if (
-            isinstance(self.runner, (DockerRunner, PodmanRunner))
-            and mcp_host == "0.0.0.0"
-        ):
+        if isinstance(self.runner, (DockerRunner, PodmanRunner)) and mcp_host == "0.0.0.0":
             mcp_host = "host.docker.internal"
 
         mcp_url = f"http://{mcp_host}:{config.mcp_port}/mcp"
@@ -94,7 +87,7 @@ class ClaudeCodeCLI(BaseCLIWrapper):
         if not mcp_cfg_path.exists():
             raise RuntimeError(f"Failed to write MCP config to {mcp_cfg_path}")
 
-        cmd: List[str] = [
+        cmd: list[str] = [
             "npx",
             "claude",
             "-p",  # print mode, single-shot

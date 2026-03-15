@@ -8,20 +8,20 @@ import threading
 import time
 from collections import deque
 from queue import Queue
-from typing import Any, Dict
+from typing import Any
 
 from pydantic import BaseModel
 
 from ...core.agent import Agent
+from ...core.context import get_context
 from ...core.orchestrator.observer import Observer
-from ...core.types import BenchmarkResults, SessionScore
 from ...core.orchestrator.termination import (
     AgentError,
     BenchmarkError,
-    RunCancel,
-    SessionCancel,
+    RunCancelError,
+    SessionCancelError,
 )
-from ...core.context import get_context
+from ...core.types import BenchmarkResults, SessionScore
 from ...utils.paths import RunPaths
 
 
@@ -29,11 +29,11 @@ class DashboardEventsObserver(Observer):
     """Emit dashboard-friendly run events to a queue."""
 
     def __init__(self) -> None:
-        self.events: Queue[Dict[str, Any]] = Queue(maxsize=10000)
-        self._thread_session: Dict[int, str] = {}
-        self._session_steps: Dict[str, int] = {}
-        self._session_started_at: Dict[str, float] = {}
-        self._session_agents: Dict[str, Agent] = {}
+        self.events: Queue[dict[str, Any]] = Queue(maxsize=10000)
+        self._thread_session: dict[int, str] = {}
+        self._session_steps: dict[str, int] = {}
+        self._session_started_at: dict[str, float] = {}
+        self._session_agents: dict[str, Agent] = {}
         self._events_lock = threading.Lock()
         self._pending_events: deque = deque()
         self._last_batch_time = time.time()
@@ -61,10 +61,7 @@ class DashboardEventsObserver(Observer):
                 self._pending_events.popleft()
             self._pending_events.append(evt)
 
-            if (
-                current_time - self._last_batch_time >= self._batch_interval
-                or len(self._pending_events) >= 10
-            ):
+            if current_time - self._last_batch_time >= self._batch_interval or len(self._pending_events) >= 10:
                 self._flush_batch()
                 self._last_batch_time = current_time
 
@@ -124,10 +121,7 @@ class DashboardEventsObserver(Observer):
                 if isinstance(a, SingleAction):
                     args = a.arguments.model_dump()
                     if isinstance(args, dict) and len(str(args)) > 500:
-                        args = {
-                            k: (v if len(str(v)) < 50 else f"{str(v)[:50]}...")
-                            for k, v in list(args.items())[:5]
-                        }
+                        args = {k: (v if len(str(v)) < 50 else f"{str(v)[:50]}...") for k, v in list(args.items())[:5]}
                     return {"type": "single", "name": a.name, "arguments": args}
                 if isinstance(a, ParallelAction):
                     items = []
@@ -177,8 +171,7 @@ class DashboardEventsObserver(Observer):
                     data = obj.model_dump()
                     if isinstance(data, dict) and len(str(data)) > 1000:
                         truncated = {
-                            k: (v if len(str(v)) < 100 else f"{str(v)[:100]}...")
-                            for k, v in list(data.items())[:10]
+                            k: (v if len(str(v)) < 100 else f"{str(v)[:100]}...") for k, v in list(data.items())[:10]
                         }
                         return json.dumps(truncated, ensure_ascii=False)
                     return json.dumps(data, ensure_ascii=False)
@@ -195,8 +188,7 @@ class DashboardEventsObserver(Observer):
                     data = o.model_dump()
                     if isinstance(data, dict) and len(str(data)) > 1000:
                         truncated = {
-                            k: (v if len(str(v)) < 100 else f"{str(v)[:100]}...")
-                            for k, v in list(data.items())[:10]
+                            k: (v if len(str(v)) < 100 else f"{str(v)[:100]}...") for k, v in list(data.items())[:10]
                         }
                         return truncated
                     return data
@@ -268,11 +260,9 @@ class DashboardEventsObserver(Observer):
             error_source = "agent"
         elif isinstance(error, BenchmarkError):
             error_source = "benchmark"
-        elif isinstance(error, (SessionCancel, RunCancel, KeyboardInterrupt)):
+        elif isinstance(error, (SessionCancelError, RunCancelError, KeyboardInterrupt)):
             error_source = "cancelled"
-        root_error = (
-            error.error if isinstance(error, (AgentError, BenchmarkError)) else None
-        )
+        root_error = error.error if isinstance(error, (AgentError, BenchmarkError)) else None
         error_message = str(root_error) if root_error else str(error)
         details = {"error": error_message}
         if error_source is not None:

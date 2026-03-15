@@ -1,16 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-import multiprocessing as mp
 import builtins as _bl
-import weakref
+import multiprocessing as mp
 import traceback
+import weakref
 from typing import Any
+
 from ...core.context import (
-    try_get_context,
+    context_env_scope,
     init_context_from_env,
     set_context,
-    context_env_scope,
+    try_get_context,
 )
 
 try:
@@ -58,9 +59,7 @@ def _worker_process(queue_in, queue_out):
             obj = cls(*args, **kwargs)
         queue_out.put(_dumps(("ready", None)))
     except Exception as e:
-        queue_out.put(
-            _dumps(("error", (type(e).__name__, str(e), traceback.format_exc())))
-        )
+        queue_out.put(_dumps(("error", (type(e).__name__, str(e), traceback.format_exc()))))
         return
 
     # Process commands
@@ -90,11 +89,7 @@ def _worker_process(queue_in, queue_out):
                 queue_out.put(_dumps(("ok", result)))
 
             except Exception as e:
-                queue_out.put(
-                    _dumps(
-                        ("error", (type(e).__name__, str(e), traceback.format_exc()))
-                    )
-                )
+                queue_out.put(_dumps(("error", (type(e).__name__, str(e), traceback.format_exc()))))
 
         except (EOFError, BrokenPipeError):
             break
@@ -110,9 +105,7 @@ class RemoteProcess:
         ctx = mp.get_context("spawn")
         self._queue_in = ctx.Queue()
         self._queue_out = ctx.Queue()
-        self._process = ctx.Process(
-            target=_worker_process, args=(self._queue_in, self._queue_out), daemon=True
-        )
+        self._process = ctx.Process(target=_worker_process, args=(self._queue_in, self._queue_out), daemon=True)
         with context_env_scope():
             self._process.start()
 
@@ -228,8 +221,7 @@ class RemoteProcess:
 
 
 def remote_process_class(cls):
-    """
-    Decorator that makes a class run in a separate process.
+    """Decorator that makes a class run in a separate process.
 
     IMPORTANT: The decorated class must be defined at module level
     (not inside if __name__ == "__main__") for pickling to work.
@@ -247,7 +239,6 @@ def remote_process_class(cls):
         result = obj.work()    # Runs in separate process
         obj.value = 20         # Attribute access works
     """
-
     # CRITICAL: Don't replace the class!
     # Instead, monkey-patch __new__ to return a proxy
     original_new = cls.__new__

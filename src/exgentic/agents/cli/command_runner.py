@@ -3,22 +3,20 @@
 
 from __future__ import annotations
 
-import abc
-from dataclasses import dataclass
 import json
 import os
 import shlex
 import subprocess
-from pathlib import Path
-from typing import Dict, List, Optional
-from pydantic import BaseModel
+from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
+from typing import Optional
+
+from pydantic import BaseModel
 
 
 class ExecutionBackend(str, Enum):
-    """
-    Execution backend for CLI runs.
-    """
+    """Execution backend for CLI runs."""
 
     PROCESS = "process"
     PODMAN = "podman"
@@ -46,7 +44,7 @@ class CLIExecutionError(RuntimeError):
         code: int,
         stdout: str,
         stderr: str,
-        cmd: List[str],
+        cmd: list[str],
     ) -> None:
         super().__init__(message)
         self.code = code
@@ -63,12 +61,12 @@ class BaseCLIConfig(BaseModel):
     provider_url: str
     image: str
     image_workdir: str = "/work"
-    env: Optional[Dict[str, str]] = None
+    env: Optional[dict[str, str]] = None
 
 
-class ProcessRunner(abc.ABC):
-    """
-    Shared subprocess execution logic (spawn + communicate + timeout + kill).
+class ProcessRunner:
+    """Shared subprocess execution logic (spawn + communicate + timeout + kill).
+
     Concrete runners implement how cmd/env/cfg_root are transformed.
     """
 
@@ -76,7 +74,7 @@ class ProcessRunner(abc.ABC):
         super().__init__()
         self.log_path = log_path
         self._logger = logger
-        self._last_cmd: List[str] = []
+        self._last_cmd: list[str] = []
         self._proc: Optional[subprocess.Popen[str]] = None
 
     def _write_log(
@@ -115,8 +113,8 @@ class ProcessRunner(abc.ABC):
     def run(
         self,
         *,
-        cmd: List[str],
-        env: Dict[str, str],
+        cmd: list[str],
+        env: dict[str, str],
         cfg_root: Path,
         config: BaseCLIConfig,
         spawn_error_message: str,
@@ -153,18 +151,14 @@ class ProcessRunner(abc.ABC):
                 try:
                     stdout, stderr = self._proc.communicate(timeout=5)
                 except subprocess.TimeoutExpired:
-                    self._logger.warning(
-                        "CLI did not terminate; killing it: %s", shlex.join(cmd)
-                    )
+                    self._logger.warning("CLI did not terminate; killing it: %s", shlex.join(cmd))
                     self._proc.kill()
                     stdout, stderr = self._proc.communicate()
             code = self._proc.returncode or 0
         finally:
             self._write_log(stdout or "", stderr or "", returncode=code, config=config)
             if code != 0:
-                self._logger.warning(
-                    "CLI exited non-zero (%s): %s", code, shlex.join(cmd)
-                )
+                self._logger.warning("CLI exited non-zero (%s): %s", code, shlex.join(cmd))
         if code != 0:
             raise CLIExecutionError(
                 f"CLI exited non-zero ({code}): {shlex.join(cmd)}",
@@ -191,17 +185,15 @@ class ProcessRunner(abc.ABC):
 
 
 class ContainerRunner(ProcessRunner):
-    """
-    Shared helpers for container-based runners.
-    """
+    """Shared helpers for container-based runners."""
 
-    def _normalize_inner_cmd(self, cmd: List[str]) -> List[str]:
+    def _normalize_inner_cmd(self, cmd: list[str]) -> list[str]:
         # Host cmd is typically: ["npx","claude", ...]
         if len(cmd) >= 2 and cmd[0] == "npx" and cmd[1] == "claude":
             return ["claude"] + cmd[2:]
         return cmd
 
-    def _rewrite_mcp_config_path(self, inner_cmd: List[str], workdir: str) -> List[str]:
+    def _rewrite_mcp_config_path(self, inner_cmd: list[str], workdir: str) -> list[str]:
         if "--mcp-config" in inner_cmd:
             i = inner_cmd.index("--mcp-config")
             if i + 1 < len(inner_cmd):
@@ -210,11 +202,11 @@ class ContainerRunner(ProcessRunner):
 
     def _container_env_from(
         self,
-        env: Dict[str, str],
+        env: dict[str, str],
         host_gateway: str,
         config: BaseCLIConfig,
-    ) -> Dict[str, str]:
-        forwarded: Dict[str, str] = {}
+    ) -> dict[str, str]:
+        forwarded: dict[str, str] = {}
 
         for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
             if k in env:
@@ -261,30 +253,20 @@ class ContainerRunner(ProcessRunner):
                 return
 
             if "://127.0.0.1:" in url:
-                data["mcpServers"]["environment"]["url"] = url.replace(
-                    "://127.0.0.1:", f"://{host_gateway}:"
-                )
+                data["mcpServers"]["environment"]["url"] = url.replace("://127.0.0.1:", f"://{host_gateway}:")
                 mcp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-                self._logger.debug(
-                    "Patched mcp.json for container host gateway: %s", mcp_path
-                )
+                self._logger.debug("Patched mcp.json for container host gateway: %s", mcp_path)
             elif "://localhost:" in url:
-                data["mcpServers"]["environment"]["url"] = url.replace(
-                    "://localhost:", f"://{host_gateway}:"
-                )
+                data["mcpServers"]["environment"]["url"] = url.replace("://localhost:", f"://{host_gateway}:")
                 mcp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-                self._logger.debug(
-                    "Patched mcp.json for container host gateway: %s", mcp_path
-                )
+                self._logger.debug("Patched mcp.json for container host gateway: %s", mcp_path)
 
         except Exception as exc:
             self._logger.warning("Failed to patch mcp.json (%s): %s", mcp_path, exc)
 
 
 class PodmanRunner(ContainerRunner):
-    """
-    Run the inner command inside a container via Podman.
-    """
+    """Run the inner command inside a container via Podman."""
 
     def __init__(self, log_path, logger):
         super().__init__(log_path, logger)
@@ -292,8 +274,8 @@ class PodmanRunner(ContainerRunner):
     def run(
         self,
         *,
-        cmd: List[str],
-        env: Dict[str, str],
+        cmd: list[str],
+        env: dict[str, str],
         cfg_root: Path,
         config: BaseCLIConfig,
         spawn_error_message: str,
@@ -306,17 +288,13 @@ class PodmanRunner(ContainerRunner):
         self._patch_mcp_json(cfg_root=cfg_root, host_gateway=host_gateway)
 
         inner_cmd = self._normalize_inner_cmd(cmd)
-        inner_cmd = self._rewrite_mcp_config_path(
-            inner_cmd, workdir=config.image_workdir
-        )
+        inner_cmd = self._rewrite_mcp_config_path(inner_cmd, workdir=config.image_workdir)
 
         # Minimal env forwarding into container (encoded via podman -e flags)
-        container_env = self._container_env_from(
-            env, host_gateway=host_gateway, config=config
-        )
+        container_env = self._container_env_from(env, host_gateway=host_gateway, config=config)
         container_env["HOME"] = config.image_workdir
         connection_args = self._resolve_podman_connection_args()
-        wrapped_cmd: List[str] = [
+        wrapped_cmd: list[str] = [
             runtime,
             *connection_args,
             "run",
@@ -342,14 +320,13 @@ class PodmanRunner(ContainerRunner):
         )
 
     def _resolve_podman_connection_args(self) -> list[str]:
-        """
-        Return extra args for the `podman` CLI to select a connection.
+        """Return extra args for the `podman` CLI to select a connection.
+
         Priority:
         1) PODMAN_CONNECTION env var
         2) auto-detect default connection from `podman system connection list --format json`
         3) fallback: no args (let Podman decide; works on native Linux / preconfigured env)
         """
-
         # 1) environment override (nice for CI/users)
         env_name = os.environ.get("PODMAN_CONNECTION")
         if env_name:
@@ -389,9 +366,7 @@ class PodmanRunner(ContainerRunner):
 
 
 class DockerRunner(ContainerRunner):
-    """
-    Run the inner command inside a container via Docker.
-    """
+    """Run the inner command inside a container via Docker."""
 
     def __init__(self, log_path, logger):
         super().__init__(log_path, logger)
@@ -399,8 +374,8 @@ class DockerRunner(ContainerRunner):
     def run(
         self,
         *,
-        cmd: List[str],
-        env: Dict[str, str],
+        cmd: list[str],
+        env: dict[str, str],
         cfg_root: Path,
         config: BaseCLIConfig,
         spawn_error_message: str,
@@ -413,16 +388,12 @@ class DockerRunner(ContainerRunner):
         self._patch_mcp_json(cfg_root=cfg_root, host_gateway=host_gateway)
 
         inner_cmd = self._normalize_inner_cmd(cmd)
-        inner_cmd = self._rewrite_mcp_config_path(
-            inner_cmd, workdir=config.image_workdir
-        )
+        inner_cmd = self._rewrite_mcp_config_path(inner_cmd, workdir=config.image_workdir)
 
         # Minimal env forwarding into container (encoded via docker -e flags)
-        container_env = self._container_env_from(
-            env, host_gateway=host_gateway, config=config
-        )
+        container_env = self._container_env_from(env, host_gateway=host_gateway, config=config)
         container_env["HOME"] = config.image_workdir
-        user_args: List[str] = []
+        user_args: list[str] = []
         uid = getattr(os, "getuid", None)
         gid = getattr(os, "getgid", None)
         if callable(uid) and callable(gid):
@@ -430,7 +401,7 @@ class DockerRunner(ContainerRunner):
                 user_args = ["--user", f"{uid()}:{gid()}"]
             except Exception:
                 user_args = []
-        wrapped_cmd: List[str] = [
+        wrapped_cmd: list[str] = [
             runtime,
             "run",
             "--rm",

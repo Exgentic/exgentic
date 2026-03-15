@@ -20,6 +20,7 @@ dependencies = [
     "click>=8.1.7",
     "json-schema-to-pydantic",
     "litellm>=1.65.0",
+    "matplotlib",
     "mcp>=1.24",
     "pydantic>=2.9.2,<3",
     "python-dotenv",

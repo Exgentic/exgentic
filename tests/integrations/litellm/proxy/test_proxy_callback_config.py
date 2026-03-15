@@ -8,9 +8,7 @@ import json
 from exgentic.integrations.litellm import LitellmProxy
 
 
-def test_proxy_writes_exgentic_trace_callback_to_litellm_settings_config(
-    tmp_path, monkeypatch
-) -> None:
+def test_proxy_writes_exgentic_trace_callback_to_litellm_settings_config(tmp_path, monkeypatch) -> None:
     import exgentic.integrations.litellm.proxy as proxy_mod
 
     class _DummyProc:

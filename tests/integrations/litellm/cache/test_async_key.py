@@ -6,7 +6,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from exgentic.integrations.litellm.cache import CustomCache
 
 

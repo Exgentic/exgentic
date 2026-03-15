@@ -8,12 +8,13 @@ import json
 import rich_click as click
 
 from ....core.types import RunConfig, SessionConfig
+from ....utils.installation_tracker import is_installed
 from ...lib.api import aggregate, evaluate, execute
 from ..options import add_run_options, has_run_options, run_with
 
 
 def _load_config_file(path: str) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -82,9 +83,7 @@ def evaluate_cmd(
             run_id=run_id,
             max_workers=max_workers,
         ):
-            raise click.ClickException(
-                "Do not pass run options together with --config."
-            )
+            raise click.ClickException("Do not pass run options together with --config.")
         config = RunConfig.model_validate(_load_config_file(config_path))
         evaluate(config)
         return
@@ -110,12 +109,24 @@ def evaluate_cmd(
             max_workers=max_workers,
         ):
             raise click.ClickException(
-                "Pass options after the subcommand, e.g. "
-                "'exgentic evaluate execute --benchmark ...'."
+                "Pass options after the subcommand, e.g. " "'exgentic evaluate execute --benchmark ...'."
             )
         return
     if not benchmark or not agent:
         raise click.ClickException("--benchmark and --agent are required.")
+
+    # Check if benchmark and agent are installed
+    errors = []
+    if not is_installed(benchmark, "benchmark"):
+        errors.append(
+            f"Benchmark '{benchmark}' has not been set up. "
+            f"Run 'exgentic setup --benchmark {benchmark}' to install it."
+        )
+    if not is_installed(agent, "agent"):
+        errors.append(f"Agent '{agent}' has not been set up. " f"Run 'exgentic setup --agent {agent}' to install it.")
+    if errors:
+        raise click.ClickException("\n".join(errors))
+
     run_with(
         evaluate,
         benchmark=benchmark,
@@ -281,12 +292,8 @@ def evaluate_session_cmd(
             run_id=run_id,
             max_workers=max_workers,
         ):
-            raise click.ClickException(
-                "Do not pass run options together with --config."
-            )
-        session_config = SessionConfig.model_validate(
-            _load_config_file(session_config_path)
-        )
+            raise click.ClickException("Do not pass run options together with --config.")
+        session_config = SessionConfig.model_validate(_load_config_file(session_config_path))
         run_config = _run_config_from_session(session_config)
         execute(run_config)
         return

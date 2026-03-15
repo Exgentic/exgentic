@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-from dataclasses import dataclass
 import threading
+from dataclasses import dataclass
 
 from ..types import Action, Observation
 from .cleanup import close_aiohttp_sessions_silently
 from .termination import (
     AgentError,
-    AgentTermination,
+    AgentTerminationError,
     BenchmarkError,
-    BenchmarkTermination,
+    BenchmarkTerminationError,
     InvalidActionError,
     InvalidObservationError,
 )
@@ -39,13 +39,13 @@ class Controller:
 class CoreController(Controller):
     def on_react_success(self, session, action) -> None:
         if action is None:
-            raise BenchmarkTermination()
+            raise BenchmarkTerminationError()
         if not isinstance(action, Action):
             raise AgentError(InvalidActionError(action))
 
     def on_step_success(self, session, observation) -> None:
         if observation is None:
-            raise AgentTermination()
+            raise AgentTerminationError()
         if not isinstance(observation, Observation):
             raise BenchmarkError(InvalidObservationError(observation))
 
@@ -85,9 +85,9 @@ class LimitController(Controller):
         if state is None:
             return
         if state.steps >= self._max_steps:
-            from .termination import SessionLimitReached
+            from .termination import SessionLimitReachedError
 
-            raise SessionLimitReached(
+            raise SessionLimitReachedError(
                 reason="max_steps",
                 max_steps=self._max_steps,
                 max_actions=self._max_actions,
@@ -95,9 +95,9 @@ class LimitController(Controller):
                 actions=state.actions,
             )
         if state.actions >= self._max_actions:
-            from .termination import SessionLimitReached
+            from .termination import SessionLimitReachedError
 
-            raise SessionLimitReached(
+            raise SessionLimitReachedError(
                 reason="max_actions",
                 max_steps=self._max_steps,
                 max_actions=self._max_actions,

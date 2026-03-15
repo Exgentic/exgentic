@@ -47,8 +47,8 @@ fi
 ###############################################################################
 # 3. Install BrowseCompPlus package from github fork
 ###############################################################################
-GIT_SSH_URL="https://github.com/texttron/BrowseComp-Plus/"
-GIT_REF="main"
+GIT_SSH_URL="https://github.com/lilacheden/BrowseComp-Plus/"
+GIT_REF="mac-support-and-packaging"
 pip_install() {
   if command -v uv >/dev/null 2>&1; then
     uv pip install "$@"

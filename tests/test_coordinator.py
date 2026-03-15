@@ -4,15 +4,14 @@
 import threading
 import time
 
-from pydantic import BaseModel
-
-from exgentic.adapters.agents.coordinator import CoordinatedAgent, AgentCoordinator
+from exgentic.adapters.agents.coordinator import AgentCoordinator, CoordinatedAgent
 from exgentic.core.types import (
     MultiObservation,
     ParallelAction,
     SingleAction,
     SingleObservation,
 )
+from pydantic import BaseModel
 
 
 class ScriptedAgent(CoordinatedAgent):

@@ -10,14 +10,12 @@ from typing import Callable, Dict, List, Tuple
 
 from uvicorn.logging import DefaultFormatter
 
-from ...utils.settings import get_settings
 from ...core.context import try_get_context
 from ...core.context import try_get_context as _try_get_context_for_run_id
+from ...utils.settings import get_settings
 
 
-def _build_console_handler(
-    *, log_level: int, formatter: logging.Formatter
-) -> logging.Handler:
+def _build_console_handler(*, log_level: int, formatter: logging.Formatter) -> logging.Handler:
     try:
         from rich.logging import RichHandler
     except Exception:
@@ -41,7 +39,7 @@ def _build_console_handler(
 
 def get_logger(
     name: str,
-    log_file_path: str = None,
+    log_file_path: str | None = None,
     *,
     console: bool | None = None,
     propagate: bool | None = None,
@@ -192,9 +190,7 @@ def configure_warnings_logging(
     else:
         for h in list(wlogger.handlers):
             try:
-                if isinstance(h, logging.FileHandler) and h.baseFilename == str(
-                    warnings_path
-                ):
+                if isinstance(h, logging.FileHandler) and h.baseFilename == str(warnings_path):
                     wlogger.removeHandler(h)
                     try:
                         h.close()
@@ -212,9 +208,7 @@ def configure_warnings_logging(
     return str(warnings_path)
 
 
-def configure_uvicorn_file_logging(
-    log_path: Path, *, thread_id: int
-) -> Callable[[], None]:
+def configure_uvicorn_file_logging(log_path: Path, *, thread_id: int) -> Callable[[], None]:
     handler = logging.FileHandler(log_path, encoding="utf-8")
     handler.setLevel(logging.INFO)
     handler.setFormatter(
@@ -230,9 +224,7 @@ def configure_uvicorn_file_logging(
         logging.getLogger("uvicorn.error"),
         logging.getLogger("uvicorn.access"),
     ]
-    prev_logger_state: Dict[
-        logging.Logger, tuple[int, bool, list[logging.Handler]]
-    ] = {}
+    prev_logger_state: Dict[logging.Logger, tuple[int, bool, list[logging.Handler]]] = {}
     for lg in uvicorn_loggers:
         removed_handlers = list(lg.handlers)
         for h in removed_handlers:
@@ -277,9 +269,7 @@ def configure_library_file_logging(
         if name.startswith(prefixes):
             names.add(name)
 
-    prev_logger_state: Dict[
-        logging.Logger, tuple[int, bool, list[logging.Handler]]
-    ] = {}
+    prev_logger_state: Dict[logging.Logger, tuple[int, bool, list[logging.Handler]]] = {}
     for name in names:
         lg = logging.getLogger(name)
         removed_handlers = list(lg.handlers)

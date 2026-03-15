@@ -18,9 +18,7 @@ def test_dotenv_loads_settings_and_env_vars() -> None:
             "EXGENTIC_LOG_LEVEL=DEBUG\nWATSONX_API_KEY=abc123\n"  # pragma: allowlist secret
         )
 
-        with patch.dict(
-            os.environ, {"EXGENTIC_DOTENV_PATH": str(env_path)}, clear=False
-        ):
+        with patch.dict(os.environ, {"EXGENTIC_DOTENV_PATH": str(env_path)}, clear=False):
             os.environ.pop("EXGENTIC_LOG_LEVEL", None)
             os.environ.pop("WATSONX_API_KEY", None)
 
