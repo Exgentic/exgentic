@@ -276,7 +276,7 @@ Agent trajectories can be recorded as OTel traces and emitted to a collector ser
 
 1. **Install dependencies:**
    ```bash
-   pip install -e .[otel]
+   pip install -e '.[otel]'
    ```
 
 2. **Set up an OTEL Collector:**
@@ -284,9 +284,9 @@ Agent trajectories can be recorded as OTel traces and emitted to a collector ser
 
 3. **Configure environment variables:**
    ```bash
-   export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 # typical for self-hosted Jaeger server
+   export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 # typical for self-hosted Jaeger server with http
    export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf  # or 'grpc'
-   export EXGENTIC_OTEL_ENABLED=true
+   export EXGENTIC_OTEL_ENABLED=true 
    ```
 
 4. **Content Recording:**

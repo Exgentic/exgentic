@@ -29,6 +29,7 @@ from ...core.types import (
     Observation,
     RetryStrategy,
 )
+from ...integrations.litellm.health import check_model_accessible_sync
 from ...utils.cost import LiteLLMCostReport
 from ...utils.settings import get_settings
 from .utils import ToolCall, ToolsActionsRegistry
@@ -106,6 +107,9 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         self._add_message(ChatCompletionUserMessage(role="user", content=f"{task}\n{ctx}"))
 
         self._cost_data = LiteLLMCostReport.initialize_empty(model_name=self.model)
+
+        # Check model accessibility
+        check_model_accessible_sync(self.model, logger=self.logger)
 
     def _register_cost(self, usage: litellm.Usage):
         self._cost_data.update_cost_from_tokens(usage.prompt_tokens, usage.completion_tokens)

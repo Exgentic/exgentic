@@ -33,7 +33,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,cli]"
+          pip install -e ".[dev,cli,analysis]"
 
       - name: Setup benchmark
         run: |

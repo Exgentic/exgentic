@@ -33,6 +33,7 @@ from ...core.types import (
     SingleObservation,
 )
 from ...integrations.litellm.config import configure_litellm
+from ...integrations.litellm.health import check_model_accessible_sync
 from ...observers.logging import (
     add_loguru_file_sink,
     attach_library_logger_to_handler,
@@ -136,6 +137,9 @@ class TAU2Session(PairableProxySession):
         self._user_input_tokens = 0
         self._user_output_tokens = 0
         self._user_total_cost = 0.0
+
+        # Check user simulator model accessibility
+        check_model_accessible_sync(self._cfg.llm_user, logger=self.logger)
 
         self._registry = ActionsHandler(
             logger=self.logger,

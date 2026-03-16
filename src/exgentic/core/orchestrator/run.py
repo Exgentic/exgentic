@@ -6,6 +6,7 @@ from __future__ import annotations
 from ...interfaces.registry import load_benchmark
 from ...observers.logging import get_logger
 from ...utils.paths import get_run_paths
+from ...utils.settings import get_settings
 from ..types import (
     RunConfig,
     RunPlan,
@@ -57,6 +58,17 @@ def core_run(
     execute: bool,
     aggregate: bool,
 ) -> RunResults:
+    # Perform OTEL health check if enabled
+
+    settings = get_settings()
+    if settings.otel_enabled:
+        # Use local imports to avoid importing otel when not enabled
+        from ...utils.otel import check_otel_collector_health
+
+        is_healthy, error_msg = check_otel_collector_health()
+        if not is_healthy:
+            raise RuntimeError(f"OTEL collector health check failed: {error_msg}")
+
     with run_config.get_context() as ctx:
         if run_config.run_id is None or run_config.cache_dir is None:
             updates = {}

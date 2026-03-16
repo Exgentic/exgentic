@@ -17,10 +17,27 @@ from rich.progress import (
     TextColumn,
 )
 from rich.table import Table
-from scipy import stats
-from statsmodels.stats.contingency_tables import StratifiedTable
 
 from ....core.types import SessionResults
+
+stats = None
+StratifiedTable = None
+
+
+def _ensure_compare_deps() -> None:
+    global stats, StratifiedTable
+    if stats is None or StratifiedTable is None:
+        try:
+            from scipy import stats as _stats
+            from statsmodels.stats.contingency_tables import StratifiedTable as _StratifiedTable
+        except ImportError as exc:
+            raise click.ClickException(
+                "Compare commands require the optional analysis dependencies. "
+                "Install them with `pip install 'exgentic[analysis]'`."
+            ) from exc
+
+        stats = _stats
+        StratifiedTable = _StratifiedTable
 
 
 class TaskInfo(NamedTuple):
@@ -901,6 +918,8 @@ def compare_cmd(
                          --agent3 openai_sologemini --model3 openai/gcp/gemini-3-pro-preview \\
                          --benchmark gsm8k --benchmark tau2/airline
     """
+    _ensure_compare_deps()
+
     if not benchmarks:
         raise click.ClickException("At least one --benchmark is required.")
 

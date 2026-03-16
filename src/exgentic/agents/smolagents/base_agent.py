@@ -18,6 +18,7 @@ from ...core.agent import Agent
 from ...core.agent_instance import AgentInstance
 from ...core.context import get_context
 from ...core.types import ActionType, ModelSettings, RetryStrategy
+from ...integrations.litellm.health import check_model_accessible_sync
 from ...observers.logging import close_logger
 from ...utils.cost import CostReport, LiteLLMCostReport
 from ...utils.settings import get_settings
@@ -61,6 +62,9 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
         self._retry_on_all_errors = retry_on_all_errors
         self._agent = None
         self._model = None
+
+        # Check model accessibility
+        check_model_accessible_sync(self.model_id, logger=self.logger)
 
     def run_code_agent(self, functions: List[Callable]) -> None:
         def _wrap_tool(fn: Callable) -> Callable:

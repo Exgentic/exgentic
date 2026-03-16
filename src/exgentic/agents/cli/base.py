@@ -16,6 +16,7 @@ from ...core.agent_instance import AgentInstance
 from ...core.context import context_env
 from ...core.types import ActionType, ModelSettings
 from ...integrations.litellm import LitellmProxy
+from ...integrations.litellm.health import check_model_accessible_sync
 from ...integrations.litellm.trace_cost import load_trace_cost
 from ...utils.cost import UpdatableCostReport
 from .command_runner import (
@@ -136,6 +137,9 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
             self.model_settings = model_settings
         else:
             raise ValueError("model_settings must be a ModelSettings instance.")
+
+        # Check model accessibility
+        check_model_accessible_sync(self.model_id, logger=self.logger)
 
     @property
     @abc.abstractmethod

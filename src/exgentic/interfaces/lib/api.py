@@ -556,9 +556,34 @@ def get_setup_script_path(benchmark: str) -> str:
     return str(setup_path)
 
 
-def setup_benchmark(benchmark: str) -> None:
+def setup_benchmark(benchmark: str, force: bool = False, extra_args: list[str] | None = None) -> None:
+    """Setup a benchmark by running its setup.sh script.
+
+    Args:
+        benchmark: Benchmark slug name
+        force: Force reinstall even if already installed
+        extra_args: Additional arguments to pass to the setup script
+    """
+    from ...utils.installation_tracker import get_installations_dir, is_installed
+
+    # Check if already installed
+    if not force and is_installed(benchmark, "benchmark"):
+        print(f"Benchmark '{benchmark}' is already installed. Use --force to reinstall.")
+        return
+
+    # Remove installation marker before starting
+    if is_installed(benchmark, "benchmark"):
+        install_file = get_installations_dir() / "benchmark" / f"{benchmark}.json"
+        install_file.unlink(missing_ok=True)
+
+    # Run setup script with extra arguments
     setup_path = get_setup_script_path(benchmark)
-    subprocess.run(["bash", setup_path], check=True)
+    cmd = ["bash", setup_path]
+    if extra_args:
+        cmd.extend(extra_args)
+    subprocess.run(cmd, check=True)
+
+    # Record successful installation
     record_installation(benchmark, "benchmark")
 
 
@@ -588,9 +613,30 @@ def get_agent_setup_script_path(agent: str) -> str:
     return str(setup_path)
 
 
-def setup_agent(agent: str) -> None:
+def setup_agent(agent: str, force: bool = False) -> None:
+    """Setup an agent by running its setup.sh script.
+
+    Args:
+        agent: Agent slug name
+        force: Force reinstall even if already installed
+    """
+    from ...utils.installation_tracker import get_installations_dir, is_installed
+
+    # Check if already installed
+    if not force and is_installed(agent, "agent"):
+        print(f"Agent '{agent}' is already installed. Use --force to reinstall.")
+        return
+
+    # Remove installation marker before starting
+    if is_installed(agent, "agent"):
+        install_file = get_installations_dir() / "agent" / f"{agent}.json"
+        install_file.unlink(missing_ok=True)
+
+    # Run setup script
     setup_path = get_agent_setup_script_path(agent)
     subprocess.run(["bash", setup_path], check=True)
+
+    # Record successful installation
     record_installation(agent, "agent")
 
 

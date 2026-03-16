@@ -81,6 +81,27 @@ class ConsoleLoggerObserver(Observer, RunRecapMixin):
         self._start_time = datetime.now()
         run_ctx = get_context()
         run_id = run_ctx.run_id
+
+        # Display OTEL configuration if enabled
+        settings = get_settings()
+        if settings.otel_enabled:
+            import os
+
+            endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "not set")
+            protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+            service_name = os.getenv("OTEL_SERVICE_NAME", "exgentic")
+            record_content = "yes" if settings.otel_record_content else "no"
+
+            otel_lines = [
+                "[bold cyan]📊 OpenTelemetry Tracing ENABLED[/bold cyan]",
+                f"[bold]Service Name:[/bold]     {service_name}",
+                f"[bold]Collector:[/bold]        {endpoint}",
+                f"[bold]Protocol:[/bold]         {protocol}",
+                f"[bold]Record Content:[/bold]   {record_content}",
+            ]
+            otel_body = "\n".join(otel_lines)
+            self._print(Panel(otel_body, border_style="cyan", padding=(1, 2), title="OpenTelemetry"))
+
         lines = [f"[bold]Run:[/bold] [cyan]{run_id}[/cyan]"]
         overrides = {}
         if run_config.max_steps != 100:
