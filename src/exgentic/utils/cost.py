@@ -3,7 +3,6 @@
 
 from typing import Any, Optional, Self, Sequence, TypeVar
 
-from litellm.cost_calculator import cost_per_token
 from pydantic import BaseModel, computed_field
 
 name_map = {"claude-3-5-haiku": "claude-3-5-haiku-20241022"}
@@ -15,8 +14,14 @@ class TokensCost(BaseModel):
     total_cost: float
 
 
+def _cost_per_token(*, model: str, prompt_tokens: int, completion_tokens: int):
+    from litellm.cost_calculator import cost_per_token
+
+    return cost_per_token(model=model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens)
+
+
 def litellm_cost_per_token(model_name: str):
-    return cost_per_token(model=model_name, prompt_tokens=1, completion_tokens=1)
+    return _cost_per_token(model=model_name, prompt_tokens=1, completion_tokens=1)
 
 
 def litellm_tokens_cost(input_tokens: int, output_tokens: int, model_name: str) -> TokensCost:
@@ -27,7 +32,7 @@ def litellm_tokens_cost(input_tokens: int, output_tokens: int, model_name: str) 
     for i in range(len(parts)):
         model = "/".join(parts[-i:])
         try:
-            input_cost, output_cost = cost_per_token(
+            input_cost, output_cost = _cost_per_token(
                 model=model, prompt_tokens=input_tokens, completion_tokens=output_tokens
             )
             return TokensCost(
