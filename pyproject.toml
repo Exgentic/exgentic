@@ -20,14 +20,11 @@ dependencies = [
     "click>=8.1.7",
     "json-schema-to-pydantic",
     "litellm>=1.65.0",
-    "matplotlib",
     "mcp>=1.24",
     "pydantic>=2.9.2,<3",
     "python-dotenv",
     "rich",
     "rich-click",
-    "scipy",
-    "statsmodels"
 ]
 
 [project.scripts]
@@ -46,6 +43,13 @@ otel = [
     "opentelemetry-exporter-otlp-proto-http",
     "opentelemetry-exporter-otlp-proto-grpc",
     "opentelemetry-semantic-conventions-ai>=0.4.0",
+]
+analysis = [
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "scipy",
+    "statsmodels",
 ]
 
 cli = [

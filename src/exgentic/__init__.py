@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from importlib import import_module
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 from typing import Any
@@ -15,19 +16,20 @@ except ImportError:
     except PackageNotFoundError:
         __version__ = "0+unknown"
 
-from .interfaces.lib.api import (
-    aggregate,
-    evaluate,
-    execute,
-    list_agents,
-    list_benchmarks,
-    list_subsets,
-    list_tasks,
-    preview,
-    results,
-    status,
-)
 from .interfaces.registry import get_agent_entries, get_benchmark_entries
+
+_API_EXPORTS = {
+    "aggregate",
+    "evaluate",
+    "execute",
+    "list_agents",
+    "list_benchmarks",
+    "list_subsets",
+    "list_tasks",
+    "preview",
+    "results",
+    "status",
+}
 
 __all__ = [
     "__version__",
@@ -60,6 +62,11 @@ def _find_component_export(name: str):
 
 
 def __getattr__(name: str) -> Any:
+    if name in _API_EXPORTS:
+        value = getattr(import_module(".interfaces.lib.api", __name__), name)
+        globals()[name] = value
+        return value
+
     entry = _find_component_export(name)
     if entry is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -73,4 +80,4 @@ def __dir__() -> list[str]:
     # Some introspection libraries (e.g. freezegun) iterate over dir(module)
     # and then call getattr() for each name. Exposing lazy registry exports here
     # can trigger expensive imports during unrelated initialization paths.
-    return sorted(set(globals()))
+    return sorted(set(globals()) | _API_EXPORTS)
