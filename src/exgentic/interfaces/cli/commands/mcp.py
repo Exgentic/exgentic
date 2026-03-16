@@ -150,6 +150,8 @@ def mcp_cmd(
                         "status": "success",
                         "session_id": session_id,
                         "task_id": task_id,
+                        "task": session.task,
+                        "context": session.context,
                         "message": f"Session created for task {task_id}",
                     }
 
