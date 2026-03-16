@@ -525,8 +525,8 @@ class SWEBenchBenchmark(Benchmark):
         session_cfg = cfg["session"]
         if self.subset is None:
             self.subset = benchmark_cfg["subset"]
-        if self.executer is None:
-            self.executer = benchmark_cfg["executer"]
+        if self.runner is None:
+            self.runner = benchmark_cfg.get("runner")
         if "seed" in benchmark_cfg:
             self.seed = benchmark_cfg["seed"]
         if (

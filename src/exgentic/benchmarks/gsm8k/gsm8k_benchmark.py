@@ -32,7 +32,7 @@ from ...core.types import (
     EmptyObservation,
     SessionIndex,
 )
-from ...utils.settings import get_settings, ExecuterName, ExgenticSettings, RunnerName
+from ...utils.settings import get_settings, ExgenticSettings, RunnerName
 from ...utils.paths import get_run_paths
 from ...observers.logging import get_logger
 
@@ -342,7 +342,6 @@ class GSM8kBenchmark(Benchmark, BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     subset: Literal["main"] = "main"
     include_calculator_tool: bool = True
-    executer: Optional[ExecuterName] = "inprocess"  # Deprecated, use runner
     runner: RunnerName | None = "direct"  # Code is threadsafe
 
     def get_evaluator_kwargs(self) -> Dict[str, Any]:

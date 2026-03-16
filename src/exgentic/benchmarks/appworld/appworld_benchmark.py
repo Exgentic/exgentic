@@ -507,7 +507,9 @@ class AppWorldEvaluator(Evaluator):
     def _ensure_appworld_root(self) -> None:
         from appworld import update_root  # type: ignore
 
-        update_root(os.path.abspath(os.path.dirname(__file__)))
+        cache = Path(settings.cache_dir).expanduser()
+        root = str(cache / "appworld")
+        update_root(root)
 
     def list_tasks(self) -> List[str]:
         from appworld.task import load_task_ids  # type: ignore

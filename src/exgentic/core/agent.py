@@ -7,12 +7,13 @@ from typing import Any, ClassVar, Dict, List
 from pydantic import BaseModel, ConfigDict
 
 from .agent_instance import AgentInstance
+from .runner_mixin import RunnerMixin
 from .types import ActionType
 from .types.model_settings import ModelSettings
 from ..utils.settings import RunnerName
 
 
-class Agent(BaseModel, ABC):
+class Agent(BaseModel, RunnerMixin, ABC):
     """Agent factory - creates AgentInstance objects."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -21,6 +22,7 @@ class Agent(BaseModel, ABC):
     slug_name: ClassVar[str]
     model_settings: ModelSettings | None = None
     runner: RunnerName | None = None
+    docker_socket: bool = False
 
     @abstractmethod
     def assign(
@@ -33,6 +35,13 @@ class Agent(BaseModel, ABC):
         """Create agent for specific task - agent factory controls instance creation."""
         pass
 
+    @classmethod
+    def setup(cls) -> None:
+        """Override to perform non-pip setup (e.g. Docker build, npm install).
+
+        Called by ``exgentic setup --agent <slug>`` after deps are installed.
+        """
+
     # Optional metadata property for dashboard/leaderboards
     @property
     def model_name(self) -> str:
@@ -43,7 +52,3 @@ class Agent(BaseModel, ABC):
         if not name or name == "unknown":
             return []
         return [name]
-
-    def close(self) -> None:
-        """Optional cleanup hook for agent factories."""
-        return

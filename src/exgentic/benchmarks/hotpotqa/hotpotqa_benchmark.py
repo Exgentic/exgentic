@@ -36,7 +36,7 @@ from ...core.types import (
     EmptyObservation,
     SessionIndex,
 )
-from ...utils.settings import get_settings, ExecuterName, ExgenticSettings, RunnerName
+from ...utils.settings import get_settings, ExgenticSettings, RunnerName
 
 # Copied scoring functions from https://github.com/hotpotqa/hotpot/blob/master/hotpot_evaluate_v1.py
 from ...core.actions import ActionsHandler, extract_argument
@@ -375,7 +375,6 @@ class HotpotQABenchmark(Benchmark, BaseModel):
 
     subset: Literal["distractor"] = "distractor"
     with_search_tools: bool = True
-    executer: Optional[ExecuterName] = "inprocess"  # Deprecated, use runner
     runner: RunnerName | None = "direct"  # Code is threadsafe
 
     def get_evaluator_kwargs(self) -> Dict[str, Any]:

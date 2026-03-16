@@ -23,8 +23,8 @@ def get_installations_dir() -> Path:
             return installations_dir
         current = current.parent
 
-    # Fallback to current directory if pyproject.toml not found
-    installations_dir = Path.cwd() / ".exgentic_installations"
+    # Fallback for uvx / non-project environments
+    installations_dir = Path.home() / ".cache" / "exgentic" / ".installations"
     installations_dir.mkdir(parents=True, exist_ok=True)
     return installations_dir
 

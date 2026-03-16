@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 import subprocess
 from importlib import resources
+from pathlib import Path
 from typing import Any
 
 from ...core.agent import Agent
@@ -550,27 +552,85 @@ def list_tasks(
         benchmark_obj.close()
 
 
+def _find_package_file(module_path: str, filename: str) -> Path | None:
+    """Locate *filename* in the package directory for *module_path*.
+
+    Walks up from the deepest package (e.g. ``exgentic.agents.cli.claude``)
+    toward the root until it finds the file.  This lets CLI sub-agents
+    share a single ``requirements.txt`` at ``agents/cli/``.
+    """
+    parts = module_path.split(".")
+    # Start from the deepest package directory, walk up to top-level package.
+    for depth in range(len(parts) - 1, 1, -1):
+        package = ".".join(parts[:depth])
+        try:
+            candidate = resources.files(package) / filename
+        except Exception:
+            continue
+        if candidate.is_file():
+            return Path(str(candidate))
+    return None
+
+
+def _install_requirements(slug: str, kind: str) -> None:
+    """Install dependencies from the requirements.txt in the benchmark/agent folder."""
+    entries = get_benchmark_entries() if kind == "benchmark" else get_agent_entries()
+    entry = entries.get(slug)
+    if entry is None:
+        return
+    req_path = _find_package_file(entry.module, "requirements.txt")
+    if req_path is None:
+        return
+    # Skip if requirements.txt is empty or only has comments
+    lines = [l.strip() for l in req_path.read_text().splitlines()
+             if l.strip() and not l.strip().startswith("#")]
+    if not lines:
+        return
+    import importlib
+    import site
+    import sys
+
+    env = os.environ.copy()
+    env.pop("VIRTUAL_ENV", None)
+    subprocess.run(
+        ["uv", "pip", "install", "--python", sys.executable, "-r", str(req_path)],
+        check=True,
+        env=env,
+    )
+    # Refresh import paths so newly installed packages are visible.
+    importlib.invalidate_caches()
+    # Re-add site-packages dirs that may have been created by the install.
+    for site_dir in site.getsitepackages():
+        if site_dir not in sys.path:
+            sys.path.insert(0, site_dir)
+
+
+def _setup_env() -> dict[str, str]:
+    """Build environment for setup subprocesses with cache dir."""
+    from ...utils.settings import get_settings
+
+    env = os.environ.copy()
+    env["EXGENTIC_CACHE_DIR"] = str(get_settings().resolve_cache_path())
+    return env
+
+
 def get_setup_script_path(benchmark: str) -> str:
     entries = get_benchmark_entries()
     entry = entries.get(benchmark)
     if entry is None:
         raise ValueError(f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(entries.keys()))}")
-    parts = entry.module.split(".")
-    if len(parts) < 3:
-        raise ValueError(f"Invalid module path for benchmark '{benchmark}'.")
-    package = ".".join(parts[:3])
-    try:
-        setup_path = resources.files(package) / "setup.sh"
-    except Exception as exc:
-        raise ValueError(f"Unable to locate setup.sh for benchmark '{benchmark}'.") from exc
-    if not setup_path.is_file():
+    path = _find_package_file(entry.module, "setup.sh")
+    if path is None:
         raise ValueError(f"setup.sh not found for benchmark '{benchmark}'.")
-    return str(setup_path)
+    return str(path)
 
 
 def setup_benchmark(benchmark: str) -> None:
-    setup_path = get_setup_script_path(benchmark)
-    subprocess.run(["bash", setup_path], check=True)
+    """Install requirements.txt, call Benchmark.setup(), run setup.sh if present."""
+    _install_requirements(benchmark, "benchmark")
+    bench_cls = load_benchmark_class(benchmark)
+    bench_cls.setup()
+    _run_setup_script_if_exists(benchmark, "benchmark")
     record_installation(benchmark, "benchmark")
 
 
@@ -579,31 +639,31 @@ def get_agent_setup_script_path(agent: str) -> str:
     entry = entries.get(agent)
     if entry is None:
         raise ValueError(f"Unknown agent slug '{agent}'. " f"Available: {', '.join(sorted(entries.keys()))}")
-    parts = entry.module.split(".")
-    if len(parts) < 3:
-        raise ValueError(f"Invalid module path for agent '{agent}'.")
-
-    # For CLI agents with nested structure (e.g., exgentic.agents.cli.claude.agent),
-    # use 4 parts to get the specific CLI agent directory
-    # For other agents (e.g., exgentic.agents.openai.openai_mcp_agent), use 3 parts
-    if len(parts) >= 4 and parts[2] == "cli":
-        package = ".".join(parts[:4])
-    else:
-        package = ".".join(parts[:3])
-
-    try:
-        setup_path = resources.files(package) / "setup.sh"
-    except Exception as exc:
-        raise ValueError(f"Unable to locate setup.sh for agent '{agent}'.") from exc
-    if not setup_path.is_file():
+    path = _find_package_file(entry.module, "setup.sh")
+    if path is None:
         raise ValueError(f"setup.sh not found for agent '{agent}'.")
-    return str(setup_path)
+    return str(path)
 
 
 def setup_agent(agent: str) -> None:
-    setup_path = get_agent_setup_script_path(agent)
-    subprocess.run(["bash", setup_path], check=True)
+    """Install requirements.txt, call Agent.setup(), run setup.sh if present."""
+    _install_requirements(agent, "agent")
+    agent_cls = load_agent_class(agent)
+    agent_cls.setup()
+    _run_setup_script_if_exists(agent, "agent")
     record_installation(agent, "agent")
+
+
+def _run_setup_script_if_exists(slug: str, kind: str) -> None:
+    """Run setup.sh for a benchmark or agent if it exists."""
+    try:
+        if kind == "benchmark":
+            setup_path = get_setup_script_path(slug)
+        else:
+            setup_path = get_agent_setup_script_path(slug)
+        subprocess.run(["bash", setup_path], check=True, env=_setup_env())
+    except ValueError:
+        pass  # No setup.sh — fine
 
 
 def _describe_init_args(cls: type) -> list[str]:

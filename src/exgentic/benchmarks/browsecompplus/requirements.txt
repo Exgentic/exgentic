@@ -1,0 +1,2 @@
+# browsecomp-plus is installed by setup.sh rather than here because it pins
+# conflicting versions of fastmcp, mcp, and pydantic.

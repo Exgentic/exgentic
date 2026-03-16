@@ -38,7 +38,8 @@ from ...core.types import (
     SessionIndex,
     ActionType,
 )
-from ...utils.settings import ExecuterName, ExgenticSettings, RunnerName, get_settings
+from ...utils.settings import ExgenticSettings, RunnerName, get_settings
+from .retriever import RetrieverClient, get_shared_retriever, get_retriever_url
 
 
 # Paper-reported total for the full BrowseCompPlus dataset.
@@ -90,15 +91,21 @@ class BrowseCompPlusSession(Session):
         eval_model_id: str = "openai/Azure/gpt-4.1",
         max_interactions: Optional[int] = 100,
         session_id: str | None = None,
+        retriever_url: str | None = None,
     ) -> None:
         if session_id is not None:
             self._session_id = session_id
         self._instance = instance.copy()
         self._task_id = instance["task_id"]
         self._done = False
+        self._searcher_params = searcher_params
 
-        # Initialize search tool handler using singleton service
-        self._init_search_tool_handler(searcher_params)
+        # Initialize search: use shared retriever service if URL provided,
+        # otherwise load the index locally via SearchService singleton.
+        if retriever_url:
+            self._init_retriever_client(retriever_url, searcher_params)
+        else:
+            self._init_search_tool_handler(searcher_params)
 
         self._registry = ActionsHandler(logger=self.logger)
         self.set_action_types()
@@ -112,8 +119,21 @@ class BrowseCompPlusSession(Session):
         self.logger.info(f"Running for query id {self.task_id}")
         super().__init__()
 
+    def _init_retriever_client(
+        self, url: str, searcher_params: Dict[str, Any]
+    ) -> None:
+        """Connect to a shared Retriever service by URL."""
+        client = RetrieverClient(url)
+        self.search_tool_handler = BCPSearchToolHandler(
+            searcher=client,
+            snippet_max_tokens=searcher_params["max_snippet_length"],
+            k=searcher_params["top_k_docs"],
+            include_get_document=searcher_params["include_get_document"],
+            full_doc_max_tokens=searcher_params["full_doc_max_tokens"],
+        )
+
     def _init_search_tool_handler(self, searcher_params: Dict[str, Any]) -> None:
-        """Initialize search tool handler using singleton service."""
+        """Initialize search tool handler using local singleton service."""
         from .search_service import get_search_service
         from searcher.searchers import SearcherType
 
@@ -352,17 +372,12 @@ Finish the session always by calling `submit`. If you fail to find the answer, s
         return result
 
     def get_searcher_params(self):
-        session_searcher = self.search_tool_handler.searcher
-
-        def get_att_or_none(obj, att):
-            return getattr(obj, att) if hasattr(obj, att) else None
-
         return {
             "n": self.search_tool_handler.snippet_max_tokens,
             "k": self.search_tool_handler.k,
-            "search_type": self.search_tool_handler.searcher.search_type,
-            "search_model": get_att_or_none(session_searcher.args, "model_name"),
-            "normalize": get_att_or_none(session_searcher.args, "normalize"),
+            "search_type": self._searcher_params.get("searcher_type", "unknown"),
+            "search_model": self._searcher_params.get("model_name"),
+            "normalize": self._searcher_params.get("normalize"),
         }
 
 
@@ -384,6 +399,7 @@ class BrowseCompPlusEvaluator(Evaluator):
         full_doc_max_tokens: int = 2048,
         max_interactions: Optional[int] = 100,
         inference_model: str = "N/A",
+        retriever_url: str | None = None,
     ) -> None:
         self._subset = subset
         self._searcher_type = searcher_type
@@ -395,19 +411,19 @@ class BrowseCompPlusEvaluator(Evaluator):
         self._full_doc_max_tokens = full_doc_max_tokens
         self._max_interactions = max_interactions
         self._inference_model = inference_model
+        self._retriever_url = retriever_url
         self._dataset: List[Dict[str, Any]] | None = None
         self._task_lookup: Dict[str, Dict[str, Any]] | None = None
 
     @property
     def assets_dir(self):
-        script_dir = Path(os.path.dirname(os.path.abspath(__file__)))
-        return script_dir / "assets"
+        return Path(get_settings().cache_dir).expanduser() / "browsecompplus"
 
     def extract_dataset(self):
         data_path = self.assets_dir / "data" / "browsecomp_plus_decrypted_docids.jsonl"
         if not data_path.exists():
             raise Exception(
-                f"{data_path} does not exist. Benchmark must be set up before use."
+                f"{data_path} does not exist. Run 'exgentic setup --benchmark browsecompplus' first."
             )
         instances = pd.read_json(path_or_buf=data_path, lines=True).to_dict(
             orient="records"
@@ -472,13 +488,16 @@ class BrowseCompPlusEvaluator(Evaluator):
         if self._task_lookup is None or task_id not in self._task_lookup:
             raise KeyError(f"Unknown BrowseCompPlus task id '{task_id}'.")
         instance = {"task_id": task_id, **self._task_lookup[task_id]}
-        return {
+        kwargs: Dict[str, Any] = {
             "settings": get_settings(),
             "instance": instance,
             "searcher_params": self._get_searcher_params(),
             "max_interactions": self._max_interactions,
             "session_id": index.session_id,
         }
+        if self._retriever_url:
+            kwargs["retriever_url"] = self._retriever_url
+        return kwargs
 
     def aggregate_sessions(self, sessions: List[SessionIndex]) -> BenchmarkResults:
         # Aggregate per-session scores written by sessions
@@ -579,8 +598,12 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
     subset: Literal["main"] = "main"
 
-    executer: Optional[ExecuterName] = "inprocess"  # Deprecated, use runner
     runner: RunnerName | None = "direct"  # Code is threadsafe
+
+    # Retriever runner — when set, the search index runs as a shared service
+    # instead of being loaded in each session process. Useful when sessions
+    # run in Docker to avoid duplicating the heavy index in RAM.
+    retriever_runner: RunnerName | None = None
 
     # Agent inference params (for logging)
     inference_model: str = "N/A"
@@ -595,8 +618,57 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
     full_doc_max_tokens: int = 2048
     max_interactions: Optional[int] = 100
 
-    def get_evaluator_kwargs(self) -> Dict[str, Any]:
+    @property
+    def _assets_dir(self) -> str:
+        return str(Path(get_settings().cache_dir).expanduser() / "browsecompplus")
+
+    def _retriever_runner_kwargs(self) -> Dict[str, Any]:
+        """Runner kwargs for the retriever container (setup script + volumes)."""
+        kw: Dict[str, Any] = {}
+        if self.setup_script:
+            kw["setup_script"] = self.setup_script
+        kw["volumes"] = {self._assets_dir: self._assets_dir}
+        return kw
+
+    def _get_retriever_searcher_args(self) -> Dict[str, Any]:
+        """Searcher constructor args for the Retriever."""
+        index_dir = Path(self._assets_dir) / "indexes"
+        if self.searcher_type == "bm25":
+            return {"index_path": str(index_dir / "bm25")}
+        model_dir = self.searcher_model_name.lower().split("/")[-1]
         return {
+            "index_path": str(index_dir / model_dir / "corpus.shard*_of_4.pkl"),
+            "model_name": self.searcher_model_name,
+            "normalize": self.normalize_search,
+        }
+
+    def _ensure_retriever(self) -> str:
+        """Start a shared retriever service and return its URL."""
+        assert self.retriever_runner is not None
+        proxy = get_shared_retriever(
+            runner=self.retriever_runner,
+            runner_kwargs=self._retriever_runner_kwargs(),
+            searcher_type=self.searcher_type,
+            **self._get_retriever_searcher_args(),
+        )
+        url = get_retriever_url(proxy)
+        # Rewrite URL for Docker sessions so they can reach the host.
+        if self.resolve_runner() == "docker":
+            url = url.replace("127.0.0.1", "host.docker.internal")
+        return url
+
+    def runner_kwargs(self) -> Dict[str, Any]:
+        kw = super().runner_kwargs()
+        if self.resolve_runner() == "docker":
+            # Mount host assets (indexes, data) into the container so they
+            # are not re-downloaded for every image build.
+            volumes = kw.get("volumes", {})
+            volumes[self._assets_dir] = self._assets_dir
+            kw["volumes"] = volumes
+        return kw
+
+    def get_evaluator_kwargs(self) -> Dict[str, Any]:
+        kwargs: Dict[str, Any] = {
             "subset": self.subset,
             "searcher_type": self.searcher_type,
             "searcher_model_name": self.searcher_model_name,
@@ -608,3 +680,6 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
             "max_interactions": self.max_interactions,
             "inference_model": self.inference_model,
         }
+        if self.retriever_runner:
+            kwargs["retriever_url"] = self._ensure_retriever()
+        return kwargs

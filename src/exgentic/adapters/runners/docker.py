@@ -57,6 +57,7 @@ class DockerRunner:
                    Needed for benchmarks like SWE-bench that create
                    sibling containers via the Docker API.
     volumes:       Host-to-container volume mappings (``{host: container}``).
+    requirements_txt: Path to a requirements.txt to install in the image.
     """
 
     _BASE_IMAGE = "python:3.12-slim"
@@ -73,6 +74,7 @@ class DockerRunner:
         setup_script: str | None = None,
         docker_socket: bool = False,
         volumes: dict[str, str] | None = None,
+        requirements_txt: str | None = None,
         **kwargs: Any,
     ) -> None:
         self._target_cls = target_cls
@@ -86,6 +88,7 @@ class DockerRunner:
         self._setup_script = setup_script
         self._docker_socket = docker_socket
         self._volumes = volumes or {}
+        self._requirements_txt = requirements_txt
         self._container_id: str | None = None
 
     # ── image handling ───────────────────────────────────────────────
@@ -106,6 +109,10 @@ class DockerRunner:
     def _image_tag(self) -> str:
         """Compute a deterministic image tag from all build inputs."""
         parts: list[str] = []
+        if self._requirements_txt:
+            req_path = Path(self._requirements_txt)
+            if req_path.exists():
+                parts.append("reqs:" + req_path.read_text())
         if self._dependencies:
             parts.append("deps:" + " ".join(sorted(self._dependencies)))
         if self._setup_script:
@@ -132,14 +139,22 @@ class DockerRunner:
         # Build Dockerfile lines.
         lines = [
             f"FROM {self._BASE_IMAGE}",
+            "RUN pip install --no-cache-dir uv",
+            "ENV UV_SYSTEM_PYTHON=true",
             "WORKDIR /app",
             "COPY pyproject.toml README.md ./",
             "COPY src/ src/",
-            "RUN pip install --no-cache-dir .",
         ]
+        lines.append("RUN uv pip install --no-cache .")
+        if self._requirements_txt:
+            req_path = Path(self._requirements_txt)
+            if req_path.exists():
+                shutil.copy2(req_path, tmp / "requirements.txt")
+                lines.append("COPY requirements.txt /tmp/requirements.txt")
+                lines.append("RUN uv pip install --no-cache -r /tmp/requirements.txt")
 
         if self._dependencies:
-            lines.append(f"RUN pip install --no-cache-dir {' '.join(self._dependencies)}")
+            lines.append(f"RUN uv pip install --no-cache {' '.join(self._dependencies)}")
 
         # Install Docker CLI if docker_socket is requested.
         if self._docker_socket:
@@ -156,7 +171,7 @@ class DockerRunner:
             # Copy the script into the build context.
             shutil.copy2(script_path, tmp / "setup.sh")
             lines.append("COPY setup.sh /tmp/setup.sh")
-            lines.append("RUN bash /tmp/setup.sh")
+            lines.append("RUN EXGENTIC_DOCKER_BUILD=1 bash /tmp/setup.sh")
 
         lines.append('ENTRYPOINT ["python", "-c"]')
 

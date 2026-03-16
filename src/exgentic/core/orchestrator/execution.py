@@ -23,7 +23,7 @@ from ...interfaces.registry import load_agent, load_benchmark
 from ...observers.logging import get_disabled_logger
 from ...utils.paths import get_run_paths, get_session_paths
 from .session import run_session
-from .termination import RunCancel
+from .termination import RunCancelError
 from .tracker import Tracker
 
 
@@ -263,7 +263,7 @@ def _execute_sessions_serial(
                 tracker=tracker,
                 log=log,
             )
-    except (KeyboardInterrupt, RunCancel) as exc:
+    except (KeyboardInterrupt, RunCancelError) as exc:
         tracker.on_run_error(exc)
         had_error = True
     return had_error
@@ -302,7 +302,7 @@ def _execute_sessions_parallel(
                         session_config = futures.pop(done, None)
                         try:
                             done.result()
-                        except RunCancel as exc:
+                        except RunCancelError as exc:
                             tracker.on_run_error(exc)
                             had_error = True
                             raise
@@ -322,7 +322,7 @@ def _execute_sessions_parallel(
                             for future in futures:
                                 future.cancel()
                             raise
-        except (KeyboardInterrupt, RunCancel) as exc:
+        except (KeyboardInterrupt, RunCancelError) as exc:
             tracker.on_run_error(exc)
             had_error = True
             for future in futures:

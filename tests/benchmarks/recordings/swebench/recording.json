@@ -1,0 +1,5 @@
+{
+  "benchmark": "swebench",
+  "task_id": "django__django-16116",
+  "expected_score": 1.0
+}

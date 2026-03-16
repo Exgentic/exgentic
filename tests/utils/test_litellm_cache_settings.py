@@ -29,7 +29,7 @@ def test_build_litellm_cache_resolves_relative_path_under_cache_dir(tmp_path) ->
 
 def test_run_config_to_session_config_preserves_cache_dir() -> None:
     run_config = RunConfig(
-        benchmark="tau2",
+        benchmark="gsm8k",
         agent="tool_calling",
         cache_dir="/tmp/exgentic-cache",
     )

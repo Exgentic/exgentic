@@ -1,0 +1,2 @@
+swebench @ git+https://github.com/SWE-bench/SWE-bench.git@v4.1.0
+mini-swe-agent @ git+https://github.com/SWE-agent/mini-swe-agent.git@v1.17.0

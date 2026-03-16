@@ -18,7 +18,6 @@ load_dotenv(DOTENV_PATH)
 if TYPE_CHECKING:
     from ..integrations.litellm.config import LitellmSettings
 
-ExecuterName = Literal["inprocess", "remote_process"]
 RunnerName = Literal["direct", "thread", "process", "service", "docker"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
@@ -32,13 +31,8 @@ def resolve_cache_path(cache_dir: str, cache_path: str) -> str:
 
 
 class ExgenticSettings(BaseSettings):
-    """Global settings for Exgentic.
+    """Global settings for Exgentic."""
 
-    Environment variables:
-    - EXGENTIC_DEFAULT_EXECUTER: one of [inprocess, remote_process]
-    """
-
-    default_executer: ExecuterName = "remote_process"
     default_runner: RunnerName = "process"
     output_dir: str = "./outputs"
     # Logging level (env: EXGENTIC_LOG_LEVEL)

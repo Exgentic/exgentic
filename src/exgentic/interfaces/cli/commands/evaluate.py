@@ -9,8 +9,68 @@ import rich_click as click
 
 from ....core.types import RunConfig, SessionConfig
 from ....utils.installation_tracker import is_installed
-from ...lib.api import aggregate, evaluate, execute
+from ....utils.settings import get_settings
+from ...lib.api import (
+    aggregate,
+    evaluate,
+    execute,
+    get_agent_setup_script_path,
+    get_setup_script_path,
+    setup_agent,
+    setup_benchmark,
+)
 from ..options import add_run_options, has_run_options, run_with
+
+
+def _is_docker_runner(set_values: tuple[str, ...]) -> bool:
+    """Check if the runner is docker (via --set or global settings)."""
+    for item in set_values:
+        if "=" not in item:
+            continue
+        key, val = item.split("=", 1)
+        if key in ("benchmark.runner", "settings.default_runner") and val.strip('"\'') == "docker":
+            return True
+    return get_settings().default_runner == "docker"
+
+
+def _has_setup_script(name: str, install_type: str) -> bool:
+    """Check if a benchmark/agent has a setup.sh script."""
+    try:
+        if install_type == "benchmark":
+            get_setup_script_path(name)
+        else:
+            get_agent_setup_script_path(name)
+        return True
+    except (ValueError, Exception):
+        return False
+
+
+def _ensure_installed(
+    benchmark: str,
+    agent: str,
+    set_values: tuple[str, ...],
+) -> None:
+    """Prompt to auto-setup benchmark/agent if not installed (skip for docker)."""
+    if _is_docker_runner(set_values):
+        return
+
+    to_setup: list[tuple[str, str]] = []
+    if not is_installed(benchmark, "benchmark") and _has_setup_script(benchmark, "benchmark"):
+        to_setup.append(("benchmark", benchmark))
+    if not is_installed(agent, "agent") and _has_setup_script(agent, "agent"):
+        to_setup.append(("agent", agent))
+
+    if not to_setup:
+        return
+
+    names = ", ".join(f"{t} '{n}'" for t, n in to_setup)
+    if not click.confirm(f"{names} not set up. Install now?", default=True):
+        raise click.Abort()
+    for install_type, name in to_setup:
+        if install_type == "benchmark":
+            setup_benchmark(name)
+        else:
+            setup_agent(name)
 
 
 def _load_config_file(path: str) -> dict:
@@ -115,17 +175,7 @@ def evaluate_cmd(
     if not benchmark or not agent:
         raise click.ClickException("--benchmark and --agent are required.")
 
-    # Check if benchmark and agent are installed
-    errors = []
-    if not is_installed(benchmark, "benchmark"):
-        errors.append(
-            f"Benchmark '{benchmark}' has not been set up. "
-            f"Run 'exgentic setup --benchmark {benchmark}' to install it."
-        )
-    if not is_installed(agent, "agent"):
-        errors.append(f"Agent '{agent}' has not been set up. " f"Run 'exgentic setup --agent {agent}' to install it.")
-    if errors:
-        raise click.ClickException("\n".join(errors))
+    _ensure_installed(benchmark, agent, set_values)
 
     run_with(
         evaluate,
@@ -173,6 +223,7 @@ def evaluate_execute_cmd(
     max_workers: int | None,
 ) -> None:
     """Run sessions only."""
+    _ensure_installed(benchmark, agent, set_values)
     run_with(
         execute,
         benchmark=benchmark,
@@ -303,6 +354,7 @@ def evaluate_session_cmd(
         raise click.ClickException("Use --task instead of --num-tasks for sessions.")
     if len(tasks) != 1:
         raise click.ClickException("Exactly one --task is required for sessions.")
+    _ensure_installed(benchmark, agent, set_values)
     run_with(
         execute,
         benchmark=benchmark,

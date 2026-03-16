@@ -7,12 +7,12 @@ from .controller import Controller
 from .observer import Observer
 from .termination import (
     AgentError,
-    AgentTermination,
+    AgentTerminationError,
     BenchmarkError,
-    BenchmarkTermination,
-    RunCancel,
-    SessionCancel,
-    SessionLimitReached,
+    BenchmarkTerminationError,
+    RunCancelError,
+    SessionCancelError,
+    SessionLimitReachedError,
 )
 from .tracker import Tracker
 
@@ -81,17 +81,17 @@ def run_session(
                 )
 
             if session.done():
-                raise BenchmarkTermination()
-            raise AgentTermination()
+                raise BenchmarkTerminationError()
+            raise AgentTerminationError()
 
         except KeyboardInterrupt:
-            tracker.on_session_error(session, RunCancel())
+            tracker.on_session_error(session, RunCancelError())
             _close_session_agent(session, agent_instance)
             raise
         except AgentError as exc:
             tracker.on_session_error(session, exc)
             _close_session_agent(session, agent_instance)
-        except SessionLimitReached as exc:
+        except SessionLimitReachedError as exc:
             with benchmark_scope():
                 tracker.on_session_scoring(session)
             with benchmark_scope():
@@ -108,7 +108,7 @@ def run_session(
             }
             tracker.on_session_success(session, score, agent_instance)
             _close_session_agent(session, agent_instance)
-        except (AgentTermination, BenchmarkTermination):
+        except (AgentTerminationError, BenchmarkTerminationError):
             with benchmark_scope():
                 tracker.on_session_scoring(session)
             with benchmark_scope():
@@ -120,10 +120,10 @@ def run_session(
         except BenchmarkError as exc:
             tracker.on_session_error(session, exc)
             agent_instance.close()
-        except SessionCancel as exc:
+        except SessionCancelError as exc:
             tracker.on_session_error(session, exc)
             _close_session_agent(session, agent_instance)
-        except RunCancel as exc:
+        except RunCancelError as exc:
             tracker.on_session_error(session, exc)
             _close_session_agent(session, agent_instance)
             raise

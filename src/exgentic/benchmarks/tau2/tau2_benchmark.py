@@ -690,6 +690,7 @@ class TAU2Benchmark(Benchmark, BaseModel):
     session_class: ClassVar = TAU2Session
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
+    runner: str | None = "direct"  # TAU2Session uses threading queues; can't pickle across processes
     subset: Literal["mock", "retail", "airline", "telecom"] = "retail"
     user_simulator_model: str = "openai/Azure/gpt-4.1"
     llm_temperature_user: float = 0.0
