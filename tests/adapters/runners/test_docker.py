@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -21,7 +22,14 @@ if _docker_available:
     except Exception:
         _docker_available = False
 
-pytestmark = pytest.mark.skipif(not _docker_available, reason="Docker not available")
+# The Docker image uses Python 3.12; cloudpickle payloads from other
+# minor versions can fail to deserialize, so skip unless the host matches.
+_python_matches = sys.version_info[:2] == (3, 12)
+
+pytestmark = [
+    pytest.mark.skipif(not _docker_available, reason="Docker not available"),
+    pytest.mark.skipif(not _python_matches, reason="Docker image uses Python 3.12"),
+]
 
 
 @pytest.fixture(scope="module")

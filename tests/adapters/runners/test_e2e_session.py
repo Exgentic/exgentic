@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -269,6 +270,7 @@ class _DockerSession:
 
 
 @pytest.mark.skipif(not _docker_available, reason="Docker not available")
+@pytest.mark.skipif(sys.version_info[:2] != (3, 12), reason="Docker image uses Python 3.12")
 class TestDockerSessionE2E:
     """Full session lifecycle over the Docker transport.
 
