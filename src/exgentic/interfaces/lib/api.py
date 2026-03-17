@@ -625,8 +625,26 @@ def get_setup_script_path(benchmark: str) -> str:
     return str(path)
 
 
-def setup_benchmark(benchmark: str) -> None:
-    """Install requirements.txt, call Benchmark.setup(), run setup.sh if present."""
+def setup_benchmark(benchmark: str, force: bool = False, extra_args: list[str] | None = None) -> None:
+    """Install requirements, call Benchmark.setup(), run setup.sh if present.
+
+    Args:
+        benchmark: Benchmark slug name
+        force: Force reinstall even if already installed
+        extra_args: Additional arguments to pass to the setup script
+    """
+    from ...utils.installation_tracker import get_installations_dir, is_installed
+
+    # Check if already installed
+    if not force and is_installed(benchmark, "benchmark"):
+        print(f"Benchmark '{benchmark}' is already installed. Use --force to reinstall.")
+        return
+
+    # Remove installation marker before starting
+    if is_installed(benchmark, "benchmark"):
+        install_file = get_installations_dir() / "benchmark" / f"{benchmark}.json"
+        install_file.unlink(missing_ok=True)
+
     _install_requirements(benchmark, "benchmark")
     bench_cls = load_benchmark_class(benchmark)
     bench_cls.setup()
@@ -645,8 +663,25 @@ def get_agent_setup_script_path(agent: str) -> str:
     return str(path)
 
 
-def setup_agent(agent: str) -> None:
-    """Install requirements.txt, call Agent.setup(), run setup.sh if present."""
+def setup_agent(agent: str, force: bool = False) -> None:
+    """Install requirements, call Agent.setup(), run setup.sh if present.
+
+    Args:
+        agent: Agent slug name
+        force: Force reinstall even if already installed
+    """
+    from ...utils.installation_tracker import get_installations_dir, is_installed
+
+    # Check if already installed
+    if not force and is_installed(agent, "agent"):
+        print(f"Agent '{agent}' is already installed. Use --force to reinstall.")
+        return
+
+    # Remove installation marker before starting
+    if is_installed(agent, "agent"):
+        install_file = get_installations_dir() / "agent" / f"{agent}.json"
+        install_file.unlink(missing_ok=True)
+
     _install_requirements(agent, "agent")
     agent_cls = load_agent_class(agent)
     agent_cls.setup()

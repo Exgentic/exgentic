@@ -17,6 +17,7 @@ async def acheck_model_accessible(model: str) -> None:
             "model": model,
             "messages": [{"role": "user", "content": "test from litellm"}],
             "max_tokens": 5,
+            "no-log": True,
         },
         mode="chat",
     )

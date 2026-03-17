@@ -17,7 +17,12 @@ from ..options import apply_debug_mode
 )
 @click.option("--benchmark", "benchmark", default=None, help="Benchmark slug name to set up.")
 @click.option("--agent", "agent", default=None, help="Agent slug name to set up.")
-def setup_cmd(debug: bool, benchmark: str | None, agent: str | None) -> None:
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Force reinstall even if already installed.",
+)
+def setup_cmd(debug: bool, benchmark: str | None, agent: str | None, force: bool) -> None:
     """Run a benchmark's or agent's setup.sh script."""
     apply_debug_mode(debug)
     if benchmark is not None and agent is not None:
@@ -26,9 +31,9 @@ def setup_cmd(debug: bool, benchmark: str | None, agent: str | None) -> None:
         raise click.UsageError("Specify either --benchmark or --agent.")
     try:
         if benchmark is not None:
-            setup_benchmark(benchmark)
+            setup_benchmark(benchmark, force=force)
         else:
-            setup_agent(agent)
+            setup_agent(agent, force=force)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
 

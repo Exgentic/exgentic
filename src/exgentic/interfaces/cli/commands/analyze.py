@@ -6,10 +6,30 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
 import rich_click as click
+
+plt = None
+np = None
+pd = None
+
+
+def _ensure_analysis_deps() -> None:
+    global plt, np, pd
+    if plt is None or np is None or pd is None:
+        try:
+            import matplotlib.pyplot as _plt
+            import numpy as _np
+            import pandas as _pd
+        except ImportError as exc:
+            raise click.ClickException(
+                "Analysis commands require the optional analysis dependencies. "
+                "Install them with `pip install 'exgentic[analysis]'`."
+            ) from exc
+
+        plt = _plt
+        np = _np
+        pd = _pd
+
 
 BENCHMARK_MAP = {
     "appworld_test_normal": "AppWorld",
@@ -349,12 +369,14 @@ def _generate_leaderboard(df: pd.DataFrame) -> str:
 @click.group("analyse")
 def analyse_cmd() -> None:
     """Analyze result CSVs without intermediate files."""
+    return
 
 
 @analyse_cmd.command("leaderboard")
 @click.argument("csv_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 def analyse_leaderboard_cmd(csv_path: Path) -> None:
     """Generate leaderboard table from a results CSV."""
+    _ensure_analysis_deps()
     df = pd.read_csv(csv_path)
     df = _normalize_results_df(df)
     click.echo(_generate_leaderboard(df))
@@ -371,6 +393,7 @@ def analyse_leaderboard_cmd(csv_path: Path) -> None:
 )
 def analyse_leaderboard_paper_cmd(csv_path: Path, output_path: Path | None) -> None:
     """Generate the paper-style leaderboard table and save to file."""
+    _ensure_analysis_deps()
     df = pd.read_csv(csv_path)
     df = _normalize_results_df(df)
     full_table, benchmarks = _build_leaderboard_table(df)
@@ -497,6 +520,7 @@ Performance is strongly influenced by backbone model choice.}
 @click.argument("csv_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 def analyse_model_agent_cmd(csv_path: Path) -> None:
     """Model vs agent variance, pair means, and interaction analysis."""
+    _ensure_analysis_deps()
     _, valid_df = _load_normalized_frames(csv_path)
 
     def weighted_mean(group):
@@ -571,6 +595,7 @@ def analyse_model_agent_cmd(csv_path: Path) -> None:
 @click.argument("csv_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 def analyse_model_win_rate_cmd(csv_path: Path) -> None:
     """Model win rate (TauBench weighted)."""
+    _ensure_analysis_deps()
     _, valid_df = _load_normalized_frames(csv_path)
     model_points = {m: 0.0 for m in valid_df["model_normalized"].unique()}
     model_weighted_comparisons = {m: 0.0 for m in model_points}
@@ -610,6 +635,7 @@ def analyse_model_win_rate_cmd(csv_path: Path) -> None:
 @click.argument("csv_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 def analyse_config_win_rate_cmd(csv_path: Path) -> None:
     """Top configuration win rates (TauBench weighted)."""
+    _ensure_analysis_deps()
     _, valid_df = _load_normalized_frames(csv_path)
     config_points = {}
     config_weighted_comparisons = {}
@@ -660,6 +686,7 @@ def analyse_config_win_rate_cmd(csv_path: Path) -> None:
 @click.argument("csv_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 def analyse_best_per_benchmark_cmd(csv_path: Path) -> None:
     """Best configuration per benchmark (top 3)."""
+    _ensure_analysis_deps()
     _, valid_df = _load_normalized_frames(csv_path)
     for bench in sorted(valid_df["benchmark"].unique()):
         bench_df = valid_df[valid_df["benchmark"] == bench]
@@ -677,6 +704,7 @@ def analyse_best_per_benchmark_cmd(csv_path: Path) -> None:
 @click.argument("csv_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 def analyse_tool_shortlist_cmd(csv_path: Path) -> None:
     """Tool shortlisting effect (AppWorld)."""
+    _ensure_analysis_deps()
     df, _ = _load_normalized_frames(csv_path)
     appworld = df[df["benchmark"] == "AppWorld"].copy()
     click.echo(f"Total AppWorld rows: {len(appworld)}")
@@ -707,6 +735,7 @@ def analyse_tool_shortlist_cmd(csv_path: Path) -> None:
 @click.argument("csv_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 def analyse_cost_efficiency_cmd(csv_path: Path) -> None:
     """Cost-efficiency analysis (benchmark-weighted)."""
+    _ensure_analysis_deps()
     _, valid_df = _load_normalized_frames(csv_path)
     if "avg_cost" not in valid_df.columns or valid_df["avg_cost"].notna().sum() == 0:
         raise click.ClickException("avg_cost is required for cost-efficiency analysis.")
@@ -740,6 +769,7 @@ def analyse_cost_efficiency_cmd(csv_path: Path) -> None:
 @click.argument("csv_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 def analyse_component_impact_cmd(csv_path: Path) -> None:
     """Component impact analysis."""
+    _ensure_analysis_deps()
     _, valid_df = _load_normalized_frames(csv_path)
     agent_components = {
         "litellm-react": {
@@ -801,6 +831,7 @@ def analyse_component_impact_cmd(csv_path: Path) -> None:
 @click.argument("csv_path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
 def analyse_correlation_cmd(csv_path: Path) -> None:
     """Cross-benchmark rank correlation."""
+    _ensure_analysis_deps()
     _, valid_df = _load_normalized_frames(csv_path)
     pivot = valid_df.pivot_table(
         index=["agent_normalized", "model_normalized"],
@@ -831,6 +862,7 @@ def analyse_correlation_cmd(csv_path: Path) -> None:
 )
 def analyse_cost_score_cmd(csv_path: Path, output_path: Path | None) -> None:
     """Generate cost vs score plot with Pareto frontier."""
+    _ensure_analysis_deps()
     df, _ = _load_normalized_frames(csv_path)
     df["benchmark_weight"] = df["benchmark"].apply(_get_benchmark_weight)
 
@@ -1022,6 +1054,7 @@ def _save_pdf_png(fig: Any, output_pdf: Path) -> None:
 )
 def analyse_paper_figures_cmd(csv_path: Path, outdir: Path | None) -> None:
     """Generate the paper graph set from one CSV."""
+    _ensure_analysis_deps()
     df, valid_df = _load_normalized_frames(csv_path)
     if outdir is None:
         outdir = _project_root() / "misc" / "paper" / "figures"

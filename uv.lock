@@ -609,7 +609,6 @@ wheels = [
 
 [[package]]
 name = "exgentic"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -618,7 +617,6 @@ dependencies = [
     { name = "filelock" },
     { name = "json-schema-to-pydantic" },
     { name = "litellm" },
-    { name = "matplotlib" },
     { name = "mcp" },
     { name = "nicegui" },
     { name = "pydantic" },
@@ -626,12 +624,17 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "rich" },
     { name = "rich-click" },
-    { name = "scipy" },
-    { name = "statsmodels" },
     { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
+analysis = [
+    { name = "matplotlib" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "scipy" },
+    { name = "statsmodels" },
+]
 dev = [
     { name = "codespell" },
     { name = "detect-secrets" },
@@ -664,14 +667,16 @@ requires-dist = [
     { name = "filelock" },
     { name = "json-schema-to-pydantic" },
     { name = "litellm", specifier = ">=1.65.0" },
-    { name = "matplotlib" },
+    { name = "matplotlib", marker = "extra == 'analysis'" },
     { name = "mcp", specifier = ">=1.24" },
     { name = "nicegui" },
+    { name = "numpy", marker = "extra == 'analysis'" },
     { name = "opentelemetry-api", marker = "extra == 'otel'" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", marker = "extra == 'otel'" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'" },
     { name = "opentelemetry-sdk", marker = "extra == 'otel'" },
     { name = "opentelemetry-semantic-conventions-ai", marker = "extra == 'otel'", specifier = ">=0.4.0" },
+    { name = "pandas", marker = "extra == 'analysis'" },
     { name = "pre-commit", marker = "extra == 'dev'" },
     { name = "pydantic", specifier = ">=2.9.2,<3" },
     { name = "pydantic-settings" },
@@ -682,11 +687,11 @@ requires-dist = [
     { name = "rich" },
     { name = "rich-click" },
     { name = "ruff", marker = "extra == 'dev'" },
-    { name = "scipy" },
-    { name = "statsmodels" },
+    { name = "scipy", marker = "extra == 'analysis'" },
+    { name = "statsmodels", marker = "extra == 'analysis'" },
     { name = "typing-extensions" },
 ]
-provides-extras = ["otel", "dev"]
+provides-extras = ["analysis", "dev", "otel"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.0.1" }]
