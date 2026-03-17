@@ -16,16 +16,15 @@ import httpx
 from fastapi import FastAPI
 from pydantic import BaseModel as PydanticBaseModel
 
-from .transport import Transport, ObjectHost, serialize_error, deserialize_error
-
+from .transport import ObjectHost, ObjectProxy, Transport, deserialize_error, serialize_error
 
 # ── HTTP models ──────────────────────────────────────────────────────
 
 
 class CallRequest(PydanticBaseModel):
     method: str
-    args: str      # base64(cloudpickle)
-    kwargs: str    # base64(cloudpickle)
+    args: str  # base64(cloudpickle)
+    kwargs: str  # base64(cloudpickle)
 
 
 class GetRequest(PydanticBaseModel):
@@ -34,16 +33,16 @@ class GetRequest(PydanticBaseModel):
 
 class SetRequest(PydanticBaseModel):
     name: str
-    value: str     # base64(cloudpickle)
+    value: str  # base64(cloudpickle)
 
 
 class RPCResponse(PydanticBaseModel):
-    status: str                            # "ok" | "error"
-    result: Optional[str] = None           # base64(cloudpickle)
+    status: str  # "ok" | "error"
+    result: Optional[str] = None  # base64(cloudpickle)
     error_type: Optional[str] = None
     error_msg: Optional[str] = None
     error_tb: Optional[str] = None
-    error_pickled: Optional[str] = None    # base64(cloudpickle'd exception)
+    error_pickled: Optional[str] = None  # base64(cloudpickle'd exception)
 
 
 # ── helpers ──────────────────────────────────────────────────────────
@@ -133,20 +132,25 @@ class HTTPTransport(Transport):
         data = RPCResponse(**resp.json())
         if data.status == "error":
             pickled = base64.b64decode(data.error_pickled) if data.error_pickled else None
-            raise deserialize_error({
-                "type": data.error_type or "RuntimeError",
-                "msg": data.error_msg or "",
-                "tb": data.error_tb or "",
-                "pickled": pickled,
-            })
+            raise deserialize_error(
+                {
+                    "type": data.error_type or "RuntimeError",
+                    "msg": data.error_msg or "",
+                    "tb": data.error_tb or "",
+                    "pickled": pickled,
+                }
+            )
         return _decode(data.result) if data.result is not None else None
 
     def call(self, method: str, *args: Any, **kwargs: Any) -> Any:
-        return self._rpc("/call", {
-            "method": method,
-            "args": _encode(args),
-            "kwargs": _encode(kwargs),
-        })
+        return self._rpc(
+            "/call",
+            {
+                "method": method,
+                "args": _encode(args),
+                "kwargs": _encode(kwargs),
+            },
+        )
 
     def get(self, name: str) -> Any:
         return self._rpc("/get", {"name": name})
@@ -189,7 +193,11 @@ class ServiceRunner:
     """Starts an HTTP service in a background thread and returns an ObjectProxy."""
 
     def __init__(
-        self, target_cls: type, *args: Any, port: int | None = None, **kwargs: Any,
+        self,
+        target_cls: type,
+        *args: Any,
+        port: int | None = None,
+        **kwargs: Any,
     ) -> None:
         self._target_cls = target_cls
         self._args = args
@@ -197,9 +205,8 @@ class ServiceRunner:
         self._port = port or _find_free_port()
         self._server = None
 
-    def start(self) -> "ObjectProxy":
+    def start(self) -> ObjectProxy:
         import uvicorn
-        from .transport import ObjectProxy
 
         obj = self._target_cls(*self._args, **self._kwargs)
         app = create_app(ObjectHost(obj))

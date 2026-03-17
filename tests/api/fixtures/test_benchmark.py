@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, ClassVar, Dict, List
+from typing import Any, ClassVar
 
 from exgentic.core.benchmark import Benchmark
 from exgentic.core.evaluator import Evaluator
@@ -19,12 +19,12 @@ from exgentic.core.types import (
 )
 
 from .test_agent import (
-    GOOD_ACTION_TYPE,
     BAD_ACTION_TYPE,
     FINISH_ACTION_TYPE,
-    GoodAction,
+    GOOD_ACTION_TYPE,
     BadAction,
     FinishAction,
+    GoodAction,
 )
 
 
@@ -57,11 +57,11 @@ class TestSession(Session):
         return f"Task {self._task_id}"
 
     @property
-    def context(self) -> Dict[str, Any]:
+    def context(self) -> dict[str, Any]:
         return {"task_id": self._task_id}
 
     @property
-    def actions(self) -> List[ActionType]:
+    def actions(self) -> list[ActionType]:
         return [GOOD_ACTION_TYPE, BAD_ACTION_TYPE, FINISH_ACTION_TYPE]
 
     def start(self) -> SingleObservation:
@@ -99,7 +99,7 @@ class TestSession(Session):
         self.save_standard_results(result)
         return result
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         return {
             "task_id": self._task_id,
             "stop_on_step": self._stop_on_step,
@@ -115,7 +115,7 @@ class TestEvaluator(Evaluator):
     def __init__(
         self,
         *,
-        tasks: List[str] | None = None,
+        tasks: list[str] | None = None,
         stop_on_step: bool = False,
         invalid_observation: bool = False,
     ) -> None:
@@ -123,18 +123,18 @@ class TestEvaluator(Evaluator):
         self._stop_on_step = stop_on_step
         self._invalid_observation = invalid_observation
 
-    def list_tasks(self) -> List[str]:
+    def list_tasks(self) -> list[str]:
         return list(self._tasks)
 
-    def get_session_kwargs(self, index: SessionIndex) -> Dict[str, Any]:
+    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
         return {
             "index": index,
             "stop_on_step": self._stop_on_step,
             "invalid_observation": self._invalid_observation,
         }
 
-    def aggregate_sessions(self, sessions: List[SessionIndex]) -> BenchmarkResults:
-        scores: List[float] = []
+    def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
+        scores: list[float] = []
         for paths in self.get_sessions_paths(sessions):
             if not paths.results.exists():
                 continue
@@ -160,11 +160,11 @@ class TestBenchmark(Benchmark):
     evaluator_class: ClassVar = TestEvaluator
     session_class: ClassVar = TestSession
 
-    tasks: List[str] = ["task-1", "task-2", "task-3"]
+    tasks: list[str] = ["task-1", "task-2", "task-3"]  # noqa: RUF012
     stop_on_step: bool = False
     invalid_observation: bool = False
 
-    def get_evaluator_kwargs(self) -> Dict[str, Any]:
+    def get_evaluator_kwargs(self) -> dict[str, Any]:
         return {
             "tasks": self.tasks,
             "stop_on_step": self.stop_on_step,

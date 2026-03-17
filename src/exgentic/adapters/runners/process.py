@@ -11,8 +11,7 @@ from typing import Any
 
 import cloudpickle as cp
 
-from .transport import Transport, ObjectHost, serialize_error, deserialize_error
-
+from .transport import ObjectHost, Transport, deserialize_error, serialize_error
 
 # ── worker process ───────────────────────────────────────────────────
 
@@ -20,7 +19,7 @@ from .transport import Transport, ObjectHost, serialize_error, deserialize_error
 def _worker(q_in: mp.Queue, q_out: mp.Queue) -> None:
     """Subprocess entry point: create the object and serve RPC requests."""
     # Late imports — these run in the child process.
-    from ...core.context import set_context, init_context_from_env, try_get_context
+    from ...core.context import init_context_from_env, set_context, try_get_context
     from ...observers.logging import configure_warnings_logging
 
     configure_warnings_logging(replace_existing_file_handlers=False)
@@ -91,12 +90,14 @@ class PipeTransport(Transport):
         if self._proc is not None and self._proc.is_alive():
             return
 
-        from ...core.context import try_get_context, context_env_scope
+        from ...core.context import context_env_scope, try_get_context
 
         self._q_in = self._ctx.Queue()
         self._q_out = self._ctx.Queue()
         self._proc = self._ctx.Process(
-            target=_worker, args=(self._q_in, self._q_out), daemon=True,
+            target=_worker,
+            args=(self._q_in, self._q_out),
+            daemon=True,
         )
         # Ensure context env vars are in os.environ for the spawned process.
         with context_env_scope():
@@ -116,9 +117,7 @@ class PipeTransport(Transport):
     def _recv(self) -> tuple[str, Any]:
         assert self._q_out is not None
         if self._proc is not None and not self._proc.is_alive():
-            raise RuntimeError(
-                f"Worker process died (exit code: {self._proc.exitcode})"
-            )
+            raise RuntimeError(f"Worker process died (exit code: {self._proc.exitcode})")
         return cp.loads(self._q_out.get())
 
     def _rpc(self, op: str, name: str, *args: Any, **kwargs: Any) -> Any:

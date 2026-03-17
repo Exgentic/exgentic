@@ -9,7 +9,7 @@ import queue
 import threading
 from typing import Any
 
-from .transport import Transport, ObjectHost, serialize_error, deserialize_error
+from .transport import ObjectHost, Transport, deserialize_error, serialize_error
 
 _SHUTDOWN = object()
 

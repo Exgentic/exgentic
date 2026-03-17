@@ -14,7 +14,6 @@ import os
 import threading
 
 import pytest
-
 from exgentic.adapters.runners import with_runner
 
 

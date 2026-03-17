@@ -13,8 +13,6 @@ Runners wrap any object and control where it executes:
 
 Usage::
 
-    from exgentic.adapters.runners import with_runner
-
     calc = with_runner(Calculator, runner="thread", value=10)
 """
 
@@ -22,8 +20,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from .transport import Transport, ObjectHost, ObjectProxy
 from .direct import DirectTransport
+from .transport import ObjectHost, ObjectProxy, Transport
 
 RunnerName = Literal["direct", "thread", "process", "service", "docker"]
 
@@ -39,25 +37,37 @@ def with_runner(cls: type, *args: Any, runner: RunnerName = "direct", **kwargs: 
 
     if runner == "thread":
         from .thread import ThreadTransport
+
         t = ThreadTransport(cls, *args, **kwargs)
         t.start()
         return ObjectProxy(t)
 
     if runner == "process":
         from .process import PipeTransport
+
         t = PipeTransport(cls, *args, **kwargs)
         t.start()
         return ObjectProxy(t)
 
     if runner == "service":
         from .service import ServiceRunner
+
         return ServiceRunner(cls, *args, **kwargs).start()
 
     if runner == "docker":
         from .docker import DockerRunner
+
         docker_kw = {}
-        for key in ("image", "dockerfile", "port", "docker_args", "dependencies",
-                    "setup_script", "docker_socket", "volumes"):
+        for key in (
+            "image",
+            "dockerfile",
+            "port",
+            "docker_args",
+            "dependencies",
+            "setup_script",
+            "docker_socket",
+            "volumes",
+        ):
             if key in kwargs:
                 docker_kw[key] = kwargs.pop(key)
         return DockerRunner(cls, *args, **docker_kw, **kwargs).start()

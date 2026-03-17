@@ -11,8 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-
 # ── method calls ─────────────────────────────────────────────────────
+
 
 def test_call_method(calc):
     assert calc.add(2, 3) == 5
@@ -28,12 +28,14 @@ def test_call_method_mixed_args(calc):
 
 # ── stateful operations ─────────────────────────────────────────────
 
+
 def test_accumulate(calc):
     assert calc.accumulate(5) == 15  # started at 10
     assert calc.accumulate(5) == 20
 
 
 # ── attribute access ─────────────────────────────────────────────────
+
 
 def test_get_attribute(calc):
     assert calc.value == 10
@@ -45,6 +47,7 @@ def test_set_attribute(calc):
 
 
 # ── error propagation ────────────────────────────────────────────────
+
 
 def test_builtin_error(calc):
     with pytest.raises(ZeroDivisionError):
@@ -76,6 +79,7 @@ def test_remote_traceback(calc):
 
 
 # ── echo / serialization ────────────────────────────────────────────
+
 
 def test_echo_int(calc):
     assert calc.echo(42) == 42

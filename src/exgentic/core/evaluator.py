@@ -10,7 +10,7 @@ keeping heavy dependencies off the host.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any
 
 from ..utils.paths import SessionPaths, get_run_paths
 from .types import BenchmarkResults, SessionIndex
@@ -24,12 +24,12 @@ class Evaluator(ABC):
     """
 
     @abstractmethod
-    def list_tasks(self) -> List[str]:
+    def list_tasks(self) -> list[str]:
         """Return available task identifiers for this benchmark."""
         ...
 
     @abstractmethod
-    def get_session_kwargs(self, index: SessionIndex) -> Dict[str, Any]:
+    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
         """Return kwargs for constructing the Session for a given task.
 
         The orchestrator will call::
@@ -39,15 +39,15 @@ class Evaluator(ABC):
         ...
 
     @abstractmethod
-    def aggregate_sessions(self, sessions: List[SessionIndex]) -> BenchmarkResults:
+    def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
         """Aggregate results for the specified task sessions."""
         ...
 
-    def get_sessions_paths(self, sessions: List[SessionIndex]) -> List[SessionPaths]:
+    def get_sessions_paths(self, sessions: list[SessionIndex]) -> list[SessionPaths]:
         """Return ``SessionPaths`` for each session index."""
         run_paths = get_run_paths()
         return [run_paths.session(s.session_id) for s in sessions]
 
     def close(self) -> None:
         """Optional cleanup hook."""
-        return None
+        return

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .transport import Transport, ObjectHost
+from .transport import ObjectHost, Transport
 
 
 class DirectTransport(Transport):

@@ -12,7 +12,6 @@ from typing import Any
 
 import cloudpickle as cp
 
-
 # ── Transport interface ──────────────────────────────────────────────
 
 
@@ -25,16 +24,20 @@ class Transport(ABC):
     """
 
     @abstractmethod
-    def call(self, method: str, *args: Any, **kwargs: Any) -> Any: ...
+    def call(self, method: str, *args: Any, **kwargs: Any) -> Any:
+        ...
 
     @abstractmethod
-    def get(self, name: str) -> Any: ...
+    def get(self, name: str) -> Any:
+        ...
 
     @abstractmethod
-    def set(self, name: str, value: Any) -> None: ...
+    def set(self, name: str, value: Any) -> None:
+        ...
 
     @abstractmethod
-    def close(self) -> None: ...
+    def close(self) -> None:
+        ...
 
 
 # ── ObjectHost — server side ─────────────────────────────────────────
@@ -138,8 +141,10 @@ class ObjectProxy:
         transport: Transport = object.__getattribute__(self, "_transport")
         value = transport.get(name)
         if callable(value):
+
             def method(*args: Any, **kwargs: Any) -> Any:
                 return transport.call(name, *args, **kwargs)
+
             method.__name__ = name  # type: ignore[attr-defined]
             return method
         return value
