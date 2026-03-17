@@ -36,6 +36,12 @@ from ..options import apply_debug_mode
     help="Benchmark subset (optional)",
 )
 @click.option(
+    "--set",
+    "set_values",
+    multiple=True,
+    help="Set benchmark.* values (e.g., benchmark.user_simulator_model='openai/Azure/gpt-4o')",
+)
+@click.option(
     "--host",
     default="0.0.0.0",
     help="Host to bind the MCP server to (default: 0.0.0.0)",
@@ -50,6 +56,7 @@ def mcp_cmd(
     debug: bool,
     benchmark: str,
     subset: str | None,
+    set_values: tuple[str, ...],
     host: str,
     port: int | None,
 ) -> None:
@@ -82,6 +89,25 @@ def mcp_cmd(
         subset_arg = get_benchmark_subset_arg(benchmark)
         if subset_arg:
             benchmark_kwargs[subset_arg] = subset
+
+    # Parse and apply --set values for benchmark parameters
+    if set_values:
+        from ..options import _parse_set_list, _set_nested, _validate_set_keys_for_benchmark
+
+        set_items = _parse_set_list(set_values)
+
+        # Validate that only benchmark.* parameters are provided
+        for group, path, _ in set_items:
+            if group != "benchmark":
+                raise click.ClickException(
+                    f"Only benchmark.* parameters are allowed in mcp command. "
+                    f"Got {group}.{'.'.join(path) if path else ''}"
+                )
+
+        _validate_set_keys_for_benchmark(benchmark, set_items)
+        for group, path, value in set_items:
+            if group == "benchmark":
+                _set_nested(benchmark_kwargs, path, value)
 
     try:
         benchmark_instance = benchmark_cls(**benchmark_kwargs)
