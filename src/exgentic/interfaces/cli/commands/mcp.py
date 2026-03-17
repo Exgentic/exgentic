@@ -339,17 +339,21 @@ def mcp_cmd(
         click.echo("Initializing action types...")
         if task_ids:
             temp_result = create_session_for_task(task_ids[0])
-            if "error" not in temp_result and action_types is not None:
-                # Create action tools
-                for action_type in action_types:
-                    args_model = action_type.arguments
-                    action_tools.append(make_action_tool(action_type, args_model))
-                click.echo(f"✓ Loaded {len(action_tools)} action types")
+            if "error" in temp_result:
+                raise click.ClickException(
+                    f"Failed to initialize action types: {temp_result.get('error', 'Unknown error')}"
+                )
+            if action_types is None:
+                raise click.ClickException("Failed to initialize action types: No actions available")
 
-                # Close the temporary session
-                delete_session_for_task(task_ids[0])
-            else:
-                click.echo("⚠ Warning: Could not initialize action types")
+            # Create action tools
+            for action_type in action_types:
+                args_model = action_type.arguments
+                action_tools.append(make_action_tool(action_type, args_model))
+            click.echo(f"✓ Loaded {len(action_tools)} action types")
+
+            # Close the temporary session
+            delete_session_for_task(task_ids[0])
 
         # Add action tools to the tools list
         tools.extend(action_tools)
