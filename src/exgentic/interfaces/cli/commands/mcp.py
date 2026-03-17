@@ -240,6 +240,26 @@ def mcp_cmd(
             """Close and delete a session by its session_id."""
             return delete_session_by_id(session_id)
 
+        def evaluate_session_tool(session_id: str) -> dict:
+            """Evaluate a session and return whether it was successful."""
+            with sessions_lock:
+                if session_id not in sessions:
+                    return {"error": f"No session found with session_id {session_id}"}
+
+                try:
+                    sess = sessions[session_id]
+                    score_result = sess.score()
+
+                    return {
+                        "status": "success",
+                        "session_id": session_id,
+                        "evaluation": score_result,
+                        "success": bool(score_result.get("success", False)),
+                        "score": score_result.get("score"),
+                    }
+                except Exception as exc:
+                    return {"error": f"Failed to evaluate session {session_id}: {exc}"}
+
         # Set up function signatures for management tools
         import inspect
 
@@ -263,8 +283,16 @@ def mcp_cmd(
             ]
         )
 
+        evaluate_session_tool.__name__ = "evaluate_session"
+        evaluate_session_tool.__doc__ = "Evaluate a session and return whether it was successful"
+        evaluate_session_tool.__signature__ = inspect.Signature(
+            [  # type: ignore[attr-defined]
+                inspect.Parameter("session_id", inspect.Parameter.KEYWORD_ONLY, annotation=str)
+            ]
+        )
+
         # Start with management tools
-        tools = [list_tasks_tool, create_session_tool, delete_session_tool]
+        tools = [list_tasks_tool, create_session_tool, delete_session_tool, evaluate_session_tool]
 
         # We'll add action tools dynamically when first session is created
         # For now, create a placeholder that will be populated
@@ -405,7 +433,7 @@ def mcp_cmd(
         # Create and start MCP server
         click.echo(f"\nStarting MCP server for {benchmark}")
         click.echo(f"Available tasks: {len(task_ids)}")
-        click.echo("Management tools: 3 (list_tasks, create_session, delete_session)")
+        click.echo("Management tools: 4 (list_tasks, create_session, delete_session, evaluate_session)")
         click.echo(f"Action tools: {len(action_tools)}")
         click.echo(f"Log directory: {log_dir}")
 

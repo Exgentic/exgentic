@@ -130,8 +130,26 @@ async def call_mcp_tool_with_session_management():
                 print("\n✓ Session 2 bash call successful!")
                 print(f"   Result: {result4.content}")
 
-                # Step 10: Delete session 1
-                print(f"\n10. Deleting session {session_id_1}...")
+                # Step 10: Evaluate session 1
+                print(f"\n10. Evaluating session {session_id_1}...")
+                eval_result_1 = await session.call_tool("evaluate_session", {"session_id": session_id_1})
+                print("✓ Session evaluated!")
+                print(f"   Result: {eval_result_1.content}")
+
+                if eval_result_1.isError:
+                    print("   ⚠ Tool returned an error")
+
+                # Step 11: Evaluate session 2
+                print(f"\n11. Evaluating session {session_id_2}...")
+                eval_result_2 = await session.call_tool("evaluate_session", {"session_id": session_id_2})
+                print("✓ Session evaluated!")
+                print(f"   Result: {eval_result_2.content}")
+
+                if eval_result_2.isError:
+                    print("   ⚠ Tool returned an error")
+
+                # Step 12: Delete session 1
+                print(f"\n12. Deleting session {session_id_1}...")
                 delete_result_1 = await session.call_tool("delete_session", {"session_id": session_id_1})
                 print("✓ Session deleted!")
                 print(f"   Result: {delete_result_1.content}")
@@ -139,8 +157,8 @@ async def call_mcp_tool_with_session_management():
                 if delete_result_1.isError:
                     print("   ⚠ Tool returned an error")
 
-                # Step 11: Try to use deleted session (should fail)
-                print("\n11. Attempting to use deleted session (should fail)...")
+                # Step 13: Try to use deleted session (should fail)
+                print("\n13. Attempting to use deleted session (should fail)...")
                 try:
                     fail_result = await session.call_tool(
                         "message", {"session_id": session_id_1, "content": "This should fail"}
@@ -151,8 +169,8 @@ async def call_mcp_tool_with_session_management():
                 except Exception as e:
                     print(f"   ✓ Correctly rejected with error: {e}")
 
-                # Step 12: Delete session 2
-                print(f"\n12. Deleting session {session_id_2}...")
+                # Step 14: Delete session 2
+                print(f"\n14. Deleting session {session_id_2}...")
                 delete_result_2 = await session.call_tool("delete_session", {"session_id": session_id_2})
                 print("✓ Session deleted!")
                 print(f"   Result: {delete_result_2.content}")
