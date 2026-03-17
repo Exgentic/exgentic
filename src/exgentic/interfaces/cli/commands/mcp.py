@@ -6,6 +6,7 @@ from __future__ import annotations
 import signal
 import sys
 import threading
+import uuid
 from pathlib import Path
 
 import rich_click as click
@@ -131,7 +132,7 @@ def mcp_cmd(
 
         stored_context = get_context()
 
-        # Dictionary to store active sessions
+        # Dictionary to store active sessions (keyed by session_id)
         sessions = {}
         sessions_lock = threading.Lock()
         action_types = None  # Will be populated when first session is created
@@ -145,7 +146,7 @@ def mcp_cmd(
 
         # Helper function to create a session
         def create_session_for_task(task_id: str) -> dict:
-            """Create and start a session for a task."""
+            """Create and start a session for a task. Returns a unique session_id."""
             nonlocal action_types
 
             # Set the context for this thread
@@ -153,11 +154,10 @@ def mcp_cmd(
 
             set_context(stored_context)
 
-            with sessions_lock:
-                if task_id in sessions:
-                    return {"error": f"Session for task {task_id} already exists"}
+            # Generate a unique session_id using UUID
+            session_id = str(uuid.uuid4())
 
-                session_id = f"mcp_{benchmark}_{task_id}"
+            with sessions_lock:
                 try:
                     session_index = SessionIndex(
                         task_id=task_id,
@@ -168,14 +168,14 @@ def mcp_cmd(
                     # Start the session to get initial observation
                     _ = session.start()
 
-                    sessions[task_id] = session
+                    sessions[session_id] = session
 
                     # Get actions from the first session (all tasks should have same actions)
                     if action_types is None:
                         action_types = session.actions
                         if not action_types:
                             session.close()
-                            del sessions[task_id]
+                            del sessions[session_id]
                             return {"error": f"No actions available for task {task_id}"}
 
                     return {
@@ -184,39 +184,41 @@ def mcp_cmd(
                         "task_id": task_id,
                         "task": session.task,
                         "context": session.context,
-                        "message": f"Session created for task {task_id}",
+                        "message": f"Session created for task {task_id} with session_id {session_id}",
                     }
 
                 except Exception as exc:
-                    if task_id in sessions:
+                    if session_id in sessions:
                         try:
-                            sessions[task_id].close()
+                            sessions[session_id].close()
                         except Exception:
                             pass
-                        del sessions[task_id]
+                        del sessions[session_id]
                     return {"error": f"Failed to create session for task {task_id}: {exc}"}
 
         # Helper function to delete a session
-        def delete_session_for_task(task_id: str) -> dict:
-            """Close and delete a session for a task."""
+        def delete_session_by_id(session_id: str) -> dict:
+            """Close and delete a session by its session_id."""
             with sessions_lock:
-                if task_id not in sessions:
-                    return {"error": f"No session found for task {task_id}"}
+                if session_id not in sessions:
+                    return {"error": f"No session found with session_id {session_id}"}
 
                 try:
-                    session = sessions[task_id]
+                    session = sessions[session_id]
+                    task_id = session.task_id if hasattr(session, "task_id") else "unknown"
                     session.close()
-                    del sessions[task_id]
+                    del sessions[session_id]
                     return {
                         "status": "success",
+                        "session_id": session_id,
                         "task_id": task_id,
-                        "message": f"Session for task {task_id} closed and deleted",
+                        "message": f"Session {session_id} closed and deleted",
                     }
                 except Exception as exc:
                     # Try to remove from dict even if close failed
-                    if task_id in sessions:
-                        del sessions[task_id]
-                    return {"error": f"Error closing session for task {task_id}: {exc}"}
+                    if session_id in sessions:
+                        del sessions[session_id]
+                    return {"error": f"Error closing session {session_id}: {exc}"}
 
         # Create management tools
         def list_tasks_tool() -> dict:
@@ -234,9 +236,9 @@ def mcp_cmd(
                 return {"error": f"Invalid task_id: {task_id}. Available tasks: {task_ids[:10]}..."}
             return create_session_for_task(task_id)
 
-        def delete_session_tool(task_id: str) -> dict:
-            """Close and delete a session for a specific task."""
-            return delete_session_for_task(task_id)
+        def delete_session_tool(session_id: str) -> dict:
+            """Close and delete a session by its session_id."""
+            return delete_session_by_id(session_id)
 
         # Set up function signatures for management tools
         import inspect
@@ -254,10 +256,10 @@ def mcp_cmd(
         )
 
         delete_session_tool.__name__ = "delete_session"
-        delete_session_tool.__doc__ = "Close and delete a session for a specific task"
+        delete_session_tool.__doc__ = "Close and delete a session by its session_id"
         delete_session_tool.__signature__ = inspect.Signature(
             [  # type: ignore[attr-defined]
-                inspect.Parameter("task_id", inspect.Parameter.KEYWORD_ONLY, annotation=str)
+                inspect.Parameter("session_id", inspect.Parameter.KEYWORD_ONLY, annotation=str)
             ]
         )
 
@@ -271,7 +273,7 @@ def mcp_cmd(
         def make_action_tool(at, args_cls):
             """Create a tool function for an action type."""
 
-            def tool_fn(task_id: str, **kwargs):
+            def tool_fn(session_id: str, **kwargs):
                 """Tool function that executes action via session.step()."""
                 # Set the context for this thread
                 from ....core.context import set_context
@@ -279,13 +281,14 @@ def mcp_cmd(
                 set_context(stored_context)
 
                 with sessions_lock:
-                    if task_id not in sessions:
+                    if session_id not in sessions:
                         return {
                             "error": (
-                                f"No session found for task {task_id}. " "Create a session first using create_session."
+                                f"No session found with session_id {session_id}. "
+                                "Create a session first using create_session."
                             )
                         }
-                    sess = sessions[task_id]
+                    sess = sessions[session_id]
 
                 # Create an instance of the arguments model
                 try:
@@ -329,7 +332,7 @@ def mcp_cmd(
                 # Format observation for return
                 result = {
                     "status": "success",
-                    "task_id": task_id,
+                    "session_id": session_id,
                     "observation": str(observation),
                 }
 
@@ -342,10 +345,10 @@ def mcp_cmd(
             tool_fn.__name__ = at.name
             tool_fn.__doc__ = at.description or f"Execute {at.name} action"
 
-            # Build parameters - add task_id as first required parameter
+            # Build parameters - add session_id as first required parameter
             params = [
                 inspect.Parameter(
-                    "task_id",
+                    "session_id",
                     inspect.Parameter.KEYWORD_ONLY,
                     annotation=str,
                 )
@@ -385,7 +388,9 @@ def mcp_cmd(
             click.echo(f"✓ Loaded {len(action_tools)} action types")
 
             # Close the temporary session
-            delete_session_for_task(task_ids[0])
+            temp_session_id = temp_result.get("session_id")
+            if temp_session_id:
+                delete_session_by_id(temp_session_id)
 
         # Add action tools to the tools list
         tools.extend(action_tools)
@@ -428,9 +433,9 @@ def mcp_cmd(
                 click.echo("\n\nShutting down MCP server...")
                 server.stop()
                 with sessions_lock:
-                    for task_id, sess in list(sessions.items()):
+                    for session_id, sess in list(sessions.items()):
                         try:
-                            click.echo(f"  Closing session for task {task_id}...")
+                            click.echo(f"  Closing session {session_id}...")
                             sess.close()
                         except Exception:
                             pass

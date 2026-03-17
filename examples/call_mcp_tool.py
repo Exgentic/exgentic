@@ -18,7 +18,7 @@ async def call_mcp_tool_with_session_management():
         print("Install with: pip install mcp")
         return 1
 
-    mcp_url = "http://127.0.0.1:62675/mcp"
+    mcp_url = "http://127.0.0.1:8000/mcp"
 
     print("=" * 80)
     print("Testing MCP Server with Dynamic Session Management")
@@ -66,6 +66,13 @@ async def call_mcp_tool_with_session_management():
                     print("   ⚠ Tool returned an error")
                     return 1
 
+                # Extract session_id from response
+                import json
+
+                session_1_data = json.loads(create_result_1.content[0].text)
+                session_id_1 = session_1_data.get("session_id")
+                print(f"   Session ID: {session_id_1}")
+
                 # Step 5: Create session for task 2
                 print("\n5. Creating session for task_id='2'...")
                 create_result_2 = await session.call_tool("create_session", {"task_id": "2"})
@@ -76,51 +83,56 @@ async def call_mcp_tool_with_session_management():
                     print("   ⚠ Tool returned an error")
                     return 1
 
-                # Step 6: Call message tool with task_id 1
-                print("\n6. Testing task_id='1' - Calling message tool")
-                arguments_task1 = {"task_id": "1", "content": "Hello from task 1!"}
+                # Extract session_id from response
+                session_2_data = json.loads(create_result_2.content[0].text)
+                session_id_2 = session_2_data.get("session_id")
+                print(f"   Session ID: {session_id_2}")
+
+                # Step 6: Call message tool with session_id 1
+                print("\n6. Testing session 1 - Calling message tool")
+                arguments_task1 = {"session_id": session_id_1, "content": "Hello from session 1!"}
                 print(f"   Arguments: {arguments_task1}")
 
                 result1 = await session.call_tool("message", arguments_task1)
-                print("\n✓ Task 1 message call successful!")
+                print("\n✓ Session 1 message call successful!")
                 print(f"   Result: {result1.content}")
 
                 if result1.isError:
                     print("   ⚠ Tool returned an error")
 
-                # Step 7: Call message tool with task_id 2
-                print("\n7. Testing task_id='2' - Calling message tool")
-                arguments_task2 = {"task_id": "2", "content": "Hello from task 2!"}
+                # Step 7: Call message tool with session_id 2
+                print("\n7. Testing session 2 - Calling message tool")
+                arguments_task2 = {"session_id": session_id_2, "content": "Hello from session 2!"}
                 print(f"   Arguments: {arguments_task2}")
 
                 result2 = await session.call_tool("message", arguments_task2)
-                print("\n✓ Task 2 message call successful!")
+                print("\n✓ Session 2 message call successful!")
                 print(f"   Result: {result2.content}")
 
                 if result2.isError:
                     print("   ⚠ Tool returned an error")
 
-                # Step 8: Call bash tool with task_id 1
-                print("\n8. Testing task_id='1' - Calling bash tool")
-                bash_args_task1 = {"task_id": "1", "command": 'echo "Task 1 bash command"'}
+                # Step 8: Call bash tool with session_id 1
+                print("\n8. Testing session 1 - Calling bash tool")
+                bash_args_task1 = {"session_id": session_id_1, "command": 'echo "Session 1 bash command"'}
                 print(f"   Arguments: {bash_args_task1}")
 
                 result3 = await session.call_tool("bash", bash_args_task1)
-                print("\n✓ Task 1 bash call successful!")
+                print("\n✓ Session 1 bash call successful!")
                 print(f"   Result: {result3.content}")
 
-                # Step 9: Call bash tool with task_id 2
-                print("\n9. Testing task_id='2' - Calling bash tool")
-                bash_args_task2 = {"task_id": "2", "command": 'echo "Task 2 bash command"'}
+                # Step 9: Call bash tool with session_id 2
+                print("\n9. Testing session 2 - Calling bash tool")
+                bash_args_task2 = {"session_id": session_id_2, "command": 'echo "Session 2 bash command"'}
                 print(f"   Arguments: {bash_args_task2}")
 
                 result4 = await session.call_tool("bash", bash_args_task2)
-                print("\n✓ Task 2 bash call successful!")
+                print("\n✓ Session 2 bash call successful!")
                 print(f"   Result: {result4.content}")
 
-                # Step 10: Delete session for task 1
-                print("\n10. Deleting session for task_id='1'...")
-                delete_result_1 = await session.call_tool("delete_session", {"task_id": "1"})
+                # Step 10: Delete session 1
+                print(f"\n10. Deleting session {session_id_1}...")
+                delete_result_1 = await session.call_tool("delete_session", {"session_id": session_id_1})
                 print("✓ Session deleted!")
                 print(f"   Result: {delete_result_1.content}")
 
@@ -130,16 +142,18 @@ async def call_mcp_tool_with_session_management():
                 # Step 11: Try to use deleted session (should fail)
                 print("\n11. Attempting to use deleted session (should fail)...")
                 try:
-                    fail_result = await session.call_tool("message", {"task_id": "1", "content": "This should fail"})
+                    fail_result = await session.call_tool(
+                        "message", {"session_id": session_id_1, "content": "This should fail"}
+                    )
                     print(f"   Result: {fail_result.content}")
                     if "error" in str(fail_result.content).lower() or "no session" in str(fail_result.content).lower():
                         print("   ✓ Correctly rejected - session was deleted")
                 except Exception as e:
                     print(f"   ✓ Correctly rejected with error: {e}")
 
-                # Step 12: Delete session for task 2
-                print("\n12. Deleting session for task_id='2'...")
-                delete_result_2 = await session.call_tool("delete_session", {"task_id": "2"})
+                # Step 12: Delete session 2
+                print(f"\n12. Deleting session {session_id_2}...")
+                delete_result_2 = await session.call_tool("delete_session", {"session_id": session_id_2})
                 print("✓ Session deleted!")
                 print(f"   Result: {delete_result_2.content}")
 
