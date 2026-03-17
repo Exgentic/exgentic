@@ -12,6 +12,7 @@ from .commands.dashboard import dashboard_cmd
 from .commands.evaluate import evaluate_cmd
 from .commands.listing import list_cmd
 from .commands.run_info import preview_cmd, results_cmd, status_cmd
+from .commands.serve import serve_cmd
 from .commands.setup import setup_cmd
 from .options import apply_debug_mode
 from .render import print_banner, should_print_banner
@@ -54,6 +55,10 @@ click.rich_click.COMMAND_GROUPS = {
             "name": "Explore",
             "commands": ["dashboard"],
         },
+        {
+            "name": "Infrastructure",
+            "commands": ["serve"],
+        },
     ]
 }
 
@@ -79,6 +84,7 @@ cli.add_command(compare_cmd)
 cli.add_command(list_cmd)
 cli.add_command(dashboard_cmd)
 cli.add_command(setup_cmd)
+cli.add_command(serve_cmd)
 
 
 def main() -> None:
@@ -99,4 +105,5 @@ __all__ = [
     "list_cmd",
     "dashboard_cmd",
     "setup_cmd",
+    "serve_cmd",
 ]

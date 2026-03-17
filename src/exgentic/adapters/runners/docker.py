@@ -61,6 +61,7 @@ class DockerRunner:
     """
 
     _BASE_IMAGE = "python:3.12-slim"
+    _IMAGE_VERSION = "v2"  # bump to invalidate cached images
 
     def __init__(
         self,
@@ -122,7 +123,8 @@ class DockerRunner:
         if self._docker_socket:
             parts.append("docker-cli")
         if not parts:
-            return "exgentic-runner:latest"
+            return f"exgentic-runner:{self._IMAGE_VERSION}"
+        parts.insert(0, self._IMAGE_VERSION)
         content_hash = hashlib.sha256("\n".join(parts).encode()).hexdigest()[:12]
         return f"exgentic-runner:{content_hash}"
 
@@ -173,8 +175,6 @@ class DockerRunner:
             lines.append("COPY setup.sh /tmp/setup.sh")
             lines.append("RUN EXGENTIC_DOCKER_BUILD=1 bash /tmp/setup.sh")
 
-        lines.append('ENTRYPOINT ["python", "-c"]')
-
         (tmp / "Dockerfile").write_text("\n".join(lines) + "\n")
         result = _docker(
             "build", "-t", tag, "-f", str(tmp / "Dockerfile"), str(root),
@@ -218,15 +218,6 @@ class DockerRunner:
                 except Exception:
                     pass
 
-        serve_script = (
-            "from exgentic.core.context import init_context_from_env\n"
-            "try:\n    init_context_from_env()\nexcept RuntimeError:\n    pass\n"
-            "import base64, cloudpickle as cp\n"
-            "from exgentic.adapters.runners.service import serve\n"
-            f"obj = cp.loads(base64.b64decode('{payload_b64}'))\n"
-            "serve(obj, host='0.0.0.0', port=8080)"
-        )
-
         # Build docker run arguments.
         run_args: list[str] = ["run", "-d", "-p", f"{self._port}:8080"]
 
@@ -244,7 +235,13 @@ class DockerRunner:
             run_args.extend(["-v", f"{host_path}:{container_path}"])
 
         run_args.extend(self._docker_args)
-        run_args.extend([image, serve_script])
+        run_args.extend([
+            image,
+            "exgentic", "serve",
+            "--object-b64", payload_b64,
+            "--host", "0.0.0.0",
+            "--port", "8080",
+        ])
 
         result = _docker(*run_args, capture_output=True, text=True)
         self._container_id = result.stdout.strip()
