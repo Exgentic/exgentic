@@ -62,11 +62,13 @@ class MCPServer:
             *ts.allowed_hosts,
             "host.containers.internal:*",
             "host.docker.internal:*",
+            "*.svc.cluster.local:*",
         ]
         ts.allowed_origins = [
             *ts.allowed_origins,
             "http://host.containers.internal:*",
             "http://host.docker.internal:*",
+            "http://*.svc.cluster.local:*",
         ]
 
         tool_names: list[str] = []
