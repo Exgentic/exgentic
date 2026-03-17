@@ -28,7 +28,7 @@ def _is_docker_runner(set_values: tuple[str, ...]) -> bool:
         if "=" not in item:
             continue
         key, val = item.split("=", 1)
-        if key in ("benchmark.runner", "settings.default_runner") and val.strip('"\'') == "docker":
+        if key in ("benchmark.runner", "settings.default_runner") and val.strip("\"'") == "docker":
             return True
     return get_settings().default_runner == "docker"
 
@@ -41,7 +41,7 @@ def _has_setup_script(name: str, install_type: str) -> bool:
         else:
             get_agent_setup_script_path(name)
         return True
-    except (ValueError, Exception):
+    except (ValueError, FileNotFoundError):
         return False
 
 

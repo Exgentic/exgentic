@@ -10,8 +10,8 @@ import subprocess
 import sys
 
 import pytest
-
 from exgentic.adapters.runners import with_runner
+
 from .conftest import Calculator
 
 # Skip entire module if docker is not available.

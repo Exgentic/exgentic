@@ -2,11 +2,12 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 import datetime
-from collections import defaultdict
 import json
 import os
+from collections import defaultdict
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Literal, ClassVar, Mapping
+from typing import Any, ClassVar, Literal, Optional
 
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
@@ -14,33 +15,32 @@ from scripts_evaluation.evaluate_with_openai import (
     calculate_calibration_error,
 )
 
-from .search_tool_handler import BCPSearchToolHandler
+from ...core import Benchmark, Session
 from ...core.actions import ActionsHandler
+from ...core.evaluator import Evaluator
+from ...core.types import (
+    Action,
+    ActionType,
+    BenchmarkResults,
+    EmptyObservation,
+    FinishAction,
+    MessageAction,
+    Observation,
+    SessionIndex,
+    SessionScore,
+    SingleAction,
+    SingleObservation,
+)
+from ...utils.cost import CostReport, LiteLLMCostReport
+from ...utils.settings import ExgenticSettings, RunnerName, get_settings
 from .browsecomp_eval import (
     BrowseCompEvaluator,
     BrowseCompEvaluatorOpenai,
     BrowsecompEvaluatorQwen,
 )
+from .retriever import RetrieverClient, get_retriever_url, get_shared_retriever
+from .search_tool_handler import BCPSearchToolHandler
 from .searcher_cache import SearchDiskCacheSession
-from ...utils.cost import CostReport, LiteLLMCostReport
-from ...core import Benchmark, Session
-from ...core.evaluator import Evaluator
-from ...core.types import (
-    Action,
-    MessageAction,
-    FinishAction,
-    SingleAction,
-    SingleObservation,
-    Observation,
-    BenchmarkResults,
-    SessionScore,
-    EmptyObservation,
-    SessionIndex,
-    ActionType,
-)
-from ...utils.settings import ExgenticSettings, RunnerName, get_settings
-from .retriever import RetrieverClient, get_shared_retriever, get_retriever_url
-
 
 # Paper-reported total for the full BrowseCompPlus dataset.
 DEFAULT_TOTAL_TASKS = 830
@@ -67,11 +67,15 @@ class BrowseCompPlusGetDocAction(SingleAction):
 class BrowseCompPlusFinishArgs(BaseModel):
     exact_answer: str = Field(description="Your succinct, final answer")
     explanation: str = Field(
-        description="Your explanation for your final answer. For this explanation section only, you should cite your evidence documents inline by enclosing their docids in square brackets [] at the end of sentences. For example, [20]."
+        description=(
+            "Your explanation for your final answer. For this"
+            " explanation section only, you should cite your"
+            " evidence documents inline by enclosing their docids"
+            " in square brackets [] at the end of sentences."
+            " For example, [20]."
+        )
     )
-    confidence: float = Field(
-        description="Your confidence score between 0% and 100% for your answer"
-    )
+    confidence: float = Field(description="Your confidence score between 0% and 100% for your answer")
 
 
 class BrowseCompPlusFinishAction(FinishAction):
@@ -86,10 +90,10 @@ class BrowseCompPlusSession(Session):
     def __init__(
         self,
         settings: ExgenticSettings,
-        instance: Dict[str, Any],
-        searcher_params: Dict[str, Any],
+        instance: dict[str, Any],
+        searcher_params: dict[str, Any],
         eval_model_id: str = "openai/Azure/gpt-4.1",
-        max_interactions: Optional[int] = 100,
+        max_interactions: int | None = 100,
         session_id: str | None = None,
         retriever_url: str | None = None,
     ) -> None:
@@ -119,9 +123,7 @@ class BrowseCompPlusSession(Session):
         self.logger.info(f"Running for query id {self.task_id}")
         super().__init__()
 
-    def _init_retriever_client(
-        self, url: str, searcher_params: Dict[str, Any]
-    ) -> None:
+    def _init_retriever_client(self, url: str, searcher_params: dict[str, Any]) -> None:
         """Connect to a shared Retriever service by URL."""
         client = RetrieverClient(url)
         self.search_tool_handler = BCPSearchToolHandler(
@@ -132,16 +134,15 @@ class BrowseCompPlusSession(Session):
             full_doc_max_tokens=searcher_params["full_doc_max_tokens"],
         )
 
-    def _init_search_tool_handler(self, searcher_params: Dict[str, Any]) -> None:
+    def _init_search_tool_handler(self, searcher_params: dict[str, Any]) -> None:
         """Initialize search tool handler using local singleton service."""
-        from .search_service import get_search_service
         from searcher.searchers import SearcherType
+
+        from .search_service import get_search_service
 
         # Get searcher from singleton service
         search_service = get_search_service()
-        searcher_class = SearcherType.get_searcher_class(
-            searcher_params["searcher_type"]
-        )
+        searcher_class = SearcherType.get_searcher_class(searcher_params["searcher_type"])
 
         # Extract searcher-specific args
         searcher_args = {
@@ -176,51 +177,61 @@ class BrowseCompPlusSession(Session):
 
     @property
     def task(self) -> str:
-        get_doc_str = (
-            "and document expansion "
-            if self.search_tool_handler.include_get_document
-            else ""
+        get_doc_str = "and document expansion " if self.search_tool_handler.include_get_document else ""
+        query = self._instance["query"]
+        return (
+            "Answer the provided question by performing search "
+            f"{get_doc_str}as needed, and submit your final"
+            " answer.\n"
+            f"Question: {query}\n"
+            "Note:\n"
+            "- The question has an answer discoverable through"
+            " proper search.\n"
+            "- The question requires putting together information"
+            " from different sources.\n"
+            "\n"
+            "Your performance is scored based on:\n"
+            "    1. Most importantly, the correctness of the"
+            " answer you assembled from different searches.\n"
+            "    2. Your effective use of search and your ability"
+            " to retrieve all relevant information for the"
+            " question.\n"
+            "    3. How efficiently you find all the relevant"
+            " information, using as few searches as possible.\n"
+            "\n"
+            "Important: During your work, Do NOT interact with"
+            " the user or send any messages at any point"
+            " -- messages will be ignored and are NOT considered"
+            " a valid final answer. The ONLY acceptable way to"
+            " finish is by calling 'submit' with the required"
+            " structured fields.\n"
+            "\n"
+            "Finish the session always by calling `submit`."
+            " If you fail to find the answer, submit with"
+            ' exact_answer: "Can\'t find the answer.".'
         )
-        return f"""Answer the provided question by performing search {get_doc_str}as needed, and submit your final answer.
-Question: {self._instance["query"]}
-Note:
-- The question has an answer discoverable through proper search.
-- The question requires putting together information from different sources.
-
-Your performance is scored based on:
-    1. Most importantly, the correctness of the answer you assembled from different searches.
-    2. Your effective use of search and your ability to retrieve all relevant information for the question.
-    3. How efficiently you find all the relevant information, using as few searches as possible.
-
-Important: During your work, Do NOT interact with the user or send any messages at any point — messages will be ignored and are NOT considered a valid final answer. The ONLY acceptable way to finish is by calling 'submit' with the required structured fields.
-
-Finish the session always by calling `submit`. If you fail to find the answer, submit with exact_answer: "Can't find the answer."."""
 
     @property
-    def context(self) -> Dict[str, Any]:
+    def context(self) -> dict[str, Any]:
         return {}
 
     @property
-    def actions(self) -> List["ActionType"]:
+    def actions(self) -> list["ActionType"]:
         return self._registry.actions
 
     @property
     def task_id(self) -> str:
-        """Task identifier"""
+        """Task identifier."""
         return str(self._instance["query_id"])
 
-    def _to_observation(
-        self, raw: Any, invoking: Optional[List[SingleAction]] = None
-    ) -> Observation:
+    def _to_observation(self, raw: Any, invoking: list[SingleAction] | None = None) -> Observation:
         return SingleObservation(invoking_actions=invoking or [], result=raw)
 
     def start(self):
         return EmptyObservation()
 
     def record_single_action(self, action: SingleAction) -> None:
-        self.logger.info(
-            f"Received *{action.name}* action with arguments: {action.arguments}"
-        )
+        self.logger.info(f"Received *{action.name}* action with arguments: {action.arguments}")
         self.tool_call_count[action.name] += 1
         self.total_actions_executed += 1
 
@@ -229,9 +240,7 @@ Finish the session always by calling `submit`. If you fail to find the answer, s
             self._done = True
 
         if self.total_actions_executed >= self.max_interactions:
-            self.logger.info(
-                f"Reached maximal limit of {self.total_actions_executed} allowed actions"
-            )
+            self.logger.info(f"Reached maximal limit of {self.total_actions_executed} allowed actions")
             self._done = True
 
         if self._done:
@@ -248,12 +257,12 @@ Finish the session always by calling `submit`. If you fail to find the answer, s
         self.record_retrieved_docids(result)
         return result
 
-    def _handle_get_document(self, action: SingleAction) -> Optional[SingleAction]:
+    def _handle_get_document(self, action: SingleAction) -> SingleAction | None:
         self.record_single_action(action)
         args_dict = self.get_arguments_dict(action.arguments)
         return self.search_tool_handler.execute_tool("get_document", args_dict)
 
-    def _handle_finish(self, action: SingleAction) -> Optional[SingleAction]:
+    def _handle_finish(self, action: SingleAction) -> SingleAction | None:
         self.record_single_action(action)
         final_response = self.get_arguments_dict(action.arguments)
         self._response = json.dumps(final_response)
@@ -274,9 +283,7 @@ Finish the session always by calling `submit`. If you fail to find the answer, s
 
     def get_cost(self) -> CostReport:
         if not self.model_usage:
-            return LiteLLMCostReport.initialize_empty(
-                model_name=self.evaluator.eval_model_id
-            )
+            return LiteLLMCostReport.initialize_empty(model_name=self.evaluator.eval_model_id)
 
         return LiteLLMCostReport.from_token_counts(
             model_name=self.evaluator.eval_model_id,
@@ -295,7 +302,12 @@ Finish the session always by calling `submit`. If you fail to find the answer, s
         n_tokens = self.search_tool_handler.snippet_max_tokens
         self._registry.add_action(
             name="search",
-            description=f"Perform a search on a knowledge source: supply a single 'query' string; the action retrieves the {k} top most relevant results, each trimmed to {n_tokens} tokens.",
+            description=(
+                "Perform a search on a knowledge source: supply"
+                " a single 'query' string; the action retrieves"
+                f" the {k} top most relevant results, each"
+                f" trimmed to {n_tokens} tokens."
+            ),
             action_cls=BrowseCompPlusSearchAction,
             handler=self._handle_search,
         )
@@ -327,24 +339,22 @@ Finish the session always by calling `submit`. If you fail to find the answer, s
     def get_evaluator(self, eval_model_id):
         if "gpt" in eval_model_id:
             return BrowseCompEvaluatorOpenai(eval_model_id=eval_model_id)
-        elif eval_model_id == "Qwen/Qwen3-32B":
+        if eval_model_id == "Qwen/Qwen3-32B":
             return BrowsecompEvaluatorQwen()  # Currently not supported
-        else:
-            raise ValueError(f"Invalid eval_model_id: {eval_model_id}")
+        raise ValueError(f"Invalid eval_model_id: {eval_model_id}")
 
     # Robustly extract the answer from pydantic model or dict
     def get_arguments_dict(self, args):
         if isinstance(args, BaseModel):
             return args.model_dump()  # Pydantic v2
-        elif isinstance(args, Mapping):
+        if isinstance(args, Mapping):
             return dict(args)
-        else:
-            return str(getattr(args, "value", {}))
+        return str(getattr(args, "value", {}))
 
     def get_retrieved_docids(self, result: str):
         try:
             result = json.loads(result)
-            retrieved_docids = set([result.get("docid") for result in result])
+            retrieved_docids = {result.get("docid") for result in result}
             self.retrieved_docids = self.retrieved_docids | retrieved_docids
         except json.decoder.JSONDecodeError:
             self.logger.error(f"Failed to retrieve docids: {result}")
@@ -352,7 +362,7 @@ Finish the session always by calling `submit`. If you fail to find the answer, s
     def record_retrieved_docids(self, result: str):
         try:
             result = json.loads(result)
-            retrieved_docids = set([result.get("docid") for result in result])
+            retrieved_docids = {result.get("docid") for result in result}
             self.retrieved_docids = self.retrieved_docids | retrieved_docids
         except json.decoder.JSONDecodeError:
             self.logger.error(f"Failed to retrieve docids: {result}")
@@ -397,7 +407,7 @@ class BrowseCompPlusEvaluator(Evaluator):
         include_get_document: bool = True,
         normalize_search: bool = True,
         full_doc_max_tokens: int = 2048,
-        max_interactions: Optional[int] = 100,
+        max_interactions: int | None = 100,
         inference_model: str = "N/A",
         retriever_url: str | None = None,
     ) -> None:
@@ -412,8 +422,8 @@ class BrowseCompPlusEvaluator(Evaluator):
         self._max_interactions = max_interactions
         self._inference_model = inference_model
         self._retriever_url = retriever_url
-        self._dataset: List[Dict[str, Any]] | None = None
-        self._task_lookup: Dict[str, Dict[str, Any]] | None = None
+        self._dataset: list[dict[str, Any]] | None = None
+        self._task_lookup: dict[str, dict[str, Any]] | None = None
 
     @property
     def assets_dir(self):
@@ -422,12 +432,8 @@ class BrowseCompPlusEvaluator(Evaluator):
     def extract_dataset(self):
         data_path = self.assets_dir / "data" / "browsecomp_plus_decrypted_docids.jsonl"
         if not data_path.exists():
-            raise Exception(
-                f"{data_path} does not exist. Run 'exgentic setup --benchmark browsecompplus' first."
-            )
-        instances = pd.read_json(path_or_buf=data_path, lines=True).to_dict(
-            orient="records"
-        )
+            raise Exception(f"{data_path} does not exist. Run 'exgentic setup --benchmark browsecompplus' first.")
+        instances = pd.read_json(path_or_buf=data_path, lines=True).to_dict(orient="records")
 
         def proces_instance(instance):
             processed_instance = {
@@ -447,11 +453,11 @@ class BrowseCompPlusEvaluator(Evaluator):
             self._dataset = self.extract_dataset()
             self._task_lookup = {str(item["query_id"]): item for item in self._dataset}
 
-    def list_tasks(self) -> List[str]:
+    def list_tasks(self) -> list[str]:
         self._ensure_dataset()
         return [str(item["query_id"]) for item in self._dataset]
 
-    def _get_searcher_params(self) -> Dict[str, Any]:
+    def _get_searcher_params(self) -> dict[str, Any]:
         """Get searcher parameters to pass to session."""
         index_dir = self.assets_dir / "indexes"
         if self._searcher_type == "bm25":
@@ -482,13 +488,13 @@ class BrowseCompPlusEvaluator(Evaluator):
             **searcher_args,
         }
 
-    def get_session_kwargs(self, index: SessionIndex) -> Dict[str, Any]:
+    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
         self._ensure_dataset()
         task_id = index.task_id
         if self._task_lookup is None or task_id not in self._task_lookup:
             raise KeyError(f"Unknown BrowseCompPlus task id '{task_id}'.")
         instance = {"task_id": task_id, **self._task_lookup[task_id]}
-        kwargs: Dict[str, Any] = {
+        kwargs: dict[str, Any] = {
             "settings": get_settings(),
             "instance": instance,
             "searcher_params": self._get_searcher_params(),
@@ -499,26 +505,22 @@ class BrowseCompPlusEvaluator(Evaluator):
             kwargs["retriever_url"] = self._retriever_url
         return kwargs
 
-    def aggregate_sessions(self, sessions: List[SessionIndex]) -> BenchmarkResults:
+    def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
         # Aggregate per-session scores written by sessions
-        scores: List[float] = []
-        retrieval_recalls: List[float] = []
-        confidence_list: List[float] = []
-        tool_call_counts_list: List[Dict[str, float]] = []
-        correctness: List[float] = []
+        scores: list[float] = []
+        retrieval_recalls: list[float] = []
+        confidence_list: list[float] = []
+        tool_call_counts_list: list[dict[str, float]] = []
+        correctness: list[float] = []
         for paths in self.get_sessions_paths(sessions):
             fp = paths.benchmark_results
             if not fp.exists():
-                raise FileNotFoundError(
-                    f"Missing results for planned session '{paths.session_id}' at {fp}"
-                )
+                raise FileNotFoundError(f"Missing results for planned session '{paths.session_id}' at {fp}")
 
-            with open(fp, "r", encoding="utf-8-sig") as f:
+            with open(fp, encoding="utf-8-sig") as f:
                 payload = json.load(f)
             if not payload:
-                raise ValueError(
-                    f"Empty benchmark results for session '{paths.session_id}' at {fp}"
-                )
+                raise ValueError(f"Empty benchmark results for session '{paths.session_id}' at {fp}")
 
             s = float(payload["score"])  # minimal: assume exists
             scores.append(s)
@@ -527,9 +529,7 @@ class BrowseCompPlusEvaluator(Evaluator):
                 print(f"No metrics for session '{paths.session_id}' at {fp}")
 
             retrieval_recall = metrics.get("Retrieval_recall", 0)
-            retrieval_recalls.append(
-                float(retrieval_recall) if retrieval_recall is not None else 0
-            )
+            retrieval_recalls.append(float(retrieval_recall) if retrieval_recall is not None else 0)
             correctness.append(payload.get("success", 0))
 
             confidence = metrics.get("Confidence")
@@ -545,29 +545,19 @@ class BrowseCompPlusEvaluator(Evaluator):
             tool_call_counts_list.append(metadata.get("tool_call_counts", {}))
 
         avg = sum(scores) / len(scores) if scores else 0.0
-        avg_retrieval_recalls = (
-            sum(retrieval_recalls) / len(retrieval_recalls)
-            if retrieval_recalls
-            else 0.0
-        )
+        avg_retrieval_recalls = sum(retrieval_recalls) / len(retrieval_recalls) if retrieval_recalls else 0.0
         tools_keys = set().union(*tool_call_counts_list)
         avg_tool_use_counts = {
-            k: sum(d.get(k, 0) for d in tool_call_counts_list)
-            / len(tool_call_counts_list)
-            for k in tools_keys
+            k: sum(d.get(k, 0) for d in tool_call_counts_list) / len(tool_call_counts_list) for k in tools_keys
         }
 
         calibration_error = None
         # calibration error only comupted for a large number of examples
         if len(correctness) >= 100:
             try:
-                calibration_error = calculate_calibration_error(
-                    confidences=confidence_list, correctness=correctness
-                )
+                calibration_error = calculate_calibration_error(confidences=confidence_list, correctness=correctness)
             except Exception:
-                print(
-                    f"Failed to calculate calibration error for session '{paths.session_id}' at {fp}"
-                )
+                print(f"Failed to calculate calibration error for session '{paths.session_id}' at {fp}")
                 calibration_error = 0
         metrics = {
             "LLM": self._inference_model,
@@ -616,21 +606,21 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
     include_get_document: bool = True
     normalize_search: bool = True
     full_doc_max_tokens: int = 2048
-    max_interactions: Optional[int] = 100
+    max_interactions: int | None = 100
 
     @property
     def _assets_dir(self) -> str:
         return str(Path(get_settings().cache_dir).expanduser() / "browsecompplus")
 
-    def _retriever_runner_kwargs(self) -> Dict[str, Any]:
+    def _retriever_runner_kwargs(self) -> dict[str, Any]:
         """Runner kwargs for the retriever container (setup script + volumes)."""
-        kw: Dict[str, Any] = {}
+        kw: dict[str, Any] = {}
         if self.setup_script:
             kw["setup_script"] = self.setup_script
         kw["volumes"] = {self._assets_dir: self._assets_dir}
         return kw
 
-    def _get_retriever_searcher_args(self) -> Dict[str, Any]:
+    def _get_retriever_searcher_args(self) -> dict[str, Any]:
         """Searcher constructor args for the Retriever."""
         index_dir = Path(self._assets_dir) / "indexes"
         if self.searcher_type == "bm25":
@@ -657,7 +647,7 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
             url = url.replace("127.0.0.1", "host.docker.internal")
         return url
 
-    def runner_kwargs(self) -> Dict[str, Any]:
+    def runner_kwargs(self) -> dict[str, Any]:
         kw = super().runner_kwargs()
         if self.resolve_runner() == "docker":
             # Mount host assets (indexes, data) into the container so they
@@ -667,8 +657,8 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
             kw["volumes"] = volumes
         return kw
 
-    def get_evaluator_kwargs(self) -> Dict[str, Any]:
-        kwargs: Dict[str, Any] = {
+    def get_evaluator_kwargs(self) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
             "subset": self.subset,
             "searcher_type": self.searcher_type,
             "searcher_model_name": self.searcher_model_name,

@@ -2,7 +2,7 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 import hashlib
-from typing import Any, Dict
+from typing import Any
 
 from ...utils.disk_cache import DiskCacheSessionMixin
 
@@ -45,7 +45,7 @@ class SearchDiskCacheSession(DiskCacheSessionMixin):
             "normalize": self.normalize,
         }
 
-    def on_cache_hit(self, payload: Dict[str, Any]) -> bool:
+    def on_cache_hit(self, payload: dict[str, Any]) -> bool:
         results = payload.get("results")
         if not isinstance(results, dict):
             return False

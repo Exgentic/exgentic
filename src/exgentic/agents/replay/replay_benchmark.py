@@ -8,7 +8,6 @@ without needing any benchmark dependencies installed.
 
 Usage (from tests)::
 
-    from exgentic.agents.replay.replay_benchmark import ReplayBenchmark
     benchmark = ReplayBenchmark(recording_dir="path/to/recording")
     agent = ReplayAgent(recording="path/to/recording")
     results = evaluate(benchmark=benchmark, agent=agent)
@@ -18,7 +17,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Type
+from typing import Any, ClassVar
 
 from ...core.benchmark import Benchmark
 from ...core.evaluator import Evaluator
@@ -32,7 +31,7 @@ class ReplayEvaluator(Evaluator):
     def __init__(self, recording_dir: str) -> None:
         self._recording_dir = recording_dir
 
-    def list_tasks(self) -> List[str]:
+    def list_tasks(self) -> list[str]:
         recording = Path(self._recording_dir)
         # Try to get task_id from session.json
         manifest_path = recording / "session.json"
@@ -42,13 +41,13 @@ class ReplayEvaluator(Evaluator):
             return [str(task_id)]
         return ["0"]
 
-    def get_session_kwargs(self, index: SessionIndex) -> Dict[str, Any]:
+    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
         return {
             "recording_dir": self._recording_dir,
             "session_id": index.session_id,
         }
 
-    def aggregate_sessions(self, sessions: List[SessionIndex]) -> BenchmarkResults:
+    def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
         paths = self.get_sessions_paths(sessions)
         scores = []
         for p in paths:
@@ -72,10 +71,10 @@ class ReplayBenchmark(Benchmark):
 
     display_name: ClassVar[str] = "Replay Benchmark"
     slug_name: ClassVar[str] = "replay"
-    evaluator_class: ClassVar[Type[Evaluator]] = ReplayEvaluator
-    session_class: ClassVar[Type[ReplaySession]] = ReplaySession
+    evaluator_class: ClassVar[type[Evaluator]] = ReplayEvaluator
+    session_class: ClassVar[type[ReplaySession]] = ReplaySession
 
     recording_dir: str
 
-    def get_evaluator_kwargs(self) -> Dict[str, Any]:
+    def get_evaluator_kwargs(self) -> dict[str, Any]:
         return {"recording_dir": self.recording_dir}

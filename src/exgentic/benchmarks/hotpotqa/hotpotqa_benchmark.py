@@ -7,39 +7,38 @@ import asyncio
 import json
 import re
 import stat
-import textwrap
 import string
+import textwrap
 import threading
 from collections import Counter
-from typing import Any, ClassVar, Dict, List, Literal, Optional
+from typing import Any, ClassVar, Literal
 
 from fastmcp import Client
 from pydantic import BaseModel, ConfigDict
 
-from ...core.session import Session
 from ...adapters.schemas.openai import (
     mcp_tools_to_openai_tools,
     openai_tools_to_action_types,
 )
 
+# Copied scoring functions from https://github.com/hotpotqa/hotpot/blob/master/hotpot_evaluate_v1.py
+from ...core.actions import ActionsHandler, extract_argument
 from ...core.benchmark import Benchmark
 from ...core.evaluator import Evaluator
+from ...core.session import Session
 from ...core.types import (
     Action,
     ActionType,
-    Observation,
-    FinishAction,
-    SingleAction,
-    SingleObservation,
-    SessionScore,
     BenchmarkResults,
     EmptyObservation,
+    FinishAction,
+    Observation,
     SessionIndex,
+    SessionScore,
+    SingleAction,
+    SingleObservation,
 )
-from ...utils.settings import get_settings, ExgenticSettings, RunnerName
-
-# Copied scoring functions from https://github.com/hotpotqa/hotpot/blob/master/hotpot_evaluate_v1.py
-from ...core.actions import ActionsHandler, extract_argument
+from ...utils.settings import ExgenticSettings, RunnerName, get_settings
 
 HOTPOTQA_TOTAL_TASKS = 7405
 
@@ -65,25 +64,19 @@ def f1_score(prediction, ground_truth):
     normalized_prediction = normalize_answer(prediction)
     normalized_ground_truth = normalize_answer(ground_truth)
 
-    ZERO_METRIC = (0, 0, 0)
+    zero_metric = (0, 0, 0)
 
-    if (
-        normalized_prediction in ["yes", "no", "noanswer"]
-        and normalized_prediction != normalized_ground_truth
-    ):
-        return ZERO_METRIC
-    if (
-        normalized_ground_truth in ["yes", "no", "noanswer"]
-        and normalized_prediction != normalized_ground_truth
-    ):
-        return ZERO_METRIC
+    if normalized_prediction in ["yes", "no", "noanswer"] and normalized_prediction != normalized_ground_truth:
+        return zero_metric
+    if normalized_ground_truth in ["yes", "no", "noanswer"] and normalized_prediction != normalized_ground_truth:
+        return zero_metric
 
     prediction_tokens = normalized_prediction.split()
     ground_truth_tokens = normalized_ground_truth.split()
     common = Counter(prediction_tokens) & Counter(ground_truth_tokens)
     num_same = sum(common.values())
     if num_same == 0:
-        return ZERO_METRIC
+        return zero_metric
     precision = 1.0 * num_same / len(prediction_tokens)
     recall = 1.0 * num_same / len(ground_truth_tokens)
     f1 = (2 * precision * recall) / (precision + recall)
@@ -100,7 +93,7 @@ class HotpotFinishAction(FinishAction):
 
 
 class HotpotQASession(Session):
-    """ """
+    """Session for HotpotQA benchmark evaluation."""
 
     _question: str
     _done: bool
@@ -109,7 +102,7 @@ class HotpotQASession(Session):
         self,
         settings: ExgenticSettings,
         with_search_tools: bool,
-        instance: Dict[str, Any],
+        instance: dict[str, Any],
         session_id: str | None = None,
     ) -> None:
         if session_id is not None:
@@ -125,11 +118,9 @@ class HotpotQASession(Session):
         self._mcp_ready = threading.Event()
         self._mcp_failed = False
 
-        self.mcp_thread: Optional[threading.Thread] = None
+        self.mcp_thread: threading.Thread | None = None
         if self._with_search_tools:
-            self.mcp_thread = threading.Thread(
-                target=self.run_wikipedia_server, daemon=True
-            )
+            self.mcp_thread = threading.Thread(target=self.run_wikipedia_server, daemon=True)
             self.mcp_thread.start()
             ready = self._mcp_ready.wait(timeout=60.0)
             if not ready or self._mcp_failed:
@@ -150,7 +141,7 @@ class HotpotQASession(Session):
     def run_wikipedia_server(self):
         asyncio.run(self.run_wikipedia_server_async())
 
-    def _mcp_client_config(self) -> Dict[str, Any]:
+    def _mcp_client_config(self) -> dict[str, Any]:
         """Return a FastMCP client config that logs wikipedia-mcp stderr to the session benchmark dir."""
         log_path = self.paths.benchmark_dir / "wikipedia_mcp.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -168,7 +159,7 @@ class HotpotQASession(Session):
             #!/usr/bin/env python3
             import subprocess, sys, os, json
 
-            log = open({repr(str(log_path))}, "ab", buffering=0)
+            log = open({str(log_path)!r}, "ab", buffering=0)
             os.environ.update(json.loads({ctx_env_json!r}))
             proc = subprocess.Popen(
                 ["wikipedia-mcp", "--transport", "stdio"],
@@ -181,9 +172,7 @@ class HotpotQASession(Session):
             + "\n"
         )
         wrapper_path.write_text(wrapper_code, encoding="utf-8")
-        wrapper_path.chmod(
-            wrapper_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
-        )
+        wrapper_path.chmod(wrapper_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
         command = str(wrapper_path)
         return {"mcpServers": {"wiki": {"command": command, "args": []}}}
@@ -207,7 +196,7 @@ class HotpotQASession(Session):
                 )
         except Exception as e:
             self._mcp_failed = True
-            self.logger.error(f"Failed to initialize wikipedia-mcp: {e}", exc_info=True)
+            self.logger.exception(f"Failed to initialize wikipedia-mcp: {e}")
             raise
         finally:
             self._mcp_ready.set()
@@ -221,7 +210,7 @@ class HotpotQASession(Session):
         )
 
     @property
-    def context(self) -> Dict[str, Any]:
+    def context(self) -> dict[str, Any]:
         return {}
 
     @property
@@ -229,15 +218,13 @@ class HotpotQASession(Session):
         return str(self._task_id)
 
     @property
-    def actions(self) -> List[ActionType]:
+    def actions(self) -> list[ActionType]:
         return self._registry.actions
 
-    def _to_observation(
-        self, raw: Any, invoking: Optional[List[SingleAction]] = None
-    ) -> Observation:
+    def _to_observation(self, raw: Any, invoking: list[SingleAction] | None = None) -> Observation:
         return SingleObservation(invoking_actions=invoking or [], result=raw)
 
-    def start(self) -> Optional[Observation]:
+    def start(self) -> Observation | None:
         # Empty initial observation; question is carried in the task string.
         return EmptyObservation()
 
@@ -249,13 +236,11 @@ class HotpotQASession(Session):
         mcp_client = Client(config)
 
         async with mcp_client:
-            response = await mcp_client.call_tool(
-                name=name, arguments=arguments.model_dump()
-            )
+            response = await mcp_client.call_tool(name=name, arguments=arguments.model_dump())
             # print(response.structured_content)
             return response.structured_content
 
-    def step(self, action: Action) -> Optional[Observation]:
+    def step(self, action: Action) -> Observation | None:
         if action is None:
             self._done = True
 
@@ -276,9 +261,7 @@ class HotpotQASession(Session):
             score = float(f1)
         except Exception:
             score = 0.0
-        self.logger.info(
-            f"Gold: {self._gold_answer} Prediction: {self._final_answer} Score: {score}"
-        )
+        self.logger.info(f"Gold: {self._gold_answer} Prediction: {self._final_answer} Score: {score}")
         # Finished only when the benchmark finish action stores a final answer.
         finished = self._final_answer is not None
         success = score >= 1.0 - 1e-6
@@ -294,9 +277,7 @@ class HotpotQASession(Session):
             self.logger.debug("Waiting for MCP server to shut down.")
             self.mcp_thread.join(timeout=60.0)
             if self.mcp_thread.is_alive():
-                self.logger.warning(
-                    "MCP server thread did shutdown cleanly, continuing anyway."
-                )
+                self.logger.warning("MCP server thread did shutdown cleanly, continuing anyway.")
             else:
                 self.logger.debug("MCP server shutdown cleanly.")
 
@@ -327,14 +308,13 @@ class HotpotQAEvaluator(Evaluator):
     def _ensure_dataset(self) -> None:
         if self._dataset is None:
             from datasets import load_dataset
-            self._dataset = load_dataset("hotpotqa/hotpot_qa", "distractor")[
-                "validation"
-            ]
 
-    def list_tasks(self) -> List[str]:
+            self._dataset = load_dataset("hotpotqa/hotpot_qa", "distractor")["validation"]
+
+    def list_tasks(self) -> list[str]:
         return [str(i) for i in range(HOTPOTQA_TOTAL_TASKS)]
 
-    def get_session_kwargs(self, index: SessionIndex) -> Dict[str, Any]:
+    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
         self._ensure_dataset()
         idx = int(index.task_id)
         if idx < 0 or idx >= len(self._dataset):
@@ -347,10 +327,10 @@ class HotpotQAEvaluator(Evaluator):
             "session_id": index.session_id,
         }
 
-    def aggregate_sessions(self, sessions: List[SessionIndex]) -> BenchmarkResults:
-        scores: List[float] = []
+    def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
+        scores: list[float] = []
         for paths in self.get_sessions_paths(sessions):
-            with open(paths.benchmark_results, "r", encoding="utf-8-sig") as f:
+            with open(paths.benchmark_results, encoding="utf-8-sig") as f:
                 payload = json.load(f)
             s = float(payload["score"])
             scores.append(s)
@@ -377,7 +357,7 @@ class HotpotQABenchmark(Benchmark, BaseModel):
     with_search_tools: bool = True
     runner: RunnerName | None = "direct"  # Code is threadsafe
 
-    def get_evaluator_kwargs(self) -> Dict[str, Any]:
+    def get_evaluator_kwargs(self) -> dict[str, Any]:
         return {
             "subset": self.subset,
             "with_search_tools": self.with_search_tools,

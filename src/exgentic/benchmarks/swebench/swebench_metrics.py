@@ -2,7 +2,6 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 import json
-from typing import Dict, List
 
 from ...utils.paths import RunPaths
 
@@ -17,7 +16,7 @@ FUNNEL = [
 ]
 
 
-def collect_metrics(run_id, session_ids: List[str]) -> Dict:
+def collect_metrics(run_id, session_ids: list[str]) -> dict:
     from ...core.context import get_context
 
     run_paths = RunPaths(run_id=run_id, output_dir=get_context().output_dir)

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from json_schema_to_pydantic import create_model
 
@@ -60,9 +60,7 @@ class ReplaySession(Session):
         self._task_id_val = manifest.get("task_id", "")
         self._task_val = manifest.get("task", "")
         self._context_val = manifest.get("context", {})
-        self._action_types = [
-            _action_type_from_schema(a) for a in manifest.get("actions", [])
-        ]
+        self._action_types = [_action_type_from_schema(a) for a in manifest.get("actions", [])]
 
         # Load recorded observations and score from trajectory/results
         self._observations: list[Any] = []
@@ -101,31 +99,31 @@ class ReplaySession(Session):
         return self._task_val
 
     @property
-    def context(self) -> Dict[str, Any]:
+    def context(self) -> dict[str, Any]:
         return self._context_val
 
     @property
-    def actions(self) -> List[ActionType]:
+    def actions(self) -> list[ActionType]:
         return self._action_types
 
-    def _next_observation(self) -> Optional[Observation]:
+    def _next_observation(self) -> Observation | None:
         if self._step_idx < len(self._observations):
             obs = self._observations[self._step_idx]
             self._step_idx += 1
             return SingleObservation(result=obs.get("result") if isinstance(obs, dict) else obs)
         return None
 
-    def start(self) -> Optional[Observation]:
+    def start(self) -> Observation | None:
         return self._next_observation()
 
-    def step(self, action: Action) -> Optional[Observation]:
+    def step(self, action: Action) -> Observation | None:
         obs = self._next_observation()
         if obs is None:
             self._done = True
         return obs
 
     def done(self) -> bool:
-        return self._done or self._step_idx >= len(self._observations)
+        return self._done
 
     def score(self) -> SessionScore:
         data = self._recorded_score

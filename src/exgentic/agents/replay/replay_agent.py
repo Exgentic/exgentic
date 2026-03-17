@@ -3,8 +3,8 @@
 
 """ReplayAgent — replays a recorded trajectory against a benchmark.
 
-Usage:
-    from exgentic import evaluate
+Usage::
+
     evaluate(benchmark="gsm8k", agent="replay", agent_kwargs={"recording": "path/to/recording"})
 
 A *recording* is a directory containing:
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Optional
+from typing import Any, ClassVar
 
 from ...core.agent import Agent
 from ...core.agent_instance import AgentInstance
@@ -37,8 +37,8 @@ class ReplayAgent(Agent):
     def assign(
         self,
         task: str,
-        context: Dict[str, Any],
-        actions: List[ActionType],
+        context: dict[str, Any],
+        actions: list[ActionType],
         session_id: str,
     ) -> ReplayAgentInstance:
         recording_path = Path(self.recording)
@@ -61,7 +61,7 @@ class ReplayAgentInstance(AgentInstance):
         *,
         session_id: str,
         trajectory_path: Path,
-        action_types: List[ActionType],
+        action_types: list[ActionType],
     ) -> None:
         super().__init__(session_id=session_id)
         self._action_types = {at.name: at for at in action_types}
@@ -82,7 +82,7 @@ class ReplayAgentInstance(AgentInstance):
                     actions.append(event["action"])
         return actions
 
-    def react(self, observation: Optional[Observation]) -> Optional[Action]:
+    def react(self, observation: Observation | None) -> Action | None:
         if self._step >= len(self._actions):
             return None  # No more recorded actions — signal done
 
@@ -95,6 +95,7 @@ class ReplayAgentInstance(AgentInstance):
         action_type = self._action_types.get(name)
         if action_type is None:
             from ...core.actions import build_unknown_action
+
             return build_unknown_action(name, arguments)
 
         return action_type.build_action(arguments)

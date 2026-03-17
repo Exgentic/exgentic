@@ -14,18 +14,17 @@ import subprocess
 import sys
 
 import pytest
-
 from exgentic.adapters.runners import with_runner
 from exgentic.core.types import SessionIndex
 
-from tests.api.fixtures.test_benchmark import TestSession
 from tests.api.fixtures.test_agent import (
-    TestAgent,
-    GoodAction,
     BadAction,
-    FinishAction,
     EmptyArgs,
+    FinishAction,
+    GoodAction,
+    TestAgent,
 )
+from tests.api.fixtures.test_benchmark import TestSession
 
 # Detect Docker availability for conditional tests.
 _docker_available = shutil.which("docker") is not None
@@ -63,6 +62,7 @@ def session_proxy(runner_name, tmp_path, monkeypatch):
 
 
 # ── basic lifecycle ──────────────────────────────────────────────────
+
 
 class TestSessionLifecycle:
     """Full start → step → done → score lifecycle across transports."""
@@ -106,6 +106,7 @@ class TestSessionLifecycle:
 
 # ── property access over transports ──────────────────────────────────
 
+
 class TestPropertyAccess:
     """Verify that property reads work transparently across transports."""
 
@@ -127,6 +128,7 @@ class TestPropertyAccess:
 
 
 # ── agent integration ────────────────────────────────────────────────
+
 
 class TestAgentWithRunnerSession:
     """Run a TestAgent against a session through each transport."""
@@ -173,6 +175,7 @@ class TestAgentWithRunnerSession:
 
 
 # ── stateful consistency ─────────────────────────────────────────────
+
 
 class TestStatefulConsistency:
     """Multiple steps keep consistent state across transports."""
@@ -258,6 +261,7 @@ class _DockerSession:
     def write_output(self, filename: str, content: str) -> str:
         """Write a file to the output dir.  Used to verify volume mounts."""
         import os
+
         out = self._output_dir or os.environ.get("EXGENTIC_OUTPUT_DIR", "/tmp")
         path = os.path.join(out, filename)
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -281,6 +285,7 @@ class TestDockerSessionE2E:
     def docker_session(self, tmp_path_factory):
         out = tmp_path_factory.mktemp("docker_e2e")
         import os
+
         os.environ["EXGENTIC_OUTPUT_DIR"] = str(out)
         proxy = with_runner(
             _DockerSession,

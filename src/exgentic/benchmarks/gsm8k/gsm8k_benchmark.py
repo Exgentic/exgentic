@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import ast
 import json
-import re
 import logging
-from typing import Any, Dict, List, Literal, Optional, ClassVar
+import operator as op
+import re
+from typing import Any, ClassVar, Literal
 
 from pydantic import (
     BaseModel,
@@ -15,29 +17,25 @@ from pydantic import (
     field_validator,
 )
 
-from ...core.session import Session
 from ...core.actions import ActionsHandler, extract_argument
-
 from ...core.benchmark import Benchmark
 from ...core.evaluator import Evaluator
+from ...core.session import Session
 from ...core.types import (
     Action,
     ActionType,
-    Observation,
-    FinishAction,
-    SingleAction,
-    SingleObservation,
-    SessionScore,
     BenchmarkResults,
     EmptyObservation,
+    FinishAction,
+    Observation,
     SessionIndex,
+    SessionScore,
+    SingleAction,
+    SingleObservation,
 )
-from ...utils.settings import get_settings, ExgenticSettings, RunnerName
-from ...utils.paths import get_run_paths
 from ...observers.logging import get_logger
-
-import ast
-import operator as op
+from ...utils.paths import get_run_paths
+from ...utils.settings import ExgenticSettings, RunnerName, get_settings
 
 GSM8K_TOTAL_TASKS = 1319
 
@@ -76,9 +74,7 @@ _ALLOWED_DESC = "numbers (ints/decimals), + - * /, parentheses, unary +/-. No na
 def safe_evaluate(expression: str):
     expr = (expression or "").strip()
     if not expr:
-        return (
-            f"Invalid expression: empty. Allowed: {_ALLOWED_DESC} Got: {expression!r}"
-        )
+        return f"Invalid expression: empty. Allowed: {_ALLOWED_DESC} Got: {expression!r}"
     try:
         tree = ast.parse(expr, mode="eval")
     except SyntaxError:
@@ -109,9 +105,7 @@ def safe_evaluate(expression: str):
 
 
 class GSM8kCalculateExpressionArgs(BaseModel):
-    expression: str = Field(
-        ..., description="Arithmetic expression using + - * / and parentheses."
-    )
+    expression: str = Field(..., description="Arithmetic expression using + - * / and parentheses.")
 
 
 class GSM8kCalculateExpressionAction(SingleAction):
@@ -120,9 +114,7 @@ class GSM8kCalculateExpressionAction(SingleAction):
 
 
 class GSM8kFinishArgs(BaseModel):
-    answer: str | int = Field(
-        ..., description="Final answer as a single integer (string or int)."
-    )
+    answer: str | int = Field(..., description="Final answer as a single integer (string or int).")
 
     @field_validator("answer", mode="before")
     @classmethod
@@ -147,7 +139,7 @@ class GSM8kFinishAction(FinishAction):
 
 
 class GSM8kSession(Session):
-    """ """
+    """Session for GSM8k benchmark evaluation."""
 
     _question: str
     _done: bool
@@ -156,7 +148,7 @@ class GSM8kSession(Session):
         self,
         settings: ExgenticSettings,
         include_calculator_tool: bool,
-        instance: Dict[str, Any],
+        instance: dict[str, Any],
         session_id: str | None = None,
     ) -> None:
         if session_id is not None:
@@ -173,7 +165,11 @@ class GSM8kSession(Session):
         if include_calculator_tool:
             self._registry.add_action(
                 name="calculate_expression",
-                description="Evaluate a mathematical expression using only numbers and basic operators (+, -, *, /, parentheses).",
+                description=(
+                    "Evaluate a mathematical expression using only"
+                    " numbers and basic operators"
+                    " (+, -, *, /, parentheses)."
+                ),
                 action_cls=GSM8kCalculateExpressionAction,
                 handler=self._handle_calculate_expression,
             )
@@ -201,27 +197,25 @@ class GSM8kSession(Session):
         )
 
     @property
-    def context(self) -> Dict[str, Any]:
+    def context(self) -> dict[str, Any]:
         return {}
 
     @property
-    def actions(self) -> List[ActionType]:
+    def actions(self) -> list[ActionType]:
         return self._registry.actions
 
     @property
     def task_id(self) -> str:
         return str(self._task_id)
 
-    def _to_observation(
-        self, raw: Any, invoking_actions: Optional[List[SingleAction]] = None
-    ) -> Observation:
+    def _to_observation(self, raw: Any, invoking_actions: list[SingleAction] | None = None) -> Observation:
         return SingleObservation(invoking_actions=invoking_actions or [], result=raw)
 
-    def start(self) -> Optional[Observation]:
+    def start(self) -> Observation | None:
         # Empty initial observation; question is carried in the task string.
         return EmptyObservation()
 
-    def step(self, action: Action) -> Optional[Observation]:
+    def step(self, action: Action) -> Observation | None:
         if action is None:
             self._done = True
 
@@ -239,9 +233,7 @@ class GSM8kSession(Session):
         gold = _parse_int(self._gold_answer)
         pred = _parse_int(self._final_answer)
         score = 1.0 if (gold is not None and pred is not None and gold == pred) else 0.0
-        self.logger.info(
-            f"Gold: {self._gold_answer} Prediction: {self._final_answer} Score: {score}"
-        )
+        self.logger.info(f"Gold: {self._gold_answer} Prediction: {self._final_answer} Score: {score}")
         # Finished only when the benchmark finish action stores a final answer.
         finished = self._final_answer is not None
         success = score == 1.0
@@ -266,7 +258,7 @@ class GSM8kSession(Session):
         answer = extract_argument(action.arguments, "answer", None)
         self._final_answer = answer
         self._done = True
-        return None
+        return
 
 
 # ── Evaluator ────────────────────────────────────────────────────────
@@ -283,12 +275,13 @@ class GSM8kEvaluator(Evaluator):
     def _ensure_dataset(self) -> None:
         if self._dataset is None:
             from datasets import load_dataset
+
             self._dataset = load_dataset("gsm8k", "main")["test"]
 
-    def list_tasks(self) -> List[str]:
+    def list_tasks(self) -> list[str]:
         return [str(i) for i in range(GSM8K_TOTAL_TASKS)]
 
-    def get_session_kwargs(self, index: SessionIndex) -> Dict[str, Any]:
+    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
         self._ensure_dataset()
         idx = int(index.task_id)
         if idx < 0 or idx >= len(self._dataset):
@@ -301,20 +294,20 @@ class GSM8kEvaluator(Evaluator):
             "session_id": index.session_id,
         }
 
-    def aggregate_sessions(self, sessions: List[SessionIndex]) -> BenchmarkResults:
+    def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
         run_logger = _get_run_logger()
-        scores: List[float] = []
+        scores: list[float] = []
         for paths in self.get_sessions_paths(sessions):
             fp = paths.benchmark_results
             try:
-                with open(fp, "r", encoding="utf-8-sig") as f:
+                with open(fp, encoding="utf-8-sig") as f:
                     payload = json.load(f)
                 s = float(payload["score"])
                 scores.append(s)
-            except FileNotFoundError:
+            except FileNotFoundError as err:
                 raise FileNotFoundError(
-                    f"Missing benchmark result for session '{paths.session_id}' at {fp}"
-                )
+                    f"Missing benchmark result for session" f" '{paths.session_id}' at {fp}"
+                ) from err
             except Exception:
                 run_logger.exception(
                     "Failed to load benchmark result for session %s at %s",
@@ -344,7 +337,7 @@ class GSM8kBenchmark(Benchmark, BaseModel):
     include_calculator_tool: bool = True
     runner: RunnerName | None = "direct"  # Code is threadsafe
 
-    def get_evaluator_kwargs(self) -> Dict[str, Any]:
+    def get_evaluator_kwargs(self) -> dict[str, Any]:
         return {
             "subset": self.subset,
             "include_calculator_tool": self.include_calculator_tool,

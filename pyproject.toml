@@ -91,6 +91,10 @@ override-dependencies = [
   "rich>=13.9.4",
 ]
 
+[tool.codespell]
+skip = "tests/benchmarks/recordings/*,uv.lock"
+ignore-words-list = "requestor"
+
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
 pythonpath = ["."]

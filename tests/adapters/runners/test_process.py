@@ -9,8 +9,8 @@ import gc
 import os
 
 import pytest
-
 from exgentic.adapters.runners import with_runner
+
 from .conftest import Calculator
 
 

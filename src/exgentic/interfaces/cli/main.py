@@ -41,15 +41,11 @@ click.rich_click.COMMAND_GROUPS = {
         },
         {
             "name": "Analyze",
-            "commands": ["compare"],
+            "commands": ["compare", "analyse"],
         },
         {
             "name": "Discover",
             "commands": ["list", "setup"],
-        },
-        {
-            "name": "Analyze",
-            "commands": ["analyse"],
         },
         {
             "name": "Explore",
@@ -94,16 +90,16 @@ def main() -> None:
 
 
 __all__ = [
-    "cli",
-    "main",
-    "evaluate_cmd",
     "batch_cmd",
-    "status_cmd",
+    "cli",
+    "compare_cmd",
+    "dashboard_cmd",
+    "evaluate_cmd",
+    "list_cmd",
+    "main",
     "preview_cmd",
     "results_cmd",
-    "compare_cmd",
-    "list_cmd",
-    "dashboard_cmd",
-    "setup_cmd",
     "serve_cmd",
+    "setup_cmd",
+    "status_cmd",
 ]

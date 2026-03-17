@@ -19,7 +19,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from exgentic.agents.replay.replay_agent import ReplayAgent
 from exgentic.agents.replay.replay_benchmark import ReplayBenchmark
 from exgentic.interfaces.lib.api import evaluate
@@ -27,22 +26,27 @@ from exgentic.interfaces.registry import AGENTS, BENCHMARKS, RegistryEntry
 
 RECORDINGS_DIR = Path(__file__).parent / "recordings"
 
-# Register replay agent and benchmark for the duration of these tests.
-# They're not in the main registry because they're test-only utilities.
-AGENTS["replay"] = RegistryEntry(
-    slug_name="replay",
-    display_name="Replay Agent",
-    module="exgentic.agents.replay.replay_agent",
-    attr="ReplayAgent",
-    kind="agent",
-)
-BENCHMARKS["replay"] = RegistryEntry(
-    slug_name="replay",
-    display_name="Replay Benchmark",
-    module="exgentic.agents.replay.replay_benchmark",
-    attr="ReplayBenchmark",
-    kind="benchmark",
-)
+
+@pytest.fixture(autouse=True)
+def _register_replay_components():
+    """Register replay agent and benchmark for the duration of these tests."""
+    AGENTS["replay"] = RegistryEntry(
+        slug_name="replay",
+        display_name="Replay Agent",
+        module="exgentic.agents.replay.replay_agent",
+        attr="ReplayAgent",
+        kind="agent",
+    )
+    BENCHMARKS["replay"] = RegistryEntry(
+        slug_name="replay",
+        display_name="Replay Benchmark",
+        module="exgentic.agents.replay.replay_benchmark",
+        attr="ReplayBenchmark",
+        kind="benchmark",
+    )
+    yield
+    AGENTS.pop("replay", None)
+    BENCHMARKS.pop("replay", None)
 
 
 def _discover_recordings() -> list[tuple[str, Path]]:
@@ -88,12 +92,10 @@ def test_benchmark_replay(benchmark_slug: str, recording_dir: Path, tmp_path: Pa
     session = results.session_results[0]
 
     # The session should complete without error
-    assert session.is_finished is not None, (
-        f"Session did not finish (status={session.status})"
-    )
+    assert session.is_finished is not None, f"Session did not finish (status={session.status})"
 
     # If expected_score is provided, check it
     if expected_score is not None:
-        assert session.score == pytest.approx(expected_score, abs=0.01), (
-            f"Score mismatch: expected {expected_score}, got {session.score}"
-        )
+        assert session.score == pytest.approx(
+            expected_score, abs=0.01
+        ), f"Score mismatch: expected {expected_score}, got {session.score}"

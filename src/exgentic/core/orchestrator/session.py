@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-from ..context import session_scope, agent_scope, benchmark_scope
-from ..types import SessionConfig, SessionIndex
+from ..context import agent_scope, benchmark_scope, session_scope
+from ..types import SessionConfig
 from .controller import Controller
 from .observer import Observer
 from .termination import (

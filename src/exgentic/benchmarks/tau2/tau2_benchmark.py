@@ -2,6 +2,7 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 """TAU2 benchmark adapter (per-task process isolation)."""
+
 from __future__ import annotations
 
 import builtins
@@ -12,29 +13,27 @@ import threading
 import traceback
 from pathlib import Path
 from shutil import move
-from typing import Any, ClassVar, Dict, List, Literal, Optional
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from ...utils.cost import CostReport, LiteLLMCostReport, UpdatableCostReport
-
+from ...adapters.actions.chat import ChatActionContext
+from ...adapters.executors.proxy import PairableProxyAgent, PairableProxySession
+from ...adapters.schemas.openai import openai_tools_to_action_types
 from ...core import Benchmark
+from ...core.actions import ActionsHandler
 from ...core.evaluator import Evaluator
 from ...core.types import (
     Action,
     ActionType,
+    BenchmarkResults,
     MessageAction,
+    SessionIndex,
+    SessionScore,
     SingleAction,
     SingleObservation,
-    SessionScore,
-    BenchmarkResults,
-    SessionIndex,
 )
-from ...core.actions import ActionsHandler
-from ...adapters.executors.proxy import PairableProxySession, PairableProxyAgent
 from ...integrations.litellm.config import configure_litellm
-from ...utils.settings import get_settings
-from ...utils.paths import get_run_id
 from ...observers.logging import (
     add_loguru_file_sink,
     attach_library_logger_to_handler,
@@ -43,8 +42,9 @@ from ...observers.logging import (
     remove_loguru_sink,
     restore_library_logger,
 )
-from ...adapters.actions.chat import ChatActionContext
-from ...adapters.schemas.openai import openai_tools_to_action_types
+from ...utils.cost import CostReport, LiteLLMCostReport, UpdatableCostReport
+from ...utils.paths import get_run_id
+from ...utils.settings import get_settings
 from .tau2_shim import (
     AssistantMessage,
     Console,
@@ -88,7 +88,7 @@ def _echo_action(action: SingleAction) -> SingleAction:
     return action
 
 
-def tau_message_to_user_tool_message(message: Any) -> Dict[str, Any]:
+def tau_message_to_user_tool_message(message: Any) -> dict[str, Any]:
     """Convert Tau2 message objects into a generic chat-style payload."""
     if isinstance(message, UserMessage):
         return {"role": "user", "content": message.content}
@@ -99,21 +99,16 @@ def tau_message_to_user_tool_message(message: Any) -> Dict[str, Any]:
             "content": message.content,
         }
     if isinstance(message, MultiToolMessage):
-        return [
-            {"role": "tool", "tool_call_id": str(m.id), "content": m.content}
-            for m in message.tool_messages
-        ]
+        return [{"role": "tool", "tool_call_id": str(m.id), "content": m.content} for m in message.tool_messages]
     return {"content": str(message)}
 
 
-def assistant_message_to_tau_message(msg_dict: Dict[str, Any]) -> AssistantMessage:
+def assistant_message_to_tau_message(msg_dict: dict[str, Any]) -> AssistantMessage:
     """Convert a generic assistant message dict into a Tau2 AssistantMessage."""
-    tool_calls: Optional[List[ToolCall]] = None
+    tool_calls: list[ToolCall] | None = None
     if "tool_calls" in msg_dict:
         tool_calls = [ToolCall(**p) for p in msg_dict["tool_calls"]]
-    return AssistantMessage(
-        role="assistant", content=msg_dict.get("content"), tool_calls=tool_calls
-    )
+    return AssistantMessage(role="assistant", content=msg_dict.get("content"), tool_calls=tool_calls)
 
 
 class TAU2Session(PairableProxySession):
@@ -133,11 +128,11 @@ class TAU2Session(PairableProxySession):
         self.use_cache = use_cache
         self._cfg.save_to = self.session_id
 
-        self.tools: List[Tool] = []
+        self.tools: list[Tool] = []
         self.domain_policy: str = ""
-        self._registry: Optional[ActionsHandler] = None
-        self.file_path: Optional[str] = None
-        self._runner_thread: Optional[threading.Thread] = None
+        self._registry: ActionsHandler | None = None
+        self.file_path: str | None = None
+        self._runner_thread: threading.Thread | None = None
         self._chat_ctx = ChatActionContext()
         self._user_input_tokens = 0
         self._user_output_tokens = 0
@@ -147,9 +142,7 @@ class TAU2Session(PairableProxySession):
             logger=self.logger,
             warn_on_validation_error=False,
             warn_on_unknown_action=False,
-            handle_validation_error=lambda action, _msg: SingleObservation(
-                invoking_actions=[action], result=action
-            ),
+            handle_validation_error=lambda action, _msg: SingleObservation(invoking_actions=[action], result=action),
         )
         self._registry.add_action(
             name="message",
@@ -195,9 +188,7 @@ class TAU2Session(PairableProxySession):
             if agent_name not in registry.get_agents():
                 registry.register_agent(TAU2ProxyAgent, agent_name)
             # Prepare session log path and redirect Tau2 console + prints
-            log_fh = open(
-                self.paths.benchmark_dir / "tau2_session.log", "a", encoding="utf-8"
-            )
+            log_fh = open(self.paths.benchmark_dir / "tau2_session.log", "a", encoding="utf-8")
             prev_console = ConsoleDisplay.console
             prev_print = builtins.print
             prev_input = builtins.input
@@ -212,13 +203,9 @@ class TAU2Session(PairableProxySession):
                         color_system=None,
                         highlight=False,
                     )
-                    tau2_logger_state = attach_library_logger_to_handler(
-                        "tau2", handler
-                    )
+                    tau2_logger_state = attach_library_logger_to_handler("tau2", handler)
                     # Also route Loguru logs to the Tau2 session file if Loguru is used by Tau2
-                    loguru_sink_id = add_loguru_file_sink(
-                        log_fh, level="DEBUG", colorize=False
-                    )
+                    loguru_sink_id = add_loguru_file_sink(log_fh, level="DEBUG", colorize=False)
                     break
 
             def _file_print(*args, **kwargs):
@@ -258,16 +245,12 @@ class TAU2Session(PairableProxySession):
                         prev_tau2_handlers,
                         prev_tau2_propagate,
                     ) = tau2_logger_state
-                    restore_library_logger(
-                        tau2_logger, prev_tau2_handlers, prev_tau2_propagate
-                    )
+                    restore_library_logger(tau2_logger, prev_tau2_handlers, prev_tau2_propagate)
                 remove_loguru_sink(loguru_sink_id)
                 log_fh.flush()
                 log_fh.close()
                 # Ensure any waiting session.step() unblocks when Tau2 run completes
-                self.logger.debug(
-                    "Sending terminal observation to unblock session.step()"
-                )
+                self.logger.debug("Sending terminal observation to unblock session.step()")
                 self.put_observation(None)
                 # If session ended before pairing with agent, release the pairing semaphore
                 # to avoid deadlocks
@@ -278,7 +261,7 @@ class TAU2Session(PairableProxySession):
         t.start()
         self._runner_thread = t
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         return self._cfg.model_dump()
 
     # Proxy -> Exgentic observation mapping
@@ -295,14 +278,18 @@ class TAU2Session(PairableProxySession):
 
     @property
     def task(self) -> str:
-        return """You are a customer service agent that helps the user according to the <policy> provided below. Try to be helpful and always follow the policy."""
+        return (
+            "You are a customer service agent that helps the"
+            " user according to the <policy> provided below."
+            " Try to be helpful and always follow the policy."
+        )
 
     @property
-    def context(self) -> Dict[str, Any]:
+    def context(self) -> dict[str, Any]:
         return {"policy": self.domain_policy}
 
     @property
-    def actions(self) -> List[ActionType]:
+    def actions(self) -> list[ActionType]:
         return self._registry.actions
 
     @property
@@ -320,9 +307,7 @@ class TAU2Session(PairableProxySession):
             self.logger.debug("Waiting for runner thread")
             t.join(timeout=10.0)
             if t.is_alive():
-                self.logger.warning(
-                    "Runner thread did not exit cleanly, continuing anyway"
-                )
+                self.logger.warning("Runner thread did not exit cleanly, continuing anyway")
         self.logger.debug("Thread join completed")
         if not Path(self.results_file).exists():
             if self.file_path and Path(self.file_path).exists():
@@ -331,18 +316,14 @@ class TAU2Session(PairableProxySession):
                 self.logger.debug("File move completed")
             else:
                 self.logger.error("Results file not found")
-                raise FileNotFoundError(
-                    f"TAU2 results file not found for session {self.session_id}: {self.file_path}"
-                )
+                raise FileNotFoundError(f"TAU2 results file not found for session {self.session_id}: {self.file_path}")
 
         self.logger.debug("Closing logging")
         if not t or not t.is_alive():
             close_logger(self.logger)
 
     def get_cost(self) -> CostReport:
-        def _custom_token_cost(
-            input_tokens: int, output_tokens: int
-        ) -> Optional[float]:
+        def _custom_token_cost(input_tokens: int, output_tokens: int) -> float | None:
             args = self._cfg.llm_args_user or {}
             input_rate = args.get("input_cost_per_token")
             output_rate = args.get("output_cost_per_token")
@@ -352,16 +333,12 @@ class TAU2Session(PairableProxySession):
             output_cost = output_tokens * float(output_rate or 0.0)
             return input_cost + output_cost
 
-        def _report_from_usage(
-            input_tokens: int, output_tokens: int
-        ) -> Optional[CostReport]:
+        def _report_from_usage(input_tokens: int, output_tokens: int) -> CostReport | None:
             if input_tokens == 0 and output_tokens == 0:
                 return None
             custom_total = _custom_token_cost(input_tokens, output_tokens)
             if custom_total is not None:
-                report = UpdatableCostReport.initialize_empty(
-                    model_name=self._cfg.llm_user
-                )
+                report = UpdatableCostReport.initialize_empty(model_name=self._cfg.llm_user)
                 report.add_cost(custom_total)
                 return report
             return LiteLLMCostReport.from_token_counts(
@@ -370,7 +347,7 @@ class TAU2Session(PairableProxySession):
                 output_tokens=output_tokens,
             )
 
-        def _report_from_messages(messages: list[Any]) -> Optional[CostReport]:
+        def _report_from_messages(messages: list[Any]) -> CostReport | None:
             total_cost = 0.0
             has_cost = False
             input_tokens = 0
@@ -385,14 +362,12 @@ class TAU2Session(PairableProxySession):
                     total_cost += float(message.cost)
                     has_cost = True
             if has_cost and total_cost > 0:
-                report = UpdatableCostReport.initialize_empty(
-                    model_name=self._cfg.llm_user
-                )
+                report = UpdatableCostReport.initialize_empty(model_name=self._cfg.llm_user)
                 report.add_cost(total_cost)
                 return report
             return _report_from_usage(input_tokens, output_tokens)
 
-        def _load_results(path: Optional[str]) -> Optional[Results]:
+        def _load_results(path: str | None) -> Results | None:
             if not path:
                 return None
             results_path = Path(path)
@@ -426,9 +401,7 @@ class TAU2Session(PairableProxySession):
     def score(self) -> SessionScore:
         res = Results.load(self.results_file)
         if not res.simulations:
-            self.logger.error(
-                "Tau2 produced no simulations; marking session as failed."
-            )
+            self.logger.error("Tau2 produced no simulations; marking session as failed.")
             # Finished is false when the underlying Tau2 run produced no simulations.
             return SessionScore(score=0.0, success=False, is_finished=False)
 
@@ -437,9 +410,7 @@ class TAU2Session(PairableProxySession):
         self.paths.benchmark_dir.mkdir(parents=True, exist_ok=True)
         with open(self.paths.benchmark_dir / "dialog.log", "w", encoding="utf-8") as f:
             prev_console = ConsoleDisplay.console
-            ConsoleDisplay.console = Console(
-                file=f, force_terminal=False, color_system=None
-            )
+            ConsoleDisplay.console = Console(file=f, force_terminal=False, color_system=None)
             ConsoleDisplay.display_simulation(sim)
             ConsoleDisplay.console = prev_console
 
@@ -456,16 +427,14 @@ class TAU2Session(PairableProxySession):
             )
         elif isinstance(termination, str):
             graceful = termination in ("agent_stop", "user_stop")
-        session_metadata: Dict[str, Any] = {}
-        session_metrics: Dict[str, Any] = {}
+        session_metadata: dict[str, Any] = {}
+        session_metrics: dict[str, Any] = {}
         if sim.reward_info is not None:
             session_metadata["reward_info"] = sim.reward_info.model_dump(mode="json")
             session_metrics["reward"] = sim.reward_info.reward
             if sim.reward_info.db_check is not None:
                 session_metrics["db_check_db_match"] = sim.reward_info.db_check.db_match
-                session_metrics[
-                    "db_check_db_reward"
-                ] = sim.reward_info.db_check.db_reward
+                session_metrics["db_check_db_reward"] = sim.reward_info.db_check.db_reward
         return SessionScore(
             score=sim.reward_info.reward,
             success=is_successful(sim.reward_info.reward),
@@ -478,10 +447,10 @@ class TAU2Session(PairableProxySession):
 class TAU2ProxyAgent(LLMAgent, PairableProxyAgent[TAU2Session]):
     def __init__(
         self,
-        tools: List[Tool],
+        tools: list[Tool],
         domain_policy: str,
         llm: str | None = None,
-        llm_args: Dict | None = None,
+        llm_args: dict | None = None,
     ):
         sess = self.adopt_staged_session()
         sess.logger.debug(f"Agent adopted PID:{os.getpid()}")
@@ -491,25 +460,21 @@ class TAU2ProxyAgent(LLMAgent, PairableProxyAgent[TAU2Session]):
         configure_litellm(config=settings.to_litellm_config(), cache_only=True)
         super().__init__(tools, domain_policy, llm, llm_args)
 
-    def generate_next_message(self, message: Any, state: Optional[TAU2Session]):
+    def generate_next_message(self, message: Any, state: TAU2Session | None):
         self.session.logger.info(repr(message))
         return self.handle_observation(message, state)
 
-    def get_init_state(self, message_history: Optional[List] = None) -> TAU2Session:  # type: ignore[override]
+    def get_init_state(self, message_history: list | None = None) -> TAU2Session:  # type: ignore[override]
         return self.session
 
     # BaseProxyAgent hooks
     def create_session(self, first_observation: Any) -> TAU2Session:
         return self.session
 
-    def update_session_observation(
-        self, session: TAU2Session, observation: Any
-    ) -> None:
+    def update_session_observation(self, session: TAU2Session, observation: Any) -> None:
         session.update_message(observation)
 
-    def action_to_response(
-        self, action: Optional[Any], observation: Any, session: TAU2Session
-    ):
+    def action_to_response(self, action: Any | None, observation: Any, session: TAU2Session):
         if action is None:
             message = (
                 AssistantMessage(role="assistant", content="__done__", tool_calls=None),
@@ -527,17 +492,16 @@ class TAU2ProxyAgent(LLMAgent, PairableProxyAgent[TAU2Session]):
     @classmethod
     def is_stop(cls, message: AssistantMessage) -> bool:
         """Check if the message is a stop message.
+
         By default the agent does not stop.
         """
         return message.content == "__done__"
 
     # Registry helpers -------------------------------------------------------
-    def _expand_actions(
-        self, action: Action, session: TAU2Session
-    ) -> List[SingleAction]:
+    def _expand_actions(self, action: Action, session: TAU2Session) -> list[SingleAction]:
         """Normalize raw Action into a list of SingleAction via registry."""
         registry = session._registry  # type: ignore[attr-defined]
-        expanded: List[SingleAction] = []
+        expanded: list[SingleAction] = []
         for raw in action.to_action_list():
             # Handlers are no-ops; this call just normalizes/validates the action shape.
             obs = registry.normalize(raw)
@@ -583,11 +547,11 @@ class TAU2Evaluator(Evaluator):
         self._score_path = score_path
         self._use_cache = use_cache
 
-    def list_tasks(self) -> List[str]:
+    def list_tasks(self) -> list[str]:
         tasks = load_tasks(task_set_name=self._subset)
         return [str(t.id) for t in tasks]
 
-    def get_session_kwargs(self, index: SessionIndex) -> Dict[str, Any]:
+    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
         task_id = index.task_id
 
         cfg = RunConfig(
@@ -614,13 +578,9 @@ class TAU2Evaluator(Evaluator):
             save_to=None,  # Will be overridden by TauSession.
         )
         if self._llm_user_input_cost_per_token is not None:
-            cfg.llm_args_user[
-                "input_cost_per_token"
-            ] = self._llm_user_input_cost_per_token
+            cfg.llm_args_user["input_cost_per_token"] = self._llm_user_input_cost_per_token
         if self._llm_user_output_cost_per_token is not None:
-            cfg.llm_args_user[
-                "output_cost_per_token"
-            ] = self._llm_user_output_cost_per_token
+            cfg.llm_args_user["output_cost_per_token"] = self._llm_user_output_cost_per_token
 
         return {
             "run_config": cfg,
@@ -629,7 +589,7 @@ class TAU2Evaluator(Evaluator):
             "session_id": index.session_id,
         }
 
-    def aggregate_sessions(self, sessions: List[SessionIndex]) -> BenchmarkResults:
+    def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
         """Aggregate per-session Tau2 result files and expose a final score.
 
         - Computes Tau2 metrics via `compute_metrics` for detailed reporting.
@@ -640,14 +600,12 @@ class TAU2Evaluator(Evaluator):
         for paths in self.get_sessions_paths(sessions):
             fp = paths.benchmark_results
             if not fp.exists():
-                raise FileNotFoundError(
-                    f"Missing results for planned session '{paths.session_id}' at {fp}"
-                )
+                raise FileNotFoundError(f"Missing results for planned session '{paths.session_id}' at {fp}")
             files.append(fp)
 
         base: Results | None = None
         all_sims = []
-        task_map: Dict[str, Any] = {}
+        task_map: dict[str, Any] = {}
         errored_tasks = 0
         for fp in files:
             r = Results.load(fp)
@@ -669,9 +627,7 @@ class TAU2Evaluator(Evaluator):
         # Minimal path: assume at least one simulation was produced for each planned session
         assert len(all_sims) > 0
         assert base is not None
-        combined = Results(
-            info=base.info, tasks=list(task_map.values()), simulations=all_sims
-        )
+        combined = Results(info=base.info, tasks=list(task_map.values()), simulations=all_sims)
         m = compute_metrics(combined)
 
         return BenchmarkResults(
@@ -685,7 +641,7 @@ class TAU2Evaluator(Evaluator):
 class TAU2Benchmark(Benchmark, BaseModel):
     display_name: ClassVar[str] = "Tau Bench 2"
     slug_name: ClassVar[str] = "tau2"
-    available_subsets: ClassVar[List[str]] = ["mock", "retail", "airline", "telecom"]
+    available_subsets: ClassVar[list[str]] = ["mock", "retail", "airline", "telecom"]
     evaluator_class: ClassVar = TAU2Evaluator
     session_class: ClassVar = TAU2Session
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
@@ -701,14 +657,14 @@ class TAU2Benchmark(Benchmark, BaseModel):
     num_trials: int = 1
     # Optional dotted path selecting the final score inside Tau2's metrics dict
     # Example: "aggregate/final_score" or "overall/score"
-    score_path: Optional[str] = None
+    score_path: str | None = None
 
     # Internals
 
-    def list_subsets(self) -> List[str]:  # type: ignore[override]
+    def list_subsets(self) -> list[str]:  # type: ignore[override]
         return list(self.available_subsets)
 
-    def get_evaluator_kwargs(self) -> Dict[str, Any]:
+    def get_evaluator_kwargs(self) -> dict[str, Any]:
         return {
             "subset": self.subset,
             "user_simulator_model": self.user_simulator_model,

@@ -4,7 +4,7 @@
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import Field
 
@@ -14,11 +14,11 @@ from ...utils.paths import SessionPaths
 
 class SessionScore(BaseSessionScore):
     instance_id: str = ""
-    agent: Dict[str, Any] = Field(default_factory=dict)
-    patch: Dict[str, Any] = Field(default_factory=dict)
-    container: Dict[str, Any] = Field(default_factory=dict)
-    evaluation: Dict[str, Any] = Field(default_factory=dict)
-    summary: Dict[str, Any] = Field(default_factory=dict)
+    agent: dict[str, Any] = Field(default_factory=dict)
+    patch: dict[str, Any] = Field(default_factory=dict)
+    container: dict[str, Any] = Field(default_factory=dict)
+    evaluation: dict[str, Any] = Field(default_factory=dict)
+    summary: dict[str, Any] = Field(default_factory=dict)
 
 
 FILE_OPS_RE = re.compile(r"\b(cp|mv|rm|mkdir|touch|tee|patch)\b")
@@ -30,7 +30,7 @@ def build_score(
     num_actions: int,
     max_interactions: int,
     instance_id: str,
-    harness_data: Optional[Any] = None,
+    harness_data: Any | None = None,
 ) -> SessionScore:
     score = SessionScore(score=0.0, success=False, instance_id=instance_id)
     score.agent = _parse_agent(paths)
@@ -43,7 +43,7 @@ def build_score(
     return score
 
 
-def _parse_agent(paths: SessionPaths) -> Dict[str, Any]:
+def _parse_agent(paths: SessionPaths) -> dict[str, Any]:
     log_path = paths.benchmark_dir / "session.log"
     if not log_path.exists():
         return {"commands": None, "edit_commands": None, "call_submit": False}
@@ -57,7 +57,7 @@ def _parse_agent(paths: SessionPaths) -> Dict[str, Any]:
     }
 
 
-def _parse_patch(paths: SessionPaths) -> Dict[str, Any]:
+def _parse_patch(paths: SessionPaths) -> dict[str, Any]:
     pred_path = paths.benchmark_dir / "predictions.jsonl"
     _none = {"generated": None, "length": None, "structurally_valid": None}
     if not pred_path.exists():
@@ -77,7 +77,7 @@ def _parse_patch(paths: SessionPaths) -> Dict[str, Any]:
         return _none
 
 
-def _parse_harness_files(paths: SessionPaths, patch: Dict) -> tuple:
+def _parse_harness_files(paths: SessionPaths, patch: dict) -> tuple:
     container = {
         "required": None,
         "build_base": None,
@@ -138,7 +138,7 @@ def _parse_harness_files(paths: SessionPaths, patch: Dict) -> tuple:
                                 "success": s,
                                 "failure": f,
                                 "rate": rate,
-                                "display": f"expected {s+f}: success {s}, failure {f}. success rate: {rate}%",
+                                "display": f"expected {s + f}: success {s}, failure {f}. success rate: {rate}%",
                             }
             except json.JSONDecodeError:
                 pass
@@ -156,7 +156,7 @@ def _apply_harness_data(score: SessionScore, hd: Any, instance_id: str):
     score.success = hd.error is None
 
 
-def _build_summary(score: SessionScore, num_actions: int, max_interactions: int) -> Dict[str, Any]:
+def _build_summary(score: SessionScore, num_actions: int, max_interactions: int) -> dict[str, Any]:
     c, e, a, p = score.container, score.evaluation, score.agent, score.patch
     f2p = e.get("test_results", {}).get("FAIL_TO_PASS", {})
     p2p = e.get("test_results", {}).get("PASS_TO_PASS", {})

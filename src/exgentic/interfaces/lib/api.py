@@ -64,14 +64,14 @@ def list_agents() -> list[dict[str, Any]]:
 def load_benchmark_class(benchmark: str) -> type[Benchmark]:
     entries = get_benchmark_entries()
     if benchmark not in entries:
-        raise ValueError(f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(entries.keys()))}")
+        raise ValueError(f"Unknown benchmark slug '{benchmark}'. Available: {', '.join(sorted(entries.keys()))}")
     return load_benchmark(benchmark)
 
 
 def load_agent_class(agent: str) -> type[Agent]:
     entries = get_agent_entries()
     if agent not in entries:
-        raise ValueError(f"Unknown agent slug '{agent}'. " f"Available: {', '.join(sorted(entries.keys()))}")
+        raise ValueError(f"Unknown agent slug '{agent}'. Available: {', '.join(sorted(entries.keys()))}")
     return load_agent(agent)
 
 
@@ -480,7 +480,7 @@ def get_benchmark_info(benchmark: str) -> dict[str, Any]:
     entries = get_benchmark_entries()
     entry = entries.get(benchmark)
     if entry is None:
-        raise ValueError(f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(entries.keys()))}")
+        raise ValueError(f"Unknown benchmark slug '{benchmark}'. Available: {', '.join(sorted(entries.keys()))}")
     bench_cls = load_benchmark_class(benchmark)
     return {
         "slug_name": entry.slug_name,
@@ -497,7 +497,7 @@ def get_agent_info(agent: str) -> dict[str, Any]:
     entries = get_agent_entries()
     entry = entries.get(agent)
     if entry is None:
-        raise ValueError(f"Unknown agent slug '{agent}'. " f"Available: {', '.join(sorted(entries.keys()))}")
+        raise ValueError(f"Unknown agent slug '{agent}'. Available: {', '.join(sorted(entries.keys()))}")
     agent_cls = load_agent_class(agent)
     return {
         "slug_name": entry.slug_name,
@@ -510,7 +510,7 @@ def list_subsets(benchmark: str) -> list[str]:
     benchmark_entries = get_benchmark_entries()
     if benchmark not in benchmark_entries:
         raise ValueError(
-            f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(benchmark_entries.keys()))}"
+            f"Unknown benchmark slug '{benchmark}'. Available: {', '.join(sorted(benchmark_entries.keys()))}"
         )
     return get_benchmark_subsets(benchmark)
 
@@ -524,7 +524,7 @@ def list_tasks(
     benchmark_entries = get_benchmark_entries()
     if benchmark not in benchmark_entries:
         raise ValueError(
-            f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(benchmark_entries.keys()))}"
+            f"Unknown benchmark slug '{benchmark}'. Available: {', '.join(sorted(benchmark_entries.keys()))}"
         )
     bench_kwargs = dict(benchmark_kwargs or {})
     if subset is not None:
@@ -582,8 +582,9 @@ def _install_requirements(slug: str, kind: str) -> None:
     if req_path is None:
         return
     # Skip if requirements.txt is empty or only has comments
-    lines = [l.strip() for l in req_path.read_text().splitlines()
-             if l.strip() and not l.strip().startswith("#")]
+    lines = [
+        line.strip() for line in req_path.read_text().splitlines() if line.strip() and not line.strip().startswith("#")
+    ]
     if not lines:
         return
     import importlib
@@ -618,20 +619,19 @@ def get_setup_script_path(benchmark: str) -> str:
     entries = get_benchmark_entries()
     entry = entries.get(benchmark)
     if entry is None:
-        raise ValueError(f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(entries.keys()))}")
+        raise ValueError(f"Unknown benchmark slug '{benchmark}'. Available: {', '.join(sorted(entries.keys()))}")
     path = _find_package_file(entry.module, "setup.sh")
     if path is None:
         raise ValueError(f"setup.sh not found for benchmark '{benchmark}'.")
     return str(path)
 
 
-def setup_benchmark(benchmark: str, force: bool = False, extra_args: list[str] | None = None) -> None:
+def setup_benchmark(benchmark: str, force: bool = False) -> None:
     """Install requirements, call Benchmark.setup(), run setup.sh if present.
 
     Args:
         benchmark: Benchmark slug name
         force: Force reinstall even if already installed
-        extra_args: Additional arguments to pass to the setup script
     """
     from ...utils.installation_tracker import get_installations_dir, is_installed
 
@@ -656,7 +656,7 @@ def get_agent_setup_script_path(agent: str) -> str:
     entries = get_agent_entries()
     entry = entries.get(agent)
     if entry is None:
-        raise ValueError(f"Unknown agent slug '{agent}'. " f"Available: {', '.join(sorted(entries.keys()))}")
+        raise ValueError(f"Unknown agent slug '{agent}'. Available: {', '.join(sorted(entries.keys()))}")
     path = _find_package_file(entry.module, "setup.sh")
     if path is None:
         raise ValueError(f"setup.sh not found for agent '{agent}'.")
@@ -726,18 +726,18 @@ def _describe_init_args(cls: type) -> list[str]:
 
 
 __all__ = [
+    "aggregate",
     "evaluate",
     "execute",
-    "aggregate",
-    "list_benchmarks",
+    "get_agent_setup_script_path",
+    "get_setup_script_path",
     "list_agents",
+    "list_benchmarks",
     "list_subsets",
     "list_tasks",
-    "status",
     "preview",
     "results",
-    "setup_benchmark",
     "setup_agent",
-    "get_setup_script_path",
-    "get_agent_setup_script_path",
+    "setup_benchmark",
+    "status",
 ]

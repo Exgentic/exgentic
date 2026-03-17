@@ -6,11 +6,11 @@ from typing import Any, ClassVar, Dict, List
 
 from pydantic import BaseModel, ConfigDict
 
+from ..utils.settings import RunnerName
 from .agent_instance import AgentInstance
 from .runner_mixin import RunnerMixin
 from .types import ActionType
 from .types.model_settings import ModelSettings
-from ..utils.settings import RunnerName
 
 
 class Agent(BaseModel, RunnerMixin, ABC):

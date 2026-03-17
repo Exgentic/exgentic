@@ -8,42 +8,40 @@ import logging
 import subprocess
 import textwrap
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Literal, Optional
+from typing import Any, ClassVar, Literal
 
 import yaml
 from datasets import load_dataset
-from pydantic import BaseModel, Field, PrivateAttr, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from swebench.harness.constants import DOCKER_WORKDIR
 
 from ...core import Benchmark
+from ...core.actions import ActionsHandler
 from ...core.evaluator import Evaluator
 from ...core.session import Session
-from ...core.actions import ActionsHandler
 from ...core.types import (
     Action,
     ActionType,
     BenchmarkResults,
     FinishAction,
     Observation,
+    SessionIndex,
     SingleAction,
     SingleObservation,
-    SessionIndex,
 )
 from ...utils.logging import hook_loggers_into_session
-from ...utils.settings import ExgenticSettings, get_settings
 from ...utils.paths import get_run_id
-
+from ...utils.settings import ExgenticSettings, get_settings
 from . import swebench_evaluation, swebench_logs, swebench_metrics
-
 
 # =============================================================================
 # Configuration
 # =============================================================================
 
-_CONFIG: Dict[str, Any] = None
+_CONFIG: dict[str, Any] = None
 
 
-def get_config() -> Dict[str, Any]:
+def get_config() -> dict[str, Any]:
     global _CONFIG
     if _CONFIG is None:
         path = Path(__file__).parent / "config.yaml"
@@ -82,20 +80,16 @@ class SubmitPatchAction(FinishAction):
 def run_bash(
     command: str,
     env,
-    timeout: Optional[int] = None,
-    size_limit: Optional[int] = None,
+    timeout: int | None = None,
+    size_limit: int | None = None,
     timeout_template: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Execute bash command in environment."""
     try:
         output = env.execute(command=command, timeout=timeout or env.config.timeout)
     except subprocess.TimeoutExpired as e:
-        exception_output = (
-            e.output.decode("utf-8", errors="replace") if e.output else ""
-        )
-        msg = textwrap.dedent(timeout_template).format_map(
-            {"command": command, "exception_output": exception_output}
-        )
+        exception_output = e.output.decode("utf-8", errors="replace") if e.output else ""
+        msg = textwrap.dedent(timeout_template).format_map({"command": command, "exception_output": exception_output})
         output = {"output": msg, "returncode": 124}
 
     # Truncate large outputs
@@ -125,9 +119,9 @@ class SWEBenchSession(Session):
     def __init__(
         self,
         settings: ExgenticSettings,
-        instance: Dict[str, Any],
+        instance: dict[str, Any],
         subset: str,
-        max_interactions: Optional[int] = None,
+        max_interactions: int | None = None,
         require_submit_for_patch_evaluation: bool = True,
         session_id: str | None = None,
     ) -> None:
@@ -154,18 +148,16 @@ class SWEBenchSession(Session):
         self._require_submit_for_patch_evaluation = require_submit_for_patch_evaluation
         self._action_count = 0
         self._score = None
-        self._final_patch: Optional[str] = None
+        self._final_patch: str | None = None
 
         # Environment (set in start())
         self.env = None
         self.container_repo_dir = DOCKER_WORKDIR
-        self.container_base_commit: Optional[str] = None
+        self.container_base_commit: str | None = None
 
         # Config
         self._timeout = cfg["session"]["timeout"]
-        self._environment_pull_timeout = int(
-            cfg["session"].get("environment_pull_timeout", 600)
-        )
+        self._environment_pull_timeout = int(cfg["session"].get("environment_pull_timeout", 600))
         self._observation_size_limit = cfg["session"]["observation_size_limit"]
         self._timeout_template = cfg["session"]["timeout_template"]
         self._task_prompt = cfg["task_prompt"]
@@ -189,7 +181,7 @@ class SWEBenchSession(Session):
     # Lifecycle
     # -------------------------------------------------------------------------
 
-    def start(self) -> Optional[Observation]:
+    def start(self) -> Observation | None:
         self.logger.info("START | Session start")
         self._setup_environment()
         return SingleObservation(invoking_actions=[], result=None)
@@ -209,9 +201,7 @@ class SWEBenchSession(Session):
     # -------------------------------------------------------------------------
 
     def _handle_bash(self, action: BashAction) -> str:
-        self.logger.info(
-            f"STEP | {self._step_count:<3} | ACTION | bash | command: {action.arguments.command}"
-        )
+        self.logger.info(f"STEP | {self._step_count:<3} | ACTION | bash | command: {action.arguments.command}")
         result = run_bash(
             command=action.arguments.command,
             env=self.env,
@@ -226,9 +216,7 @@ class SWEBenchSession(Session):
         return result
 
     def _handle_submit_patch(self, action: SubmitPatchAction) -> str:
-        self.logger.info(
-            f"STEP | {self._step_count:<3} | ACTION | submit_patch | summary: {action.arguments.summary}"
-        )
+        self.logger.info(f"STEP | {self._step_count:<3} | ACTION | submit_patch | summary: {action.arguments.summary}")
         self._final_patch = generate_patch(
             env=self.env,
             cwd=self.container_repo_dir,
@@ -237,7 +225,7 @@ class SWEBenchSession(Session):
         self._done = True
         return None
 
-    def step(self, action: Action) -> Optional[Observation]:
+    def step(self, action: Action) -> Observation | None:
         if self._done:
             return None
 
@@ -275,15 +263,12 @@ class SWEBenchSession(Session):
         harness_result = None
         if self._done or not self._require_submit_for_patch_evaluation:
             if self._final_patch is None and not self._done:
-                self.logger.info(
-                    "SCORE | submit_patch not called; generating patch from current workspace"
-                )
+                self.logger.info("SCORE | submit_patch not called; generating patch from current workspace")
                 self._final_patch = self._generate_current_patch()
             harness_result = self._run_harness()
         else:
             self.logger.info(
-                "SCORE | Skipping harness - submit_patch not called "
-                "(require_submit_for_patch_evaluation=true)"
+                "SCORE | Skipping harness - submit_patch not called (require_submit_for_patch_evaluation=true)"
             )
 
         # Flush logs before parsing
@@ -305,17 +290,18 @@ class SWEBenchSession(Session):
         results_path = self.paths.benchmark_results
         swebench_logs.write_results(results_path, self._score)
         self.logger.info(
-            f"SCORE | Final | success={self._score.success} | score={self._score.score} | is_finished={self._score.is_finished}"
+            "SCORE | Final | success=%s | score=%s | is_finished=%s",
+            self._score.success,
+            self._score.score,
+            self._score.is_finished,
         )
 
         return self._score
 
-    def _run_harness(self) -> Optional[swebench_evaluation.HarnessResult]:
+    def _run_harness(self) -> swebench_evaluation.HarnessResult | None:
         """Run harness evaluation, handling errors."""
         if self._final_patch is None:
-            self.logger.info(
-                "SCORE | Harness evaluation skipped: no patch available for evaluation"
-            )
+            self.logger.info("SCORE | Harness evaluation skipped: no patch available for evaluation")
             return None
         try:
             return swebench_evaluation.run_harness(
@@ -327,15 +313,13 @@ class SWEBenchSession(Session):
                 logger=self.logger,
             )
         except Exception as e:
-            self.logger.error(f"SCORE | Harness evaluation failed: {e}", exc_info=True)
+            self.logger.exception(f"SCORE | Harness evaluation failed: {e}")
             return None
 
-    def _generate_current_patch(self) -> Optional[str]:
+    def _generate_current_patch(self) -> str | None:
         """Generate patch from current working tree for non-submit evaluation mode."""
         if self.env is None or self.container_base_commit is None:
-            self.logger.warning(
-                "SCORE | Cannot generate patch: environment/base commit unavailable"
-            )
+            self.logger.warning("SCORE | Cannot generate patch: environment/base commit unavailable")
             return None
         try:
             return generate_patch(
@@ -344,7 +328,7 @@ class SWEBenchSession(Session):
                 base_commit=self.container_base_commit,
             )
         except Exception as e:
-            self.logger.error(f"SCORE | Patch generation failed: {e}", exc_info=True)
+            self.logger.exception(f"SCORE | Patch generation failed: {e}")
             return None
 
     # -------------------------------------------------------------------------
@@ -352,7 +336,7 @@ class SWEBenchSession(Session):
     # -------------------------------------------------------------------------
 
     @property
-    def actions(self) -> List[ActionType]:
+    def actions(self) -> list[ActionType]:
         if not self._registry.actions:
             self._registry.add_action(
                 name="bash",
@@ -363,7 +347,9 @@ class SWEBenchSession(Session):
             self._registry.add_action(
                 name="finish",
                 description=(
-                    "Finish the task by submitting a brief summary. The system automatically computes the git patch from the repository changes."
+                    "Finish the task by submitting a brief"
+                    " summary. The system automatically computes"
+                    " the git patch from the repository changes."
                 ),
                 action_cls=SubmitPatchAction,
                 handler=self._handle_submit_patch,
@@ -381,7 +367,7 @@ class SWEBenchSession(Session):
         )
 
     @property
-    def context(self) -> Dict[str, str]:
+    def context(self) -> dict[str, str]:
         return {}
 
     @property
@@ -401,21 +387,14 @@ class SWEBenchSession(Session):
             import minisweagent
             from minisweagent.run.extra.swebench import get_sb_environment
 
-            config_path = (
-                Path(minisweagent.__file__).parent
-                / "config"
-                / "extra"
-                / "swebench.yaml"
-            )
+            config_path = Path(minisweagent.__file__).parent / "config" / "extra" / "swebench.yaml"
             config = yaml.safe_load(config_path.read_text()).copy()
             config["environment"]["cwd"] = self.container_repo_dir
             config["environment"]["pull_timeout"] = self._environment_pull_timeout
 
             self.env = get_sb_environment(config=config, instance=self._instance)
 
-            result = self.env.execute(
-                command="git rev-parse HEAD", cwd=self.container_repo_dir
-            )
+            result = self.env.execute(command="git rev-parse HEAD", cwd=self.container_repo_dir)
             self.container_base_commit = result["output"].strip()
 
         if self.container_base_commit != self._instance["base_commit"]:
@@ -437,19 +416,19 @@ class SWEBenchEvaluator(Evaluator):
         self,
         subset: str,
         require_submit_for_patch_evaluation: bool = True,
-        max_interactions: Optional[int] = None,
+        max_interactions: int | None = None,
     ) -> None:
         self._subset = subset
         self._require_submit_for_patch_evaluation = require_submit_for_patch_evaluation
         self._max_interactions = max_interactions
         self._dataset: Any = None
-        self._instances_by_id: Dict[str, Dict[str, Any]] = {}
+        self._instances_by_id: dict[str, dict[str, Any]] = {}
 
-    def list_tasks(self) -> List[str]:
+    def list_tasks(self) -> list[str]:
         self._ensure_dataset()
         return list(self._instances_by_id.keys())
 
-    def get_session_kwargs(self, index: SessionIndex) -> Dict[str, Any]:
+    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
         self._ensure_dataset()
         task_id_str = str(index.task_id)
         instance = self._instances_by_id.get(task_id_str)
@@ -464,15 +443,15 @@ class SWEBenchEvaluator(Evaluator):
             "session_id": index.session_id,
         }
 
-    def aggregate_sessions(self, sessions: List[SessionIndex]) -> BenchmarkResults:
-        scores: List[float] = []
+    def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
+        scores: list[float] = []
         session_ids = [s.session_id for s in sessions]
         for paths in self.get_sessions_paths(sessions):
             if not paths.benchmark_results.exists():
                 raise FileNotFoundError(
                     f"Missing results for planned session '{paths.session_id}' at {paths.benchmark_results}"
                 )
-            with open(paths.benchmark_results, "r", encoding="utf-8") as f:
+            with open(paths.benchmark_results, encoding="utf-8") as f:
                 payload = json.load(f)
             scores.append(float(payload.get("score", 0.0)))
 
@@ -494,8 +473,7 @@ class SWEBenchEvaluator(Evaluator):
         instances = list(dataset)
         if not instances:
             raise RuntimeError(
-                f"SWE-bench dataset '{self._subset}' returned 0 instances. "
-                "Check dataset availability and HF auth."
+                f"SWE-bench dataset '{self._subset}' returned 0 instances. Check dataset availability and HF auth."
             )
         self._dataset = instances
         self._instances_by_id = {str(inst["instance_id"]): inst for inst in instances}
@@ -515,7 +493,7 @@ class SWEBenchBenchmark(Benchmark):
     session_class: ClassVar = SWEBenchSession
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    subset: Optional[str] = None
+    subset: str | None = None
     require_submit_for_patch_evaluation: bool = True
     docker_socket: bool = True  # SWE-bench sessions create sibling Docker containers
 
@@ -533,13 +511,11 @@ class SWEBenchBenchmark(Benchmark):
             "require_submit_for_patch_evaluation" in benchmark_cfg
             and "require_submit_for_patch_evaluation" not in self.model_fields_set
         ):
-            self.require_submit_for_patch_evaluation = bool(
-                benchmark_cfg["require_submit_for_patch_evaluation"]
-            )
+            self.require_submit_for_patch_evaluation = bool(benchmark_cfg["require_submit_for_patch_evaluation"])
         if self.max_interactions is None:
             self.max_interactions = session_cfg.get("max_interactions")
 
-    def get_evaluator_kwargs(self) -> Dict[str, Any]:
+    def get_evaluator_kwargs(self) -> dict[str, Any]:
         return {
             "subset": self.subset,
             "require_submit_for_patch_evaluation": self.require_submit_for_patch_evaluation,

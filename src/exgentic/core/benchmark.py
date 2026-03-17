@@ -2,15 +2,14 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 from abc import ABC
-from typing import ClassVar, Dict, Any, List, Type
+from typing import Any, ClassVar, Dict, List, Type
 
 from pydantic import BaseModel, ConfigDict
 
 from ..utils.settings import RunnerName
-
+from .evaluator import Evaluator
 from .runner_mixin import RunnerMixin
 from .session import Session
-from .evaluator import Evaluator
 
 
 class Benchmark(BaseModel, RunnerMixin, ABC):

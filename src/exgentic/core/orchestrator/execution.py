@@ -1,31 +1,30 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
+import json
+import shutil
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextvars import copy_context
 from pathlib import Path
 
-import json
-import shutil
 from filelock import FileLock, Timeout
 
-from ..types import (
-    SessionResults,
-    SessionConfig,
-    SessionExecutionStatus,
-    SessionIndex,
-    SessionOutcomeStatus,
-    SessionStatus,
-)
 from ...adapters.runners import with_runner
 from ...interfaces.registry import load_agent, load_benchmark
 from ...observers.logging import get_disabled_logger
 from ...utils.paths import get_run_paths, get_session_paths
+from ..types import (
+    SessionConfig,
+    SessionExecutionStatus,
+    SessionIndex,
+    SessionOutcomeStatus,
+    SessionResults,
+    SessionStatus,
+)
 from .session import run_session
 from .termination import RunCancelError
 from .tracker import Tracker
-
 
 _BENCHMARK_CACHE: dict[str, type] = {}
 _AGENT_CACHE: dict[str, type] = {}
@@ -176,7 +175,8 @@ def run_session_config(
 
     session_id = session_config.get_session_id()
     index = SessionIndex(
-        task_id=str(session_config.task_id), session_id=session_id,
+        task_id=str(session_config.task_id),
+        session_id=session_id,
     )
 
     try:
@@ -225,9 +225,7 @@ def _run_task_with_lock(
         # If status was sampled while another process held the lock, refresh it
         # after acquiring the lock so cleanup/reuse decisions stay accurate.
         if status.status == SessionExecutionStatus.RUNNING:
-            status = _status_from_paths_without_lock(
-                session_config=session_config, sess_paths=sess_paths
-            )
+            status = _status_from_paths_without_lock(session_config=session_config, sess_paths=sess_paths)
         if _try_reuse_completed(
             status=status,
             session_config=session_config,
@@ -307,11 +305,7 @@ def _execute_sessions_parallel(
                             had_error = True
                             raise
                         except Exception as exc:
-                            session_id = (
-                                session_config.get_session_id()
-                                if session_config is not None
-                                else "unknown"
-                            )
+                            session_id = session_config.get_session_id() if session_config is not None else "unknown"
                             log.exception(
                                 "Session task failed task=%s session=%s",
                                 session_config.task_id if session_config else "unknown",

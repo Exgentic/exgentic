@@ -123,6 +123,5 @@ def get_retriever_url(proxy: Any) -> str:
     if isinstance(transport, HTTPTransport):
         return transport._base_url
     raise ValueError(
-        "Cannot extract URL from non-HTTP retriever. "
-        "Use runner='service' or runner='docker' for the retriever."
+        "Cannot extract URL from non-HTTP retriever. Use runner='service' or runner='docker' for the retriever."
     )

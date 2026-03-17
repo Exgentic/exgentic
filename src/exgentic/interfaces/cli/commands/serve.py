@@ -17,7 +17,7 @@ def serve_cmd(host: str, port: int, object_b64: str, debug: bool) -> None:
     """Serve a pickled object over HTTP."""
     apply_debug_mode(debug)
 
-    from exgentic.core.context import init_context_from_env
+    from ....core.context import init_context_from_env
 
     try:
         init_context_from_env()
@@ -28,7 +28,7 @@ def serve_cmd(host: str, port: int, object_b64: str, debug: bool) -> None:
 
     import cloudpickle as cp
 
-    from exgentic.adapters.runners.service import serve
+    from ....adapters.runners.service import serve
 
     obj = cp.loads(base64.b64decode(object_b64))
     serve(obj, host=host, port=port)

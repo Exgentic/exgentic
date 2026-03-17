@@ -3,7 +3,7 @@
 
 import inspect
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from ..utils.settings import RunnerName, get_settings
 
@@ -36,15 +36,17 @@ class RunnerMixin:
             req = module_dir / "requirements.txt"
             if req.exists():
                 return str(req)
+            if module_dir == module_dir.parent:
+                break  # reached filesystem root
             module_dir = module_dir.parent
         return None
 
-    def runner_kwargs(self) -> Dict[str, Any]:
+    def runner_kwargs(self) -> dict[str, Any]:
         """Return extra kwargs for ``with_runner()`` when runner is docker."""
         runner = self.resolve_runner()
         if runner != "docker":
             return {}
-        kw: Dict[str, Any] = {}
+        kw: dict[str, Any] = {}
         if self.setup_script:
             kw["setup_script"] = self.setup_script
         if self.docker_socket:

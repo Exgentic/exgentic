@@ -101,8 +101,7 @@ class DockerRunner:
         if self._dockerfile:
             tag = f"exgentic-runner-custom:{hash(self._dockerfile) & 0xFFFFFFFF:08x}"
             path = Path(self._dockerfile)
-            _docker("build", "-t", tag, "-f", str(path), str(path.parent),
-                    capture_output=True)
+            _docker("build", "-t", tag, "-f", str(path), str(path.parent), capture_output=True)
             return tag
 
         return self._build_default_image()
@@ -177,8 +176,15 @@ class DockerRunner:
 
         (tmp / "Dockerfile").write_text("\n".join(lines) + "\n")
         result = _docker(
-            "build", "-t", tag, "-f", str(tmp / "Dockerfile"), str(root),
-            check=False, capture_output=True, text=True,
+            "build",
+            "-t",
+            tag,
+            "-f",
+            str(tmp / "Dockerfile"),
+            str(root),
+            check=False,
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             raise RuntimeError(f"Docker build failed:\n{result.stderr}")
@@ -223,6 +229,7 @@ class DockerRunner:
 
         # Forward context env vars into the container.
         from ...core.context import context_env
+
         for k, v in context_env().items():
             run_args.extend(["-e", f"{k}={v}"])
 
@@ -235,13 +242,19 @@ class DockerRunner:
             run_args.extend(["-v", f"{host_path}:{container_path}"])
 
         run_args.extend(self._docker_args)
-        run_args.extend([
-            image,
-            "exgentic", "serve",
-            "--object-b64", payload_b64,
-            "--host", "0.0.0.0",
-            "--port", "8080",
-        ])
+        run_args.extend(
+            [
+                image,
+                "exgentic",
+                "serve",
+                "--object-b64",
+                payload_b64,
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8080",
+            ]
+        )
 
         result = _docker(*run_args, capture_output=True, text=True)
         self._container_id = result.stdout.strip()
@@ -253,14 +266,15 @@ class DockerRunner:
         except TimeoutError:
             cid = self._container_id or ""
             logs = _docker("logs", cid, check=False, capture_output=True, text=True)
-            status = _docker("inspect", "--format", "{{.State.Status}}", cid,
-                             check=False, capture_output=True, text=True)
+            status = _docker(
+                "inspect", "--format", "{{.State.Status}}", cid, check=False, capture_output=True, text=True
+            )
             self._stop_container()
             raise TimeoutError(
                 f"Container did not become healthy within 60s.\n"
                 f"Status: {status.stdout.strip()}\n"
                 f"Logs:\n{logs.stdout}\n{logs.stderr}"
-            )
+            ) from None
 
         transport = HTTPTransport(url)
         proxy = ObjectProxy(transport)
