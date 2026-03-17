@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import gc
 import os
 
 import pytest
@@ -37,3 +38,6 @@ def test_crash_isolation():
         assert calc.add(1, 2) == 3
     finally:
         calc.close()
+        # Force cleanup of multiprocessing resources to avoid interference
+        # with subsequent thread tests (CPython 3.11 bug workaround).
+        gc.collect()
