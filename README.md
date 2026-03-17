@@ -156,17 +156,27 @@ outputs/<run_id>/
 <img src="misc/assets/cli.png" alt="CLI" width="100%"/>
 
 ```bash
+# Discover
 uvx exgentic list benchmarks
 uvx exgentic list subsets --benchmark tau2
 uvx exgentic list tasks --benchmark tau2 --subset retail --limit 5
 uvx exgentic list agents
+uvx exgentic setup --benchmark tau2
 
+# Run
 uvx exgentic evaluate --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10
-uvx exgentic evaluate execute --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10
-uvx exgentic evaluate aggregate --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10
+uvx exgentic batch run --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10
 
+# Inspect
 uvx exgentic status --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10
+uvx exgentic preview --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10
 uvx exgentic results --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10
+
+# Analyze
+uvx exgentic compare --agents tool_calling openai --benchmark tau2
+
+# Explore
+uvx exgentic dashboard
 ```
 
 ---

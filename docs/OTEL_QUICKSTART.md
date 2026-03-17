@@ -16,11 +16,11 @@ podman run -d --name jaeger \
 
 ```bash
 
-pip install -e '.[otel]' 
+uv sync --extra otel
 
-exgentic setup --agent tool_calling 
+uv run exgentic setup --agent tool_calling
 
-exgentic setup --benchmark tau2
+uv run exgentic setup --benchmark tau2
 
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 # typical for self-hosted Jaeger server
 export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf  # or 'grpc'

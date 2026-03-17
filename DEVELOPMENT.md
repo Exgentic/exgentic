@@ -12,7 +12,12 @@ uv sync
 
 ## Setup Benchmarks & Agents
 
-Benchmarks and agents have external dependencies installed via setup scripts:
+Benchmarks and agents declare their dependencies through two mechanisms:
+
+- **`requirements.txt`** — pip packages installed automatically via `uv pip install`
+- **`setup.sh`** — shell script for non-pip setup (apt packages, git clones, data downloads)
+
+Both are auto-discovered next to the benchmark/agent module directory. The `exgentic setup` command runs both:
 
 ```bash
 # Benchmarks
@@ -31,6 +36,17 @@ uv run exgentic setup --agent claude
 uv run exgentic setup --agent codex
 uv run exgentic setup --agent gemini
 ```
+
+### Docker Runner
+
+When using `--set benchmark.runner=docker`, dependencies are installed inside the container automatically — no local setup needed. The Docker runner:
+
+1. Builds an image from the project with `requirements.txt` and `setup.sh` baked in
+2. Serializes the benchmark/agent object via cloudpickle
+3. Starts the container with `exgentic serve --object-b64 <payload>`
+4. Communicates over HTTP via the runner transport layer
+
+Setup scripts can check the `EXGENTIC_DOCKER_BUILD` environment variable to distinguish a Docker build from a local setup (e.g., to skip interactive prompts or large downloads that are handled differently in containers).
 
 ## API Credentials
 
@@ -56,8 +72,11 @@ uv run exgentic evaluate --benchmark tau2 --agent tool_calling --subset retail -
 ## Tests
 
 ```bash
-# Full test suite
-uv run pytest tests/
+# Core tests (no Docker or external services required)
+uv run pytest tests/ --ignore=tests/integrations --ignore=tests/adapters/runners
+
+# Runner/transport tests (includes Docker tests on matching Python version)
+uv run pytest tests/adapters/runners -v -p no:faulthandler
 
 # API-level tests only
 uv run pytest tests/api
@@ -65,6 +84,8 @@ uv run pytest tests/api
 # Skip tests requiring external services
 uv run pytest tests/ -k "not litellm and not mcp"
 ```
+
+The test suite includes **replay tests** that re-run recorded benchmark sessions without any external dependencies. Recordings are stored under `tests/benchmarks/recordings/` and use `ReplayBenchmark` + `ReplayAgent` to verify the execution loop end-to-end.
 
 ## Linting
 
