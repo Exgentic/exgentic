@@ -125,6 +125,7 @@ You can install and use any of these:
 - 📱 **appworld** - Multi-app API environment testing agents' ability to interact with various application interfaces
 - 🌐 **browsecompplus** - Web search and browsing benchmark evaluating information retrieval and navigation capabilities
 - 💻 **swebench** - Software engineering benchmark for resolving real-world GitHub issues in Python repositories
+- 📞 **bfcl** - Berkeley Function Call Leaderboard evaluating function/tool calling accuracy across simple, parallel, multiple, and irrelevance categories
 
 There are two simple example benchmarks:
 - 📚 **hotpotqa** - Multi-hop question answering over Wikipedia requiring reasoning across multiple documents
