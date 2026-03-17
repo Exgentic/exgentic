@@ -44,6 +44,7 @@ class MCPServer:
         log_dir,
         logger: logging.Logger,
         stringify_empty_output: bool = False,
+        enable_dns_rebinding_protection: bool = True,
     ) -> None:
         self._mcp = mcp or self._build_fastmcp()
         self._host = host or "0.0.0.0"
@@ -58,18 +59,20 @@ class MCPServer:
             str(self._mcp_log_dir / "server.log"),
         )
         ts = self._mcp.settings.transport_security
-        ts.allowed_hosts = [
-            *ts.allowed_hosts,
-            "host.containers.internal:*",
-            "host.docker.internal:*",
-            "*.svc.cluster.local:*",
-        ]
-        ts.allowed_origins = [
-            *ts.allowed_origins,
-            "http://host.containers.internal:*",
-            "http://host.docker.internal:*",
-            "http://*.svc.cluster.local:*",
-        ]
+        ts.enable_dns_rebinding_protection = enable_dns_rebinding_protection
+
+        if enable_dns_rebinding_protection:
+            # Add common container/cluster hostnames to allowed lists
+            ts.allowed_hosts = [
+                *ts.allowed_hosts,
+                "host.containers.internal:*",
+                "host.docker.internal:*",
+            ]
+            ts.allowed_origins = [
+                *ts.allowed_origins,
+                "http://host.containers.internal:*",
+                "http://host.docker.internal:*",
+            ]
 
         tool_names: list[str] = []
         if tools:

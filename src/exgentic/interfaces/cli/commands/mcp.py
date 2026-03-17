@@ -52,6 +52,11 @@ from ..options import apply_debug_mode
     type=int,
     help="Port to bind the MCP server to (default: auto-assign)",
 )
+@click.option(
+    "--disable-dns-rebinding-protection",
+    is_flag=True,
+    help="Disable DNS rebinding protection (allows connections from any host)",
+)
 def mcp_cmd(
     debug: bool,
     benchmark: str,
@@ -59,6 +64,7 @@ def mcp_cmd(
     set_values: tuple[str, ...],
     host: str,
     port: int | None,
+    disable_dns_rebinding_protection: bool,
 ) -> None:
     """Start an MCP server with dynamic session management.
 
@@ -406,6 +412,7 @@ def mcp_cmd(
                 log_dir=log_dir,
                 logger=logger,
                 stringify_empty_output=True,
+                enable_dns_rebinding_protection=not disable_dns_rebinding_protection,
             )
 
             server.start()
