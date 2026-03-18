@@ -255,9 +255,12 @@ class DockerRunner:
         if self._docker_socket:
             run_args.extend(["-v", "/var/run/docker.sock:/var/run/docker.sock"])
 
-        # Mount volumes.  Ensure source directories exist — Docker Desktop
-        # on macOS cannot create mount sources in some protected paths.
+        # Mount volumes.  Resolve to absolute paths (Docker requires them)
+        # and ensure source directories exist — Docker Desktop on macOS
+        # cannot create mount sources in some protected paths.
         for host_path, container_path in self._volumes.items():
+            host_path = str(Path(host_path).resolve())
+            container_path = str(Path(container_path).resolve())
             Path(host_path).mkdir(parents=True, exist_ok=True)
             run_args.extend(["-v", f"{host_path}:{container_path}"])
 

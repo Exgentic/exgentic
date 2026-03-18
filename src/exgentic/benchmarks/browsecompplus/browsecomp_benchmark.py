@@ -35,8 +35,6 @@ from .retriever import RetrieverClient, get_retriever_url, get_shared_retriever
 
 if TYPE_CHECKING:
     from .browsecomp_eval import BrowseCompEvaluator
-    from .search_tool_handler import BCPSearchToolHandler
-    from .searcher_cache import SearchDiskCacheSession
 
 # Paper-reported total for the full BrowseCompPlus dataset.
 DEFAULT_TOTAL_TASKS = 830
@@ -215,7 +213,7 @@ class BrowseCompPlusSession(Session):
         return {}
 
     @property
-    def actions(self) -> list["ActionType"]:
+    def actions(self) -> list[ActionType]:
         return self._registry.actions
 
     @property
@@ -234,7 +232,7 @@ class BrowseCompPlusSession(Session):
         self.tool_call_count[action.name] += 1
         self.total_actions_executed += 1
 
-    def step(self, action: "Action") -> Optional["Observation"]:
+    def step(self, action: Action) -> Optional[Observation]:
         if action is None:
             self._done = True
 
