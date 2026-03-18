@@ -66,7 +66,7 @@ class DockerRunner:
     """
 
     _BASE_IMAGE = "python:3.12-slim"
-    _IMAGE_VERSION = "v5"  # bump to invalidate cached images
+    _IMAGE_VERSION = "v6"  # bump to invalidate cached images
 
     def __init__(
         self,
@@ -147,6 +147,7 @@ class DockerRunner:
         # heavy layer is cached across source-code changes.
         lines = [
             f"FROM {self._BASE_IMAGE}",
+            "RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*",
             "RUN pip install --no-cache-dir uv",
             "ENV UV_SYSTEM_PYTHON=true",
             "WORKDIR /app",

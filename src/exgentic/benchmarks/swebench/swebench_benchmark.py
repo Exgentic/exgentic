@@ -10,10 +10,7 @@ import textwrap
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
-import yaml
-from datasets import load_dataset
 from pydantic import BaseModel, ConfigDict, Field
-from swebench.harness.constants import DOCKER_WORKDIR
 
 from ...core import Benchmark
 from ...core.actions import ActionsHandler
@@ -42,6 +39,8 @@ _CONFIG: dict[str, Any] = None
 
 
 def get_config() -> dict[str, Any]:
+    import yaml
+
     global _CONFIG
     if _CONFIG is None:
         path = Path(__file__).parent / "config.yaml"
@@ -152,6 +151,8 @@ class SWEBenchSession(Session):
 
         # Environment (set in start())
         self.env = None
+        from swebench.harness.constants import DOCKER_WORKDIR
+
         self.container_repo_dir = DOCKER_WORKDIR
         self.container_base_commit: str | None = None
 
@@ -385,6 +386,7 @@ class SWEBenchSession(Session):
 
         with capture_stdio_to_session(self.logger):
             import minisweagent
+            import yaml
             from minisweagent.run.extra.swebench import get_sb_environment
 
             config_path = Path(minisweagent.__file__).parent / "config" / "extra" / "swebench.yaml"
@@ -469,6 +471,8 @@ class SWEBenchEvaluator(Evaluator):
             return
         if self._subset is None:
             raise ValueError("subset must be configured for SWE-bench.")
+        from datasets import load_dataset
+
         dataset = load_dataset(self._subset, split="test")
         instances = list(dataset)
         if not instances:

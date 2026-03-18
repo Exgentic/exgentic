@@ -1,19 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
+from __future__ import annotations
+
 import datetime
 import json
 import os
 from collections import defaultdict
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, ClassVar, Literal, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional
 
-import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
-from scripts_evaluation.evaluate_with_openai import (
-    calculate_calibration_error,
-)
 
 from ...core import Benchmark, Session
 from ...core.actions import ActionsHandler
@@ -33,14 +31,12 @@ from ...core.types import (
 )
 from ...utils.cost import CostReport, LiteLLMCostReport
 from ...utils.settings import ExgenticSettings, RunnerName, get_settings
-from .browsecomp_eval import (
-    BrowseCompEvaluator,
-    BrowseCompEvaluatorOpenai,
-    BrowsecompEvaluatorQwen,
-)
 from .retriever import RetrieverClient, get_retriever_url, get_shared_retriever
-from .search_tool_handler import BCPSearchToolHandler
-from .searcher_cache import SearchDiskCacheSession
+
+if TYPE_CHECKING:
+    from .browsecomp_eval import BrowseCompEvaluator
+    from .search_tool_handler import BCPSearchToolHandler
+    from .searcher_cache import SearchDiskCacheSession
 
 # Paper-reported total for the full BrowseCompPlus dataset.
 DEFAULT_TOTAL_TASKS = 830
@@ -125,6 +121,8 @@ class BrowseCompPlusSession(Session):
 
     def _init_retriever_client(self, url: str, searcher_params: dict[str, Any]) -> None:
         """Connect to a shared Retriever service by URL."""
+        from .search_tool_handler import BCPSearchToolHandler
+
         client = RetrieverClient(url)
         self.search_tool_handler = BCPSearchToolHandler(
             searcher=client,
@@ -139,6 +137,7 @@ class BrowseCompPlusSession(Session):
         from searcher.searchers import SearcherType
 
         from .search_service import get_search_service
+        from .search_tool_handler import BCPSearchToolHandler
 
         # Get searcher from singleton service
         search_service = get_search_service()
@@ -337,6 +336,8 @@ class BrowseCompPlusSession(Session):
         )
 
     def get_evaluator(self, eval_model_id):
+        from .browsecomp_eval import BrowseCompEvaluatorOpenai, BrowsecompEvaluatorQwen
+
         if "gpt" in eval_model_id:
             return BrowseCompEvaluatorOpenai(eval_model_id=eval_model_id)
         if eval_model_id == "Qwen/Qwen3-32B":
@@ -368,6 +369,8 @@ class BrowseCompPlusSession(Session):
             self.logger.error(f"Failed to retrieve docids: {result}")
 
     def get_search_result(self, act):
+        from .searcher_cache import SearchDiskCacheSession
+
         args_dict = self.get_arguments_dict(act.arguments)
         searcher_params = self.get_searcher_params()
         search_cache = SearchDiskCacheSession(args_dict["query"], **searcher_params)
@@ -430,6 +433,8 @@ class BrowseCompPlusEvaluator(Evaluator):
         return Path(get_settings().cache_dir).expanduser() / "browsecompplus"
 
     def extract_dataset(self):
+        import pandas as pd
+
         data_path = self.assets_dir / "data" / "browsecomp_plus_decrypted_docids.jsonl"
         if not data_path.exists():
             raise Exception(f"{data_path} does not exist. Run 'exgentic setup --benchmark browsecompplus' first.")
@@ -555,6 +560,8 @@ class BrowseCompPlusEvaluator(Evaluator):
         # calibration error only comupted for a large number of examples
         if len(correctness) >= 100:
             try:
+                from scripts_evaluation.evaluate_with_openai import calculate_calibration_error
+
                 calibration_error = calculate_calibration_error(confidences=confidence_list, correctness=correctness)
             except Exception:
                 print(f"Failed to calculate calibration error for session '{paths.session_id}' at {fp}")

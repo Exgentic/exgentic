@@ -120,6 +120,11 @@ def _parse_set_list(values: tuple[str, ...]) -> list[tuple[str, list[str], Any]]
 def _validate_set_keys_for_benchmark(benchmark: str, items: list[tuple[str, list[str], Any]]) -> None:
     try:
         info = _api().get_benchmark_info(benchmark)
+    except ImportError:
+        # Benchmark has uninstalled deps (e.g. running with runner=docker
+        # before setup on the host).  Skip --set validation; the container
+        # will catch real errors at runtime.
+        return
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
     forbidden = {"num_tasks", "subset"}
@@ -142,6 +147,8 @@ def _validate_set_keys_for_benchmark(benchmark: str, items: list[tuple[str, list
 def _validate_set_keys_for_agent(agent: str, items: list[tuple[str, list[str], Any]]) -> None:
     try:
         info = _api().get_agent_info(agent)
+    except ImportError:
+        return
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
     allowed = set(info.get("kwargs") or [])

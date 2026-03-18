@@ -13,7 +13,6 @@ import threading
 from collections import Counter
 from typing import Any, ClassVar, Literal
 
-from fastmcp import Client
 from pydantic import BaseModel, ConfigDict
 
 from ...adapters.schemas.openai import (
@@ -182,6 +181,8 @@ class HotpotQASession(Session):
             self._mcp_ready.set()
             return
         try:
+            from fastmcp import Client
+
             config = self._mcp_client_config()
             mcp_client = Client(config)
 
@@ -232,6 +233,8 @@ class HotpotQASession(Session):
         return asyncio.run(self.run_mcp_command_async(name, arguments))
 
     async def run_mcp_command_async(self, name, arguments) -> Any:
+        from fastmcp import Client
+
         config = self._mcp_client_config()
         mcp_client = Client(config)
 
