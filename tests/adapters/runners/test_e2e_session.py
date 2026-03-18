@@ -16,7 +16,6 @@ import sys
 import pytest
 from exgentic.adapters.runners import with_runner
 from exgentic.core.types import SessionIndex
-
 from exgentic.testing import (
     BadAction,
     EmptyArgs,

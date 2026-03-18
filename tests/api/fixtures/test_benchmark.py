@@ -2,7 +2,7 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 # Re-export from the installed package so existing tests keep working.
-from exgentic.testing.benchmark import (  # noqa: F401
+from exgentic.testing.benchmark import (
     TestBenchmark,
     TestEvaluator,
     TestSession,

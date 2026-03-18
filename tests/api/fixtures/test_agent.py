@@ -2,7 +2,7 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 # Re-export from the installed package so existing tests keep working.
-from exgentic.testing.agent import (  # noqa: F401
+from exgentic.testing.agent import (
     BAD_ACTION_TYPE,
     FINISH_ACTION_TYPE,
     GOOD_ACTION_TYPE,
