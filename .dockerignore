@@ -1,0 +1,15 @@
+.venv/
+.git/
+outputs/
+__pycache__/
+*.pyc
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.exgentic_cache/
+tests/
+
+# Large benchmark data/assets — not needed in the base Docker image.
+# Benchmarks that need these should use setup_script or volumes instead.
+src/exgentic/benchmarks/browsecompplus/assets/
+src/exgentic/benchmarks/tau2/installation/

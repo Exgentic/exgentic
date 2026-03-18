@@ -1,8 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-# Re-export from the installed package so existing tests keep working.
-from exgentic.testing.agent import (  # noqa: F401
+"""Lightweight test fixtures for integration testing.
+
+These classes are intentionally kept inside the installed package so they
+are available inside Docker containers (where ``tests.*`` is not installed).
+They are *not* registered in the benchmark/agent registry by default.
+"""
+
+from .agent import (
     BAD_ACTION_TYPE,
     FINISH_ACTION_TYPE,
     GOOD_ACTION_TYPE,
@@ -13,6 +19,7 @@ from exgentic.testing.agent import (  # noqa: F401
     TestAgent,
     TestAgentInstance,
 )
+from .benchmark import TestBenchmark, TestEvaluator, TestSession
 
 __all__ = [
     "BAD_ACTION_TYPE",
@@ -24,4 +31,7 @@ __all__ = [
     "GoodAction",
     "TestAgent",
     "TestAgentInstance",
+    "TestBenchmark",
+    "TestEvaluator",
+    "TestSession",
 ]

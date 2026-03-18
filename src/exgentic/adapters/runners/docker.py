@@ -17,6 +17,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,10 @@ import cloudpickle as cp
 
 from .service import HTTPTransport, _wait_for_health
 from .transport import ObjectProxy
+
+# Guard register_pickle_by_value / unregister — they mutate global state
+# and are not thread-safe.
+_PICKLE_LOCK = threading.Lock()
 
 
 def _find_free_port() -> int:
@@ -61,7 +66,7 @@ class DockerRunner:
     """
 
     _BASE_IMAGE = "python:3.12-slim"
-    _IMAGE_VERSION = "v2"  # bump to invalidate cached images
+    _IMAGE_VERSION = "v5"  # bump to invalidate cached images
 
     def __init__(
         self,
@@ -137,41 +142,45 @@ class DockerRunner:
         root = self._find_project_root()
         tmp = Path(tempfile.mkdtemp(prefix="exgentic-docker-"))
 
-        # Build Dockerfile lines.
+        # Build Dockerfile lines.  Build context is the project root.
+        # Dependencies are installed first with a stub package so the
+        # heavy layer is cached across source-code changes.
         lines = [
             f"FROM {self._BASE_IMAGE}",
             "RUN pip install --no-cache-dir uv",
             "ENV UV_SYSTEM_PYTHON=true",
             "WORKDIR /app",
+            # Layer 1 — install dependencies (cached unless pyproject.toml changes).
             "COPY pyproject.toml README.md ./",
+            "RUN mkdir -p src/exgentic && touch src/exgentic/__init__.py",
+            "RUN uv pip install --no-cache .",
+            # Layer 2 — install source code only (fast, deps already cached).
             "COPY src/ src/",
+            "RUN uv pip install --no-cache --no-deps .",
         ]
-        lines.append("RUN uv pip install --no-cache .")
         if self._requirements_txt:
             req_path = Path(self._requirements_txt)
             if req_path.exists():
-                shutil.copy2(req_path, tmp / "requirements.txt")
-                lines.append("COPY requirements.txt /tmp/requirements.txt")
+                # Use absolute path in COPY via the relative path from root.
+                rel = req_path.resolve().relative_to(root.resolve())
+                lines.append(f"COPY {rel} /tmp/requirements.txt")
                 lines.append("RUN uv pip install --no-cache -r /tmp/requirements.txt")
 
         if self._dependencies:
             lines.append(f"RUN uv pip install --no-cache {' '.join(self._dependencies)}")
 
-        # Install Docker CLI if docker_socket is requested.
         if self._docker_socket:
             lines.append(
                 "RUN apt-get update && apt-get install -y --no-install-recommends "
                 "docker.io && rm -rf /var/lib/apt/lists/*"
             )
 
-        # Copy and run the setup script.
         if self._setup_script:
             script_path = Path(self._setup_script)
             if not script_path.exists():
                 raise FileNotFoundError(f"Setup script not found: {self._setup_script}")
-            # Copy the script into the build context.
-            shutil.copy2(script_path, tmp / "setup.sh")
-            lines.append("COPY setup.sh /tmp/setup.sh")
+            rel = script_path.resolve().relative_to(root.resolve())
+            lines.append(f"COPY {rel} /tmp/setup.sh")
             lines.append("RUN EXGENTIC_DOCKER_BUILD=1 bash /tmp/setup.sh")
 
         (tmp / "Dockerfile").write_text("\n".join(lines) + "\n")
@@ -204,41 +213,51 @@ class DockerRunner:
 
         # Pickle the object, registering the module for by-value pickling
         # so cloudpickle embeds the class definition.
+        # The register/unregister calls mutate global cloudpickle state,
+        # so we hold a lock to prevent races when max_workers > 1.
         obj = self._target_cls(*self._args, **self._kwargs)
         cls_module_name = getattr(self._target_cls, "__module__", None)
         cls_module = sys.modules.get(cls_module_name) if cls_module_name else None
 
-        registered = False
-        if cls_module is not None:
-            try:
-                cp.register_pickle_by_value(cls_module)
-                registered = True
-            except Exception:
-                pass
-        try:
-            payload_b64 = base64.b64encode(cp.dumps(obj)).decode("ascii")
-        finally:
-            if registered and cls_module is not None:
+        with _PICKLE_LOCK:
+            registered = False
+            if cls_module is not None:
                 try:
-                    cp.unregister_pickle_by_value(cls_module)
+                    cp.register_pickle_by_value(cls_module)
+                    registered = True
                 except Exception:
                     pass
+            try:
+                payload_b64 = base64.b64encode(cp.dumps(obj)).decode("ascii")
+            finally:
+                if registered and cls_module is not None:
+                    try:
+                        cp.unregister_pickle_by_value(cls_module)
+                    except Exception:
+                        pass
 
         # Build docker run arguments.
         run_args: list[str] = ["run", "-d", "-p", f"{self._port}:8080"]
 
-        # Forward context env vars into the container.
+        # Forward context env vars into the container, resolving paths to
+        # absolute so they match the volume mounts.
         from ...core.context import context_env
 
-        for k, v in context_env().items():
+        env = context_env()
+        for key in ("EXGENTIC_CTX_OUTPUT_DIR", "EXGENTIC_CTX_CACHE_DIR"):
+            if key in env:
+                env[key] = str(Path(env[key]).resolve())
+        for k, v in env.items():
             run_args.extend(["-e", f"{k}={v}"])
 
         # Mount Docker socket for sibling container access.
         if self._docker_socket:
             run_args.extend(["-v", "/var/run/docker.sock:/var/run/docker.sock"])
 
-        # Mount volumes.
+        # Mount volumes.  Ensure source directories exist — Docker Desktop
+        # on macOS cannot create mount sources in some protected paths.
         for host_path, container_path in self._volumes.items():
+            Path(host_path).mkdir(parents=True, exist_ok=True)
             run_args.extend(["-v", f"{host_path}:{container_path}"])
 
         run_args.extend(self._docker_args)
@@ -281,6 +300,10 @@ class DockerRunner:
         runner_ref = self
 
         def _close() -> None:
+            try:
+                transport.call("close")
+            except AttributeError:
+                pass
             transport.close()
             runner_ref._stop_container()
 

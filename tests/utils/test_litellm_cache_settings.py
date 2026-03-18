@@ -46,4 +46,6 @@ def test_run_context_sets_and_restores_cache_env(monkeypatch) -> None:
     ):
         ctx = try_get_context()
         assert ctx is not None
-        assert ctx.cache_dir == "./cache"
+        # Context resolves relative paths to absolute.
+        assert ctx.cache_dir.endswith("/cache")
+        assert not ctx.cache_dir.startswith(".")

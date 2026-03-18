@@ -3,9 +3,13 @@
 
 from __future__ import annotations
 
+import logging
+
 import rich_click as click
 
 from ..options import apply_debug_mode
+
+logger = logging.getLogger(__name__)
 
 
 @click.command("serve")
@@ -17,12 +21,16 @@ def serve_cmd(host: str, port: int, object_b64: str, debug: bool) -> None:
     """Serve a pickled object over HTTP."""
     apply_debug_mode(debug)
 
+    import os
+
     from ....core.context import init_context_from_env
 
     try:
         init_context_from_env()
-    except RuntimeError:
-        pass
+    except RuntimeError as exc:
+        logger.warning("Context init failed: %s", exc)
+        ctx_vars = {k: v for k, v in os.environ.items() if k.startswith("EXGENTIC_CTX")}
+        logger.debug("Context env vars: %s", ctx_vars)
 
     import base64
 

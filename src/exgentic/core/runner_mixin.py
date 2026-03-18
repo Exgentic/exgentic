@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..utils.settings import RunnerName, get_settings
+from .context import try_get_context
 
 
 class RunnerMixin:
@@ -53,7 +54,9 @@ class RunnerMixin:
             kw["docker_socket"] = True
         if self.requirements_txt:
             kw["requirements_txt"] = self.requirements_txt
-        output_dir = str(Path(get_settings().output_dir).resolve())
+        ctx = try_get_context()
+        output_dir = ctx.output_dir if ctx is not None else get_settings().output_dir
+        output_dir = str(Path(output_dir).resolve())
         kw["volumes"] = {output_dir: output_dir}
         return kw
 

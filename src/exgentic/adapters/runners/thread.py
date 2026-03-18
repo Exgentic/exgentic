@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import queue
 import threading
 from typing import Any
@@ -31,7 +32,8 @@ class ThreadTransport(Transport):
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
-        self._thread = threading.Thread(target=self._worker, daemon=True)
+        ctx = contextvars.copy_context()
+        self._thread = threading.Thread(target=ctx.run, args=(self._worker,), daemon=True)
         self._thread.start()
         status, payload = self._resp.get()
         if status == "error":

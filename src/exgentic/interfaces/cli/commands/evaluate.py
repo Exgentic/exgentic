@@ -14,8 +14,6 @@ from ...lib.api import (
     aggregate,
     evaluate,
     execute,
-    get_agent_setup_script_path,
-    get_setup_script_path,
     setup_agent,
     setup_benchmark,
 )
@@ -33,16 +31,11 @@ def _is_docker_runner(set_values: tuple[str, ...]) -> bool:
     return get_settings().default_runner == "docker"
 
 
-def _has_setup_script(name: str, install_type: str) -> bool:
-    """Check if a benchmark/agent has a setup.sh script."""
-    try:
-        if install_type == "benchmark":
-            get_setup_script_path(name)
-        else:
-            get_agent_setup_script_path(name)
-        return True
-    except (ValueError, FileNotFoundError):
-        return False
+def _needs_setup(name: str, install_type: str) -> bool:
+    """Check if a benchmark/agent has a setup.sh or requirements.txt."""
+    from ...lib.api import needs_setup
+
+    return needs_setup(name, install_type)
 
 
 def _ensure_installed(
@@ -55,9 +48,9 @@ def _ensure_installed(
         return
 
     to_setup: list[tuple[str, str]] = []
-    if not is_installed(benchmark, "benchmark") and _has_setup_script(benchmark, "benchmark"):
+    if not is_installed(benchmark, "benchmark") and _needs_setup(benchmark, "benchmark"):
         to_setup.append(("benchmark", benchmark))
-    if not is_installed(agent, "agent") and _has_setup_script(agent, "agent"):
+    if not is_installed(agent, "agent") and _needs_setup(agent, "agent"):
         to_setup.append(("agent", agent))
 
     if not to_setup:

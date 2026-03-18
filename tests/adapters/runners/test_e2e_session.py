@@ -17,14 +17,14 @@ import pytest
 from exgentic.adapters.runners import with_runner
 from exgentic.core.types import SessionIndex
 
-from tests.api.fixtures.test_agent import (
+from exgentic.testing import (
     BadAction,
     EmptyArgs,
     FinishAction,
     GoodAction,
     TestAgent,
+    TestSession,
 )
-from tests.api.fixtures.test_benchmark import TestSession
 
 # Detect Docker availability for conditional tests.
 _docker_available = shutil.which("docker") is not None

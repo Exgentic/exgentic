@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import base64
+import contextvars
 import socket
 import threading
 import time
@@ -208,6 +209,12 @@ class ServiceRunner:
     def start(self) -> ObjectProxy:
         import uvicorn
 
+        from ...core.context import set_context_fallback, try_get_context
+
+        # Set process-wide fallback so context is available in uvicorn's
+        # request handler threads (which don't inherit ContextVar).
+        set_context_fallback(try_get_context())
+
         obj = self._target_cls(*self._args, **self._kwargs)
         app = create_app(ObjectHost(obj))
 
@@ -224,8 +231,13 @@ class ServiceRunner:
         server_ref = self._server
 
         def _close() -> None:
+            try:
+                transport.call("close")
+            except AttributeError:
+                pass
             transport.close()
             server_ref.should_exit = True
+            set_context_fallback(None)
 
         object.__setattr__(proxy, "close", _close)
         return proxy

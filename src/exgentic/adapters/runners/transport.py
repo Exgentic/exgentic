@@ -157,12 +157,18 @@ class ObjectProxy:
             transport.set(name, value)
 
     def close(self) -> None:
+        """Close the remote object, then tear down the transport."""
         transport: Transport = object.__getattribute__(self, "_transport")
+        try:
+            transport.call("close")
+        except AttributeError:
+            pass
         transport.close()
 
     def __del__(self) -> None:
         try:
-            self.close()
+            transport: Transport = object.__getattribute__(self, "_transport")
+            transport.close()
         except Exception:
             pass
 

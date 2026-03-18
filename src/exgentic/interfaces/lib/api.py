@@ -615,6 +615,18 @@ def _setup_env() -> dict[str, str]:
     return env
 
 
+def needs_setup(name: str, kind: str) -> bool:
+    """Return True if a benchmark/agent has a setup.sh or requirements.txt."""
+    entries = get_benchmark_entries() if kind == "benchmark" else get_agent_entries()
+    entry = entries.get(name)
+    if entry is None:
+        return False
+    return (
+        _find_package_file(entry.module, "setup.sh") is not None
+        or _find_package_file(entry.module, "requirements.txt") is not None
+    )
+
+
 def get_setup_script_path(benchmark: str) -> str:
     entries = get_benchmark_entries()
     entry = entries.get(benchmark)
