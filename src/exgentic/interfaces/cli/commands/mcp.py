@@ -241,21 +241,29 @@ def mcp_cmd(
             return delete_session_by_id(session_id)
 
         def evaluate_session_tool(session_id: str) -> dict:
-            """Evaluate a session and return whether it was successful."""
+            """Evaluate a session and return whether it was successful. Closes the session if not done."""
             with sessions_lock:
                 if session_id not in sessions:
                     return {"error": f"No session found with session_id {session_id}"}
 
                 try:
                     sess = sessions[session_id]
+
+                    # Close session if not done yet
+                    if not sess.done():
+                        sess.close()
+
+                    # Evaluate the session
                     score_result = sess.score()
 
                     return {
                         "status": "success",
                         "session_id": session_id,
-                        "evaluation": score_result,
-                        "success": bool(score_result.get("success", False)),
-                        "score": score_result.get("score"),
+                        "success": score_result.success,
+                        "score": score_result.score,
+                        "is_finished": score_result.is_finished,
+                        "session_metrics": score_result.session_metrics,
+                        "session_metadata": score_result.session_metadata,
                     }
                 except Exception as exc:
                     return {"error": f"Failed to evaluate session {session_id}: {exc}"}
