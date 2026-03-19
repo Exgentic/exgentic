@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+from ... import __version__ as exgentic_version
 from ...core.orchestrator.observer import Observer
 from ...core.orchestrator.termination import (
     AgentError,
@@ -28,7 +29,6 @@ from ...core.types import (
     SessionResults,
     SessionScore,
 )
-from ... import __version__ as exgentic_version
 from ...interfaces.registry import get_agent_entries, get_benchmark_entries
 from ...utils.cost import CostReport, accumulate_reports
 from .session_ledger import SessionLedger
