@@ -28,6 +28,7 @@ from ...core.types import (
     SessionResults,
     SessionScore,
 )
+from ... import __version__ as exgentic_version
 from ...interfaces.registry import get_agent_entries, get_benchmark_entries
 from ...utils.cost import CostReport, accumulate_reports
 from .session_ledger import SessionLedger
@@ -469,6 +470,7 @@ class ResultsObserver(Observer):
             skipped_session_ids=skipped_session_ids,
             skipped_session_reasons=skipped_session_reasons,
             missing_result_files=missing_result_files,
+            exgentic_version=exgentic_version,
         )
 
         try:
