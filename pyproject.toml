@@ -78,12 +78,6 @@ include = [
     "src/exgentic/agents/**/setup.sh",
 ]
 
-[tool.hatch.build.targets.wheel.force-include]
-# tau2 data files live under non-package dirs (no __init__.py), so
-# hatch's include globs do not pick them up. force-include maps the
-# whole subtree explicitly.
-"src/exgentic/benchmarks/tau2/installation/tau2-bench/data" = "exgentic/benchmarks/tau2/installation/tau2-bench/data"
-
 [tool.hatch.build.targets.sdist]
 include = [
     "/src",
