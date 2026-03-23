@@ -22,6 +22,7 @@ import json
 import platform
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -89,7 +90,13 @@ _RECORDINGS = _discover_recordings()
         "direct",
         pytest.param(
             "venv",
-            marks=pytest.mark.skipif(not _uv_available, reason="uv CLI not available"),
+            marks=[
+                pytest.mark.skipif(not _uv_available, reason="uv CLI not available"),
+                pytest.mark.skipif(
+                    sys.version_info < (3, 12),
+                    reason="Venv replay tests require Python 3.12+ (CPython 3.11 segfault)",
+                ),
+            ],
         ),
         pytest.param(
             "docker",
