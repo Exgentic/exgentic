@@ -168,7 +168,7 @@ class DockerRunner:
             .get("force-include", {})
         )
         for src_path in force_includes:
-            lines.append(f"RUN mkdir -p {src_path}")
+            lines.append(f"RUN mkdir -p '{src_path}'")
 
         lines.extend(
             [
@@ -265,7 +265,7 @@ class DockerRunner:
         # cannot create mount sources in some protected paths.
         for host_path, container_path in self._volumes.items():
             host_path = str(Path(host_path).resolve())
-            container_path = str(Path(container_path).resolve())
+            container_path = str(Path(container_path)) if Path(container_path).is_absolute() else container_path
             Path(host_path).mkdir(parents=True, exist_ok=True)
             run_args.extend(["-v", f"{host_path}:{container_path}"])
 

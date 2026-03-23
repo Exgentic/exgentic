@@ -190,7 +190,8 @@ def get_context() -> Context:
 
 def try_get_context() -> Context | None:
     """Return the current Context, or None if none is set."""
-    return _CONTEXT.get() or _SUBPROCESS_CONTEXT
+    ctx = _CONTEXT.get()
+    return ctx if ctx is not None else _SUBPROCESS_CONTEXT
 
 
 def context_env() -> dict[str, str]:

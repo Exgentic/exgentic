@@ -172,8 +172,7 @@ class OpenAIMCPAgentInstance(MCPAgentInstance):
                     attach_library_logger_to_handler("agents", file_handler),
                     attach_library_logger_to_handler(__name__, file_handler),
                 ]
-                for name in "agents":
-                    logging.getLogger(name).setLevel(logging.INFO)
+                logging.getLogger("agents").setLevel(logging.INFO)
             await self._check_model_access_once()
 
             # Create custom httpx client factory with extended timeout

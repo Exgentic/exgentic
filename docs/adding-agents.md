@@ -113,21 +113,12 @@ def get_instance_class(cls):
 
 #### `get_instance_kwargs()` (abstract)
 
-Translates the agent's configuration and the benchmark contract into constructor kwargs for the instance class.
+Translates the agent's configuration into constructor kwargs for the instance class. Task, context, and actions are passed separately via `start()`, not through the constructor.
 
 ```python
-def get_instance_kwargs(
-    self,
-    task: str,
-    context: dict[str, Any],
-    actions: list[ActionType],
-    session_id: str,
-) -> dict[str, Any]:
+def get_instance_kwargs(self, session_id: str) -> dict[str, Any]:
     return {
         "session_id": session_id,
-        "task": task,
-        "context": context,
-        "actions": actions,
         "model": self.model,
         "max_steps": self.max_steps,
     }
@@ -158,9 +149,9 @@ def close(self) -> None:
     pass
 ```
 
-#### `start()` (optional)
+#### `start(task, context, actions)` (optional override)
 
-Called after construction but before the first `react()`. Default is a no-op. Override for initialization that depends on runtime context.
+Called after construction but before the first `react()`. Receives the benchmark's task string, context dict, and list of action types. The base implementation stores these as `self.task`, `self.context`, and `self.actions`. Override to perform initialization that depends on these values (e.g., seeding a conversation with the task prompt).
 
 #### `get_cost()` (optional)
 
@@ -265,18 +256,9 @@ class MyAgent(Agent):
     def model_name(self) -> str:
         return self.model
 
-    def get_instance_kwargs(
-        self,
-        task: str,
-        context: dict[str, Any],
-        actions: list[ActionType],
-        session_id: str,
-    ) -> dict[str, Any]:
+    def get_instance_kwargs(self, session_id: str) -> dict[str, Any]:
         return {
             "session_id": session_id,
-            "task": task,
-            "context": context,
-            "actions": actions,
             "model": self.model,
             "max_steps": self.max_steps,
         }

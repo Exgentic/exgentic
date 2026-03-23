@@ -76,11 +76,11 @@ def create_app(host: ObjectHost) -> FastAPI:
     app = FastAPI()
 
     @app.get("/health")
-    async def health():
+    def health():
         return {"status": "ok"}
 
     @app.post("/call")
-    async def handle_call(req: CallRequest) -> RPCResponse:
+    def handle_call(req: CallRequest) -> RPCResponse:
         try:
             result = host.handle("call", req.method, *_decode(req.args), **_decode(req.kwargs))
             return RPCResponse(status="ok", result=_encode(result))
@@ -88,14 +88,14 @@ def create_app(host: ObjectHost) -> FastAPI:
             return _error_response(exc)
 
     @app.post("/get")
-    async def handle_get(req: GetRequest) -> RPCResponse:
+    def handle_get(req: GetRequest) -> RPCResponse:
         try:
             return RPCResponse(status="ok", result=_encode(host.handle("get", req.name)))
         except Exception as exc:
             return _error_response(exc)
 
     @app.post("/set")
-    async def handle_set(req: SetRequest) -> RPCResponse:
+    def handle_set(req: SetRequest) -> RPCResponse:
         try:
             host.handle("set", req.name, _decode(req.value))
             return RPCResponse(status="ok")

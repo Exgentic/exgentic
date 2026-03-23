@@ -233,6 +233,7 @@ class TestDockerSessionE2E:
             out = Path(tempfile.mkdtemp(prefix="exgentic_test_"))
         import os
 
+        old_output_dir = os.environ.get("EXGENTIC_OUTPUT_DIR")
         os.environ["EXGENTIC_OUTPUT_DIR"] = str(out)
         proxy = with_runner(
             DockerSession,
@@ -246,6 +247,10 @@ class TestDockerSessionE2E:
             proxy.close()
         except Exception:
             pass
+        if old_output_dir is None:
+            os.environ.pop("EXGENTIC_OUTPUT_DIR", None)
+        else:
+            os.environ["EXGENTIC_OUTPUT_DIR"] = old_output_dir
         shutil.rmtree(out, ignore_errors=True)
 
     def test_start(self, docker_session):

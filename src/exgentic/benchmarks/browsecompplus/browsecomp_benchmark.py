@@ -350,14 +350,6 @@ class BrowseCompPlusSession(Session):
             return dict(args)
         return str(getattr(args, "value", {}))
 
-    def get_retrieved_docids(self, result: str):
-        try:
-            result = json.loads(result)
-            retrieved_docids = {result.get("docid") for result in result}
-            self.retrieved_docids = self.retrieved_docids | retrieved_docids
-        except json.decoder.JSONDecodeError:
-            self.logger.error(f"Failed to retrieve docids: {result}")
-
     def record_retrieved_docids(self, result: str):
         try:
             result = json.loads(result)
