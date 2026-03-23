@@ -9,15 +9,17 @@ benchmark→session→agent loop works over each runner/transport layer.
 
 from __future__ import annotations
 
+import platform
 import shutil
 import subprocess
-import sys
+import tempfile
+from pathlib import Path
 
 import pytest
 from exgentic.adapters.runners import with_runner
-from exgentic.core.types import SessionIndex
 from exgentic.testing import (
     BadAction,
+    DockerSession,
     EmptyArgs,
     FinishAction,
     GoodAction,
@@ -45,11 +47,11 @@ def runner_name(request):
 def session_proxy(runner_name, tmp_path, monkeypatch):
     """Create a TestSession wrapped in the specified runner."""
     monkeypatch.setenv("EXGENTIC_OUTPUT_DIR", str(tmp_path))
-    index = SessionIndex(task_id="task-1", session_id="sess-e2e-001")
     proxy = with_runner(
         TestSession,
         runner=runner_name,
-        index=index,
+        task_id="task-1",
+        session_id="sess-e2e-001",
         stop_on_step=False,
         invalid_observation=False,
     )
@@ -134,11 +136,13 @@ class TestAgentWithRunnerSession:
 
     def test_good_then_finish_policy(self, session_proxy):
         agent = TestAgent(policy="good_then_finish", finish_after=3)
-        instance = agent.assign(
+        instance = agent.get_instance_class()(
+            **agent.get_instance_kwargs(session_id="sess-e2e-001"),
+        )
+        instance.start(
             task=session_proxy.task,
             context=session_proxy.context,
             actions=session_proxy.actions,
-            session_id="sess-e2e-001",
         )
 
         obs = session_proxy.start()
@@ -157,11 +161,13 @@ class TestAgentWithRunnerSession:
 
     def test_finish_immediately_policy(self, session_proxy):
         agent = TestAgent(policy="finish_immediately")
-        instance = agent.assign(
+        instance = agent.get_instance_class()(
+            **agent.get_instance_kwargs(session_id="sess-e2e-001"),
+        )
+        instance.start(
             task=session_proxy.task,
             context=session_proxy.context,
             actions=session_proxy.actions,
-            session_id="sess-e2e-001",
         )
 
         obs = session_proxy.start()
@@ -203,77 +209,12 @@ class TestStatefulConsistency:
 
 # ── Docker transport (skipped when Docker unavailable) ───────────────
 #
-# TestSession can't be used inside Docker because it imports from
-# ``tests.*`` which isn't installed in the container image.  We define
-# a self-contained ``_DockerSession`` here that only depends on the
-# installed ``exgentic`` package.  cloudpickle embeds the class by value
-# so the container never tries to import ``tests.*``.
-
-
-class _DockerSession:
-    """Minimal session-like object for Docker e2e tests.
-
-    Not a real Session subclass — avoids pulling in Session.__init__
-    which writes files.  We only need the method/property interface that
-    the ObjectProxy will forward over HTTP.
-    """
-
-    def __init__(self, task_id: str, output_dir: str | None = None) -> None:
-        self._task_id = task_id
-        self._done = False
-        self._good = 0
-        self._steps = 0
-        self._output_dir = output_dir
-
-    @property
-    def task_id(self) -> str:
-        return self._task_id
-
-    @property
-    def task(self) -> str:
-        return f"Task {self._task_id}"
-
-    @property
-    def context(self) -> dict:
-        return {"task_id": self._task_id}
-
-    def start(self) -> dict:
-        return {"result": "start"}
-
-    def step(self, action_name: str) -> dict:
-        self._steps += 1
-        if action_name == "good":
-            self._good += 1
-            return {"result": "step"}
-        if action_name == "finish":
-            self._done = True
-            return {"result": "finish"}
-        return {"result": "step"}
-
-    def done(self) -> bool:
-        return self._done
-
-    def score(self) -> dict:
-        total = self._good
-        return {"score": 1.0 if total > 0 else 0.0, "success": self._done and total > 0}
-
-    def write_output(self, filename: str, content: str) -> str:
-        """Write a file to the output dir.  Used to verify volume mounts."""
-        import os
-
-        out = self._output_dir or os.environ.get("EXGENTIC_OUTPUT_DIR", "/tmp")
-        path = os.path.join(out, filename)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
-            f.write(content)
-        return path
-
-    def close(self) -> None:
-        pass
+# Uses DockerSession from exgentic.testing — a minimal session-like
+# object that is part of the installed package and therefore importable
+# inside the Docker container.
 
 
 @pytest.mark.skipif(not _docker_available, reason="Docker not available")
-@pytest.mark.skipif(sys.version_info[:2] != (3, 12), reason="Docker image uses Python 3.12")
 class TestDockerSessionE2E:
     """Full session lifecycle over the Docker transport.
 
@@ -281,13 +222,20 @@ class TestDockerSessionE2E:
     """
 
     @pytest.fixture(scope="class")
-    def docker_session(self, tmp_path_factory):
-        out = tmp_path_factory.mktemp("docker_e2e")
+    def docker_session(self):
+        # Rancher Desktop / Docker Desktop on macOS only share /Users/ by
+        # default via reverse-sshfs.  pytest's tmp_path lives under
+        # /var/folders/ which is NOT shared, so volume mounts silently fail.
+        # Use a temp dir under $HOME to ensure Docker can mount it.
+        if platform.system() == "Darwin":
+            out = Path(tempfile.mkdtemp(prefix=".exgentic_test_", dir=Path.home()))
+        else:
+            out = Path(tempfile.mkdtemp(prefix="exgentic_test_"))
         import os
 
         os.environ["EXGENTIC_OUTPUT_DIR"] = str(out)
         proxy = with_runner(
-            _DockerSession,
+            DockerSession,
             runner="docker",
             task_id="task-1",
             output_dir=str(out),
@@ -298,6 +246,7 @@ class TestDockerSessionE2E:
             proxy.close()
         except Exception:
             pass
+        shutil.rmtree(out, ignore_errors=True)
 
     def test_start(self, docker_session):
         proxy, _ = docker_session

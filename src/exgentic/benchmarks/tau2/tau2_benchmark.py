@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import builtins
+import contextvars
 import json
 import logging
 import os
@@ -257,7 +258,10 @@ class TAU2Session(PairableProxySession):
                 self.unstage_for_pairing()
                 self.logger.debug("TAU2 runner thread finishing")
 
-        t = threading.Thread(target=_runner, daemon=True)
+        # Copy the parent's contextvars so the daemon thread inherits
+        # the exgentic Context (run_id, session_id, output_dir, etc.).
+        ctx_copy = contextvars.copy_context()
+        t = threading.Thread(target=ctx_copy.run, args=(_runner,), daemon=True)
         t.start()
         self._runner_thread = t
 
@@ -399,6 +403,15 @@ class TAU2Session(PairableProxySession):
         return LiteLLMCostReport.initialize_empty(model_name=self._cfg.llm_user)
 
     def score(self) -> SessionScore:
+        # Ensure the results file is in place.  score() may be called before
+        # close() by the framework, so move the tau2 simulation output now.
+        if not Path(self.results_file).exists():
+            t = self._runner_thread
+            if t and t.is_alive():
+                t.join(timeout=30.0)
+            if self.file_path and Path(self.file_path).exists():
+                Path(self.results_file).parent.mkdir(parents=True, exist_ok=True)
+                move(self.file_path, self.results_file)
         res = Results.load(self.results_file)
         if not res.simulations:
             self.logger.error("Tau2 produced no simulations; marking session as failed.")
@@ -642,9 +655,16 @@ class TAU2Benchmark(Benchmark, BaseModel):
     display_name: ClassVar[str] = "Tau Bench 2"
     slug_name: ClassVar[str] = "tau2"
     available_subsets: ClassVar[list[str]] = ["mock", "retail", "airline", "telecom"]
-    evaluator_class: ClassVar = TAU2Evaluator
-    session_class: ClassVar = TAU2Session
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
+
+    @classmethod
+    def get_evaluator_class(cls):
+        return TAU2Evaluator
+
+    @classmethod
+    def get_session_class(cls):
+        return TAU2Session
+
 
     runner: str | None = "direct"  # TAU2Session uses threading queues; can't pickle across processes
     subset: Literal["mock", "retail", "airline", "telecom"] = "retail"

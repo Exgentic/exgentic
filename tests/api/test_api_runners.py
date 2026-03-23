@@ -17,9 +17,12 @@ This catches issues like:
 from __future__ import annotations
 
 import json
+import platform
 import shutil
 import subprocess
 import sys
+import tempfile
+from pathlib import Path
 
 import pytest
 from exgentic import evaluate, execute
@@ -44,6 +47,35 @@ def runner(request):
     return request.param
 
 
+@pytest.fixture(scope="module")
+def _docker_tmpdir():
+    """Module-scoped temp dir for Docker tests under $HOME.
+
+    Rancher Desktop / Docker Desktop on macOS only share ``/Users/`` by
+    default.  pytest's ``tmp_path`` lives under ``/var/folders/`` which
+    is NOT shared, so Docker volume mounts silently fail.
+
+    Using a module-scoped parent dir avoids cleaning up temp dirs between
+    tests, which would break stale logging FileHandlers held by the
+    evaluate framework.
+    """
+    if platform.system() != "Darwin":
+        yield None
+        return
+    d = Path(tempfile.mkdtemp(prefix=".exgentic_test_", dir=Path.home()))
+    yield d
+    shutil.rmtree(d, ignore_errors=True)
+
+
+@pytest.fixture
+def run_tmp(runner, tmp_path, _docker_tmpdir):
+    """Temp path that works with Docker volume mounts on macOS."""
+    if runner != "docker" or _docker_tmpdir is None:
+        return tmp_path
+    d = Path(tempfile.mkdtemp(dir=_docker_tmpdir))
+    return d
+
+
 def _run_config(tmp_path, runner: str, *, num_tasks: int = 2, policy: str = "good_then_finish") -> RunConfig:
     tasks = [f"task-{i}" for i in range(1, num_tasks + 1)]
     return RunConfig(
@@ -60,9 +92,9 @@ def _run_config(tmp_path, runner: str, *, num_tasks: int = 2, policy: str = "goo
     )
 
 
-def test_evaluate_full_flow(tmp_path, runner):
+def test_evaluate_full_flow(run_tmp, runner):
     """Full evaluate (sessions + aggregation) through each runner."""
-    config = _run_config(tmp_path, runner)
+    config = _run_config(run_tmp, runner)
     results = evaluate(config)
 
     assert results.total_sessions == 2
@@ -74,12 +106,12 @@ def test_evaluate_full_flow(tmp_path, runner):
         assert session.success is True
 
 
-def test_result_files_written(tmp_path, runner):
+def test_result_files_written(run_tmp, runner):
     """Verify all expected output files are created through each runner."""
-    config = _run_config(tmp_path, runner, num_tasks=1)
+    config = _run_config(run_tmp, runner, num_tasks=1)
     evaluate(config)
 
-    run_dir = tmp_path / "outputs" / f"run-{runner}"
+    run_dir = run_tmp / "outputs" / f"run-{runner}"
     session_id = config.to_session_config("task-1").get_session_id()
     session_dir = run_dir / "sessions" / session_id
 
@@ -97,11 +129,11 @@ def test_result_files_written(tmp_path, runner):
     assert payload["benchmark_score"] == 1.0
 
 
-def test_execute_then_aggregate(tmp_path, runner):
+def test_execute_then_aggregate(run_tmp, runner):
     """Verify execute-only + aggregate-only works through each runner."""
     from exgentic import aggregate
 
-    config = _run_config(tmp_path, runner, num_tasks=1)
+    config = _run_config(run_tmp, runner, num_tasks=1)
 
     exec_results = execute(config)
     assert exec_results.benchmark_score is None
@@ -111,9 +143,9 @@ def test_execute_then_aggregate(tmp_path, runner):
     assert agg_results.benchmark_score == 1.0
 
 
-def test_unsuccessful_session(tmp_path, runner):
+def test_unsuccessful_session(run_tmp, runner):
     """Agent that finishes immediately scores 0 through each runner."""
-    config = _run_config(tmp_path, runner, num_tasks=1, policy="finish_immediately")
+    config = _run_config(run_tmp, runner, num_tasks=1, policy="finish_immediately")
     results = evaluate(config)
 
     assert results.total_sessions == 1
@@ -122,9 +154,9 @@ def test_unsuccessful_session(tmp_path, runner):
     assert results.session_results[0].success is False
 
 
-def test_parallel_workers(tmp_path, runner):
+def test_parallel_workers(run_tmp, runner):
     """Evaluate with max_workers>1 to test thread-safety of pickling."""
-    config = _run_config(tmp_path, runner, num_tasks=4)
+    config = _run_config(run_tmp, runner, num_tasks=4)
     config = config.model_copy(update={"max_workers": 2})
     results = evaluate(config)
 

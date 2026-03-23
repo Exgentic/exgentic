@@ -11,11 +11,18 @@ Each subdirectory under ``recordings/<benchmark_slug>/`` contains:
 
 The tests use ReplayBenchmark + ReplayAgent + ReplaySession so that
 **no benchmark third-party dependencies** are required.
+
+Tests are parametrized across runners (direct, venv, and docker) to verify
+that isolation runners work end-to-end with benchmark components.
 """
 
 from __future__ import annotations
 
 import json
+import platform
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -25,6 +32,15 @@ from exgentic.interfaces.lib.api import evaluate
 from exgentic.interfaces.registry import AGENTS, BENCHMARKS, RegistryEntry
 
 RECORDINGS_DIR = Path(__file__).parent / "recordings"
+
+# Check runner availability for parametrized tests.
+_uv_available = shutil.which("uv") is not None
+_docker_available = shutil.which("docker") is not None
+if _docker_available:
+    try:
+        subprocess.run(["docker", "info"], check=True, capture_output=True, timeout=5)
+    except Exception:
+        _docker_available = False
 
 
 @pytest.fixture(autouse=True)
@@ -68,24 +84,47 @@ _RECORDINGS = _discover_recordings()
 
 
 @pytest.mark.parametrize(
+    "runner",
+    [
+        "direct",
+        pytest.param(
+            "venv",
+            marks=pytest.mark.skipif(not _uv_available, reason="uv CLI not available"),
+        ),
+        pytest.param(
+            "docker",
+            marks=pytest.mark.skipif(not _docker_available, reason="Docker not available"),
+        ),
+    ],
+)
+@pytest.mark.parametrize(
     "benchmark_slug,recording_dir",
     _RECORDINGS,
     ids=[slug for slug, _ in _RECORDINGS],
 )
-def test_benchmark_replay(benchmark_slug: str, recording_dir: Path, tmp_path: Path):
+def test_benchmark_replay(benchmark_slug: str, recording_dir: Path, tmp_path: Path, runner: str, request):
     """Replay a recorded session using ReplayBenchmark (no real deps needed)."""
+    # Docker volume mounts on macOS only work under /Users/ (Rancher Desktop
+    # / Docker Desktop share that by default).  pytest's tmp_path lives under
+    # /var/folders/ which is NOT shared.
+    if runner == "docker" and platform.system() == "Darwin":
+        out = Path(tempfile.mkdtemp(prefix=".exgentic_test_", dir=Path.home()))
+        request.addfinalizer(lambda: shutil.rmtree(out, ignore_errors=True))
+    else:
+        out = tmp_path
+
     meta = json.loads((recording_dir / "recording.json").read_text())
     task_id = meta["task_id"]
     expected_score = meta.get("expected_score")
 
     agent = ReplayAgent(recording=str(recording_dir))
-    benchmark = ReplayBenchmark(recording_dir=str(recording_dir))
+    benchmark = ReplayBenchmark(recording_dir=str(recording_dir), runner=runner)
 
     results = evaluate(
         benchmark=benchmark,
         agent=agent,
         task_ids=[task_id],
-        output_dir=str(tmp_path / "outputs"),
+        output_dir=str(out / "outputs"),
     )
 
     assert results.total_sessions == 1, f"Expected 1 session, got {results.total_sessions}"

@@ -2,10 +2,9 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 from abc import abstractmethod
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, List, Optional
 
 from ...core import Observation
-from ...core.types import ActionType
 from ..actions.functions import action_type_to_function
 from .coordinator import AgentCoordinator, CoordinatedAgent
 
@@ -13,18 +12,8 @@ from .coordinator import AgentCoordinator, CoordinatedAgent
 class CodeAgentInstance(CoordinatedAgent, AgentCoordinator):
     """Base class for code-based agents that inherits both roles."""
 
-    def __init__(
-        self,
-        session_id: str,
-        task: str,
-        context: Dict[str, Any],
-        actions: List[ActionType],
-    ):
-        self.task = task
-        self.context = context or {}
-        self.actions = actions
+    def __init__(self, session_id: str):
         self.initial_observation: Optional[Observation] = None
-
         # Initialize AgentCoordinator with self as the internal agent
         AgentCoordinator.__init__(self, session_id, self)
 

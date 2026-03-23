@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from exgentic.core.context import run_scope, try_get_context
 from exgentic.core.types import RunConfig
@@ -19,11 +20,11 @@ from exgentic.utils.settings import ExgenticSettings, resolve_cache_path
 
 
 def test_resolve_cache_path_uses_base_dir_for_relative_paths() -> None:
-    assert resolve_cache_path(".exgentic_cache", ".litellm_cache") == ".exgentic_cache/.litellm_cache"
+    assert resolve_cache_path(".exgentic", ".litellm_cache") == ".exgentic/.litellm_cache"
 
 
 def test_resolve_cache_path_keeps_absolute_paths() -> None:
-    assert resolve_cache_path(".exgentic_cache", "/tmp/litellm") == "/tmp/litellm"
+    assert resolve_cache_path(".exgentic", "/tmp/litellm") == "/tmp/litellm"
 
 
 def test_build_litellm_cache_resolves_relative_path_under_cache_dir(tmp_path) -> None:
@@ -55,7 +56,7 @@ def test_run_scope_sets_and_restores_cache_env() -> None:
     ):
         ctx = try_get_context()
         assert ctx is not None
-        assert ctx.cache_dir == "./cache"
+        assert ctx.cache_dir == str(Path("./cache").resolve())
     after = try_get_context()
     if before is None:
         assert after is None

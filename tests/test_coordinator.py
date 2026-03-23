@@ -39,7 +39,7 @@ def shutdown(coord: AgentCoordinator, timeout: float = 2.0):
 def test_basic_handshake():
     internal = ScriptedAgent()
     coord = AgentCoordinator("basic", internal)
-    coord.start()
+    coord.start(task="", context={}, actions=[])
 
     assert internal.ready.wait(timeout=1.0)
 
@@ -78,7 +78,7 @@ class TermAgent(CoordinatedAgent):
 def test_terminal_observation_unblocks():
     internal = TermAgent()
     coord = AgentCoordinator("term", internal)
-    coord.start()
+    coord.start(task="", context={}, actions=[])
 
     assert internal.started.wait(timeout=1.0)
 

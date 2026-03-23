@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
+from ...adapters.runners import with_runner
 from ..context import agent_scope, benchmark_scope, session_scope
 from ..types import SessionConfig
 from .controller import Controller
@@ -33,24 +34,29 @@ def run_session(
 ) -> None:
     """Process a single session.
 
-    The *session* must already be created (e.g. via ``with_runner()``).
+    The *session* and *agent_instance* are created via ``with_runner()``
+    for isolation.
     """
     if tracker is None:
         tracker = Tracker(observers=observers, controllers=controllers)
 
     with session_scope(session.session_id, task_id=session.task_id):
-        agent_instance = agent.assign(
-            task=session.task,
-            context=session.context,
-            actions=session.actions,
-            session_id=session.session_id,
+        agent_instance = with_runner(
+            agent.get_instance_class_ref(),
+            runner=agent.resolve_runner(),
+            **agent.get_instance_kwargs(session_id=session.session_id),
+            **agent.runner_kwargs(),
         )
 
         with benchmark_scope():
             observation = session.start()
 
         with agent_scope():
-            agent_instance.start()
+            agent_instance.start(
+                task=session.task,
+                context=session.context,
+                actions=session.actions,
+            )
 
         try:
             tracker.on_session_start(session, agent_instance, observation)

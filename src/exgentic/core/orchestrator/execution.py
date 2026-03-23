@@ -167,7 +167,7 @@ def run_session_config(
 
     # Create evaluator to obtain session kwargs.
     evaluator = with_runner(
-        benchmark.evaluator_class,
+        benchmark.get_evaluator_class(),
         runner=benchmark.resolve_runner(),
         **benchmark.get_evaluator_kwargs(),
         **benchmark.runner_kwargs(),
@@ -183,7 +183,7 @@ def run_session_config(
         session_kwargs = evaluator.get_session_kwargs(index)
         # Create session via with_runner for isolation.
         session = with_runner(
-            benchmark.session_class,
+            benchmark.get_session_class(),
             runner=benchmark.resolve_runner(),
             **session_kwargs,
             **benchmark.runner_kwargs(),

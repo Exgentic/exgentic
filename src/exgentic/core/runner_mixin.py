@@ -14,6 +14,7 @@ class RunnerMixin:
 
     runner: RunnerName | None
     docker_socket: bool
+    slug_name: str
 
     def resolve_runner(self) -> RunnerName:
         """Resolve the runner name from ``runner`` field or settings default."""
@@ -43,11 +44,24 @@ class RunnerMixin:
         return None
 
     def runner_kwargs(self) -> dict[str, Any]:
-        """Return extra kwargs for ``with_runner()`` when runner is docker."""
+        """Return extra kwargs for ``with_runner()`` when runner is docker or venv."""
         runner = self.resolve_runner()
+
+        if runner == "venv":
+            from ..utils.cache import benchmark_cache_dir
+
+            kw: dict[str, Any] = {}
+            kw["venv_dir"] = str(benchmark_cache_dir(self.slug_name) / "venv")
+            if self.setup_script:
+                kw["setup_script"] = self.setup_script
+            if self.requirements_txt:
+                kw["requirements_txt"] = self.requirements_txt
+            return kw
+
         if runner != "docker":
             return {}
-        kw: dict[str, Any] = {}
+
+        kw = {}
         if self.setup_script:
             kw["setup_script"] = self.setup_script
         if self.docker_socket:

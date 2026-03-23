@@ -21,6 +21,13 @@ class Retriever:
     """
 
     def __init__(self, searcher_type: str, **searcher_args: Any) -> None:
+        # Import torch/safetensors before the searcher module to avoid a
+        # native-library initialisation conflict with FAISS that causes
+        # segfaults on Apple Silicon (faiss_searcher.py imports faiss
+        # before torch at module level).
+        import safetensors  # noqa: F401
+        import torch  # noqa: F401
+
         from searcher.searchers import SearcherType
 
         searcher_class = SearcherType.get_searcher_class(searcher_type)

@@ -107,9 +107,14 @@ class AppWorldSession(Session):
         self._task_id = str(task_id)
 
         # Construct AppWorld in-process (lazy import to defer side effects)
+        from appworld import update_root  # type: ignore
         from appworld.common.constants import DEFAULT_EXPERIMENT_NAME  # type: ignore
         from appworld.common.path_store import path_store  # type: ignore
         from appworld.environment import AppWorld  # type: ignore
+
+        # Point appworld at the correct data directory before loading the task.
+        cache = Path(settings.cache_dir).expanduser()
+        update_root(str(cache / "appworld"))
 
         self._world: AppWorld = AppWorld(task_id=self._task_id, **self._env_kwargs)
         self._experiment_name: str = self._world.experiment_name or DEFAULT_EXPERIMENT_NAME
@@ -630,8 +635,13 @@ class AppWorldBenchmark(Benchmark, BaseModel):
     available_subsets: ClassVar[list[str]] = ["train", "dev", "test_normal"]
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    evaluator_class: ClassVar[type[Evaluator]] = AppWorldEvaluator
-    session_class: ClassVar[type[Session]] = AppWorldSession
+    @classmethod
+    def get_evaluator_class(cls):
+        return AppWorldEvaluator
+
+    @classmethod
+    def get_session_class(cls):
+        return AppWorldSession
 
     # Inputs
     subset: Literal["train", "dev", "test_normal"] = "test_normal"

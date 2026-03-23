@@ -21,9 +21,13 @@ else
     exit 1
 fi
 
-# Build Claude Code container image
-DOCKERFILE_PATH="src/exgentic/agents/dockerfiles/claude_code"
-$CONTAINER_CMD build -t exgentic-claude-code:dev -f "$DOCKERFILE_PATH/Dockerfile" "$DOCKERFILE_PATH"
+# Build Claude Code container image (inline — no external Dockerfile needed)
+$CONTAINER_CMD build -t exgentic-claude-code:dev -f - . <<'DOCKERFILE'
+FROM registry.access.redhat.com/ubi9/nodejs-20
+RUN npm install -g @anthropic-ai/claude-code@2.1.7
+WORKDIR /work
+CMD ["claude","--help"]
+DOCKERFILE
 $CONTAINER_CMD run --rm exgentic-claude-code:dev claude --version
 
 echo "Claude Code Agent setup complete (using $CONTAINER_CMD)"

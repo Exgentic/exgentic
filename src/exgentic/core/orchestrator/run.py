@@ -134,7 +134,7 @@ def core_run(
             bench_cls = load_benchmark(run_config.benchmark)
             benchmark = bench_cls(**(run_config.benchmark_kwargs or {}))
             evaluator = with_runner(
-                benchmark.evaluator_class,
+                benchmark.get_evaluator_class(),
                 runner=benchmark.resolve_runner(),
                 **benchmark.get_evaluator_kwargs(),
                 **benchmark.runner_kwargs(),

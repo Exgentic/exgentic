@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import random
-from typing import Any, ClassVar, Literal, Optional
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel
 
@@ -51,41 +51,6 @@ FINISH_ACTION_TYPE = ActionType(
 )
 
 
-class TestAgent(Agent):
-    __test__ = False
-    display_name: ClassVar[str] = "Test Agent"
-    slug_name: ClassVar[str] = "test_agent"
-
-    seed: int = 0
-    policy: Literal[
-        "random",
-        "good_only",
-        "bad_only",
-        "good_then_finish",
-        "finish_immediately",
-        "return_none",
-        "invalid_action",
-        "raise_error",
-    ] = "random"
-    finish_after: int = 2
-    max_steps: int | None = None
-
-    def assign(
-        self,
-        task: str,
-        context: dict[str, Any],
-        actions: list[ActionType],
-        session_id: str,
-    ) -> TestAgentInstance:
-        return TestAgentInstance(
-            session_id=session_id,
-            seed=self.seed,
-            policy=self.policy,
-            finish_after=self.finish_after,
-            max_steps=self.max_steps,
-        )
-
-
 class TestAgentInstance(AgentInstance):
     __test__ = False
 
@@ -113,7 +78,7 @@ class TestAgentInstance(AgentInstance):
         value = int.from_bytes(digest[:4], "big")
         return random.Random(value)
 
-    def react(self, observation: Optional[SingleObservation]) -> Optional[Action]:
+    def react(self, observation: SingleObservation | None) -> Action | None:
         self._step += 1
         if self._policy == "return_none":
             return None
@@ -141,3 +106,40 @@ class TestAgentInstance(AgentInstance):
 
     def close(self) -> None:
         return None
+
+
+class TestAgent(Agent):
+    __test__ = False
+    display_name: ClassVar[str] = "Test Agent"
+    slug_name: ClassVar[str] = "test_agent"
+    runner: str | None = "direct"  # No external deps — run in host process
+
+    @classmethod
+    def get_instance_class(cls):
+        return TestAgentInstance
+
+    seed: int = 0
+    policy: Literal[
+        "random",
+        "good_only",
+        "bad_only",
+        "good_then_finish",
+        "finish_immediately",
+        "return_none",
+        "invalid_action",
+        "raise_error",
+    ] = "random"
+    finish_after: int = 2
+    max_steps: int | None = None
+
+    def get_instance_kwargs(
+        self,
+        session_id: str,
+    ) -> dict[str, Any]:
+        return {
+            "session_id": session_id,
+            "seed": self.seed,
+            "policy": self.policy,
+            "finish_after": self.finish_after,
+            "max_steps": self.max_steps,
+        }

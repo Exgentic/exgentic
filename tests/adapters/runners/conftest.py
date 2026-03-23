@@ -10,49 +10,12 @@ against the exact same behavioural contract.
 
 from __future__ import annotations
 
-import os
-import threading
-
 import pytest
 from exgentic.adapters.runners import with_runner
+from exgentic.testing.calculator import Calculator, CalculatorError
 
-
-class CalculatorError(Exception):
-    """Custom exception for testing cross-transport error propagation."""
-
-    def __init__(self, message: str, code: int = 0) -> None:
-        super().__init__(message)
-        self.code = code
-
-
-class Calculator:
-    """Dummy target for transport tests."""
-
-    def __init__(self, value: int = 0) -> None:
-        self.value = value
-
-    def add(self, a: int, b: int) -> int:
-        return a + b
-
-    def accumulate(self, n: int) -> int:
-        self.value += n
-        return self.value
-
-    def divide(self, a: int, b: int) -> float:
-        return a / b
-
-    def fail_custom(self) -> None:
-        raise CalculatorError("something went wrong", code=42)
-
-    def thread_id(self) -> int:
-        return threading.get_ident()
-
-    def pid(self) -> int:
-        return os.getpid()
-
-    def echo(self, obj: object) -> object:
-        return obj
-
+# Re-export so existing test imports keep working.
+__all__ = ["Calculator", "CalculatorError"]
 
 # Runners available for the current milestone.
 _AVAILABLE_RUNNERS = ["direct", "thread", "process", "service"]

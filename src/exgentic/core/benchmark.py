@@ -1,22 +1,26 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
+from __future__ import annotations
+
 from abc import ABC
-from typing import Any, ClassVar, Dict, List, Type
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
 from ..utils.settings import RunnerName
-from .evaluator import Evaluator
 from .runner_mixin import RunnerMixin
-from .session import Session
+
+if TYPE_CHECKING:
+    from .evaluator import Evaluator
+    from .session import Session
 
 
 class Benchmark(BaseModel, RunnerMixin, ABC):
     """Benchmark configuration — lightweight config that lives on the host.
 
-    Points to an ``evaluator_class`` (task discovery & aggregation) and
-    a ``session_class`` (task execution). Both can be wrapped with
+    Provides ``get_evaluator_class()`` (task discovery & aggregation) and
+    ``get_session_class()`` (task execution). Both can be wrapped with
     ``with_runner()`` for container isolation.
     """
 
@@ -25,10 +29,6 @@ class Benchmark(BaseModel, RunnerMixin, ABC):
         validate_by_name=True,
         validate_by_alias=True,
     )
-
-    # Subclasses must set these class variables.
-    evaluator_class: ClassVar[Type[Evaluator]]
-    session_class: ClassVar[Type[Session]]
 
     subset: str | None = None
     seed: int = 300
@@ -42,10 +42,28 @@ class Benchmark(BaseModel, RunnerMixin, ABC):
         """Stable subset identifier for this benchmark run."""
         return str(self.subset) if self.subset else "unknown"
 
-    def list_subsets(self) -> List[str]:
+    def list_subsets(self) -> list[str]:
         """Return available subset identifiers for this benchmark."""
         subset = self.subset_name
         return [subset] if subset and subset != "unknown" else []
+
+    @classmethod
+    def get_evaluator_class(cls) -> type[Evaluator]:
+        """Return the Evaluator subclass for this benchmark.
+
+        Subclasses implement this with a lazy import so heavy deps
+        are only loaded inside the runner.
+        """
+        raise NotImplementedError
+
+    @classmethod
+    def get_session_class(cls) -> type[Session]:
+        """Return the Session subclass for this benchmark.
+
+        Subclasses implement this with a lazy import so heavy deps
+        are only loaded inside the runner.
+        """
+        raise NotImplementedError
 
     @classmethod
     def setup(cls) -> None:
@@ -55,7 +73,7 @@ class Benchmark(BaseModel, RunnerMixin, ABC):
         Use ``settings.resolve_cache_path() / "<slug>"`` for data storage.
         """
 
-    def get_evaluator_kwargs(self) -> Dict[str, Any]:
+    def get_evaluator_kwargs(self) -> dict[str, Any]:
         """Return kwargs for constructing the Evaluator.
 
         Subclasses override this to pass benchmark-specific config.

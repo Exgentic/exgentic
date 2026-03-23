@@ -30,7 +30,7 @@ from ...core.types import (
     SingleObservation,
 )
 from ...utils.cost import CostReport, LiteLLMCostReport
-from ...utils.settings import ExgenticSettings, RunnerName, get_settings
+from ...utils.settings import RunnerName, get_settings
 from .retriever import RetrieverClient, get_retriever_url, get_shared_retriever
 
 if TYPE_CHECKING:
@@ -83,13 +83,13 @@ class BrowseCompPlusSession(Session):
 
     def __init__(
         self,
-        settings: ExgenticSettings,
         instance: dict[str, Any],
         searcher_params: dict[str, Any],
         eval_model_id: str = "openai/Azure/gpt-4.1",
         max_interactions: int | None = 100,
         session_id: str | None = None,
         retriever_url: str | None = None,
+        **_kwargs: Any,
     ) -> None:
         if session_id is not None:
             self._session_id = session_id
@@ -498,7 +498,6 @@ class BrowseCompPlusEvaluator(Evaluator):
             raise KeyError(f"Unknown BrowseCompPlus task id '{task_id}'.")
         instance = {"task_id": task_id, **self._task_lookup[task_id]}
         kwargs: dict[str, Any] = {
-            "settings": get_settings(),
             "instance": instance,
             "searcher_params": self._get_searcher_params(),
             "max_interactions": self._max_interactions,
@@ -588,9 +587,16 @@ class BrowseCompPlusEvaluator(Evaluator):
 class BrowseCompPlusBenchmark(Benchmark, BaseModel):
     display_name: ClassVar[str] = "BrowseCompPlus"
     slug_name: ClassVar[str] = "browsecompplus"
-    evaluator_class: ClassVar[type] = BrowseCompPlusEvaluator
-    session_class: ClassVar[type] = BrowseCompPlusSession
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @classmethod
+    def get_evaluator_class(cls):
+        return BrowseCompPlusEvaluator
+
+    @classmethod
+    def get_session_class(cls):
+        return BrowseCompPlusSession
+
     subset: Literal["main"] = "main"
 
     runner: RunnerName | None = "direct"  # Code is threadsafe
@@ -618,7 +624,14 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
         return str(Path(get_settings().cache_dir).expanduser() / "browsecompplus")
 
     def _retriever_runner_kwargs(self) -> dict[str, Any]:
-        """Runner kwargs for the retriever container (setup script + volumes)."""
+        """Runner kwargs for the retriever container (setup script + volumes).
+
+        Only returns Docker-specific kwargs when the retriever actually runs
+        in Docker; for 'service' or 'direct' these would leak into the
+        target class constructor and cause errors.
+        """
+        if self.retriever_runner != "docker":
+            return {}
         kw: dict[str, Any] = {}
         if self.setup_script:
             kw["setup_script"] = self.setup_script
@@ -675,6 +688,10 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
             "max_interactions": self.max_interactions,
             "inference_model": self.inference_model,
         }
+        # Auto-use a shared retriever service for Docker so that session
+        # containers don't each load the heavy search index (OOM).
+        if not self.retriever_runner and self.resolve_runner() == "docker":
+            self.retriever_runner = "service"
         if self.retriever_runner:
             kwargs["retriever_url"] = self._ensure_retriever()
         return kwargs

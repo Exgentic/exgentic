@@ -71,10 +71,23 @@ class ReplayBenchmark(Benchmark):
 
     display_name: ClassVar[str] = "Replay Benchmark"
     slug_name: ClassVar[str] = "replay"
-    evaluator_class: ClassVar[type[Evaluator]] = ReplayEvaluator
-    session_class: ClassVar[type[ReplaySession]] = ReplaySession
-
     recording_dir: str
+
+    @classmethod
+    def get_evaluator_class(cls):
+        return ReplayEvaluator
+
+    @classmethod
+    def get_session_class(cls):
+        return ReplaySession
+
 
     def get_evaluator_kwargs(self) -> dict[str, Any]:
         return {"recording_dir": self.recording_dir}
+
+    def runner_kwargs(self) -> dict[str, Any]:
+        kw = super().runner_kwargs()
+        if self.resolve_runner() == "docker":
+            recording_dir = str(Path(self.recording_dir).resolve())
+            kw.setdefault("volumes", {})[recording_dir] = recording_dir
+        return kw

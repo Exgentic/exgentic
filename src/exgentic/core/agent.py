@@ -1,20 +1,29 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Dict, List
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
 from ..utils.settings import RunnerName
-from .agent_instance import AgentInstance
 from .runner_mixin import RunnerMixin
-from .types import ActionType
 from .types.model_settings import ModelSettings
+
+if TYPE_CHECKING:
+    from .agent_instance import AgentInstance
 
 
 class Agent(BaseModel, RunnerMixin, ABC):
-    """Agent factory - creates AgentInstance objects."""
+    """Agent configuration — lightweight config that lives on the host.
+
+    Provides ``get_instance_class()`` to lazily resolve the execution class,
+    which can be wrapped with ``with_runner()`` for container/venv isolation,
+    mirroring how ``Benchmark`` provides ``get_session_class()`` and
+    ``get_evaluator_class()``.
+    """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -24,16 +33,39 @@ class Agent(BaseModel, RunnerMixin, ABC):
     runner: RunnerName | None = None
     docker_socket: bool = False
 
+    @classmethod
     @abstractmethod
-    def assign(
+    def get_instance_class(cls) -> type[AgentInstance]:
+        """Return the AgentInstance subclass for this agent.
+
+        Subclasses implement this with a lazy import so heavy deps
+        (litellm, smolagents, …) are only loaded inside the runner.
+        """
+        ...
+
+    @classmethod
+    def get_instance_class_ref(cls) -> str:
+        """Return a ``"module:qualname"`` string for the instance class.
+
+        By default calls ``get_instance_class()`` and converts to string.
+        Override in subclasses whose instance module has heavy third-party
+        imports to return the string directly without triggering the import.
+        """
+        klass = cls.get_instance_class()
+        return f"{klass.__module__}:{klass.__qualname__}"
+
+    @abstractmethod
+    def get_instance_kwargs(
         self,
-        task: str,
-        context: Dict[str, Any],
-        actions: List[ActionType],
         session_id: str,
-    ) -> AgentInstance:
-        """Create agent for specific task - agent factory controls instance creation."""
-        pass
+    ) -> dict[str, Any]:
+        """Return kwargs for creating the instance class.
+
+        Task, context, and actions are passed separately via
+        ``AgentInstance.start()`` (through HTTP transport) to avoid
+        OS argument-list size limits.
+        """
+        ...
 
     @classmethod
     def setup(cls) -> None:
@@ -47,7 +79,7 @@ class Agent(BaseModel, RunnerMixin, ABC):
     def model_name(self) -> str:
         return "unknown"
 
-    def get_models_names(self) -> List[str]:
+    def get_models_names(self) -> list[str]:
         name = self.model_name
         if not name or name == "unknown":
             return []

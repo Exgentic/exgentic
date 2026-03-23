@@ -72,12 +72,12 @@ class ClaudeCodeCLI(BaseCLIWrapper):
         mcp_cfg_path = (cfg_root / "mcp.json").absolute()
         self._mcp_config_path = mcp_cfg_path
 
-        # Use host.docker.internal for Docker containers when server binds to 0.0.0.0
+        # Rewrite localhost addresses to host gateway for container runners
         mcp_host = config.mcp_host
-        from ..command_runner import DockerRunner, PodmanRunner
+        from ..command_runner import ContainerRunner
 
-        if isinstance(self.runner, (DockerRunner, PodmanRunner)) and mcp_host == "0.0.0.0":
-            mcp_host = "host.docker.internal"
+        if isinstance(self.runner, ContainerRunner) and mcp_host in ("0.0.0.0", "127.0.0.1", "localhost"):
+            mcp_host = self.runner.host_gateway
 
         mcp_url = f"http://{mcp_host}:{config.mcp_port}/mcp"
         self._write_mcp_config(mcp_cfg_path, mcp_url)
@@ -88,7 +88,6 @@ class ClaudeCodeCLI(BaseCLIWrapper):
             raise RuntimeError(f"Failed to write MCP config to {mcp_cfg_path}")
 
         cmd: list[str] = [
-            "npx",
             "claude",
             "-p",  # print mode, single-shot
             "--model",
@@ -140,3 +139,10 @@ class ClaudeCodeCLI(BaseCLIWrapper):
         settings_path.parent.mkdir(parents=True, exist_ok=True)
         with open(settings_path, "w", encoding="utf-8") as fh:
             json.dump(settings, fh, indent=2)
+
+        # Pre-create directories that the Claude Code CLI expects to write
+        # into.  When running inside a container with ``--user``, the
+        # mounted volume may have restrictive ownership so the CLI cannot
+        # create these itself.
+        for subdir in ("debug", "conversations", "projects", "todos"):
+            (home_dir / ".claude" / subdir).mkdir(parents=True, exist_ok=True)

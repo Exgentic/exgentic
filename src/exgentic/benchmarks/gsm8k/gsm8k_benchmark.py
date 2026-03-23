@@ -330,9 +330,16 @@ class GSM8kEvaluator(Evaluator):
 class GSM8kBenchmark(Benchmark, BaseModel):
     display_name: ClassVar[str] = "GSM8k"
     slug_name: ClassVar[str] = "gsm8k"
-    evaluator_class: ClassVar[type] = GSM8kEvaluator
-    session_class: ClassVar[type] = GSM8kSession
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @classmethod
+    def get_evaluator_class(cls):
+        return GSM8kEvaluator
+
+    @classmethod
+    def get_session_class(cls):
+        return GSM8kSession
+
     subset: Literal["main"] = "main"
     include_calculator_tool: bool = True
     runner: RunnerName | None = "direct"  # Code is threadsafe

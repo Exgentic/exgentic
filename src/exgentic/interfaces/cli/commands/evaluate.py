@@ -20,15 +20,27 @@ from ...lib.api import (
 from ..options import add_run_options, has_run_options, run_with
 
 
-def _is_docker_runner(set_values: tuple[str, ...]) -> bool:
-    """Check if the runner is docker (via --set or global settings)."""
+def _is_isolated_runner(set_values: tuple[str, ...]) -> bool:
+    """Check if the runner is docker or venv (via --set or global settings)."""
+    isolated = {"docker", "venv"}
     for item in set_values:
         if "=" not in item:
             continue
         key, val = item.split("=", 1)
-        if key in ("benchmark.runner", "settings.default_runner") and val.strip("\"'") == "docker":
+        if key in ("benchmark.runner", "agent.runner", "settings.default_runner") and val.strip("\"'") in isolated:
             return True
-    return get_settings().default_runner == "docker"
+    return get_settings().default_runner in isolated
+
+
+def _get_runner_from_set(set_values: tuple[str, ...]) -> str | None:
+    """Extract the runner name from --set values, if specified."""
+    for item in set_values:
+        if "=" not in item:
+            continue
+        key, val = item.split("=", 1)
+        if key in ("benchmark.runner", "agent.runner", "settings.default_runner"):
+            return val.strip("\"'")
+    return None
 
 
 def _needs_setup(name: str, install_type: str) -> bool:
@@ -43,10 +55,11 @@ def _ensure_installed(
     agent: str,
     set_values: tuple[str, ...],
 ) -> None:
-    """Prompt to auto-setup benchmark/agent if not installed (skip for docker)."""
-    if _is_docker_runner(set_values):
-        return
+    """Ensure benchmark/agent are set up.
 
+    For isolated runners (docker/venv), setup runs automatically without prompting.
+    For other runners, the user is prompted to confirm.
+    """
     to_setup: list[tuple[str, str]] = []
     if not is_installed(benchmark, "benchmark") and _needs_setup(benchmark, "benchmark"):
         to_setup.append(("benchmark", benchmark))
@@ -56,14 +69,18 @@ def _ensure_installed(
     if not to_setup:
         return
 
-    names = ", ".join(f"{t} '{n}'" for t, n in to_setup)
-    if not click.confirm(f"{names} not set up. Install now?", default=True):
-        raise click.Abort()
+    # Isolated runners (docker/venv): auto-setup silently.  Others: prompt user.
+    if not _is_isolated_runner(set_values):
+        names = ", ".join(f"{t} '{n}'" for t, n in to_setup)
+        if not click.confirm(f"{names} not set up. Install now?", default=True):
+            raise click.Abort()
+
+    runner = _get_runner_from_set(set_values) or get_settings().default_runner
     for install_type, name in to_setup:
         if install_type == "benchmark":
-            setup_benchmark(name)
+            setup_benchmark(name, runner=runner)
         else:
-            setup_agent(name)
+            setup_agent(name, runner=runner)
 
 
 def _load_config_file(path: str) -> dict:
@@ -372,8 +389,8 @@ def evaluate_session_cmd(
 
 
 __all__ = [
+    "evaluate_aggregate_cmd",
     "evaluate_cmd",
     "evaluate_execute_cmd",
-    "evaluate_aggregate_cmd",
     "evaluate_session_cmd",
 ]

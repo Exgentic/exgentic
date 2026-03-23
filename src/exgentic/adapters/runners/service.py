@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import base64
-import socket
 import threading
 import time
 from typing import Any, Optional
@@ -77,11 +76,11 @@ def create_app(host: ObjectHost) -> FastAPI:
     app = FastAPI()
 
     @app.get("/health")
-    def health():
+    async def health():
         return {"status": "ok"}
 
     @app.post("/call")
-    def handle_call(req: CallRequest) -> RPCResponse:
+    async def handle_call(req: CallRequest) -> RPCResponse:
         try:
             result = host.handle("call", req.method, *_decode(req.args), **_decode(req.kwargs))
             return RPCResponse(status="ok", result=_encode(result))
@@ -89,14 +88,14 @@ def create_app(host: ObjectHost) -> FastAPI:
             return _error_response(exc)
 
     @app.post("/get")
-    def handle_get(req: GetRequest) -> RPCResponse:
+    async def handle_get(req: GetRequest) -> RPCResponse:
         try:
             return RPCResponse(status="ok", result=_encode(host.handle("get", req.name)))
         except Exception as exc:
             return _error_response(exc)
 
     @app.post("/set")
-    def handle_set(req: SetRequest) -> RPCResponse:
+    async def handle_set(req: SetRequest) -> RPCResponse:
         try:
             host.handle("set", req.name, _decode(req.value))
             return RPCResponse(status="ok")
@@ -168,12 +167,6 @@ class HTTPTransport(Transport):
 # ── Utilities ────────────────────────────────────────────────────────
 
 
-def _find_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("", 0))
-        return s.getsockname()[1]
-
-
 def _wait_for_health(url: str, timeout: float = 15.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -202,7 +195,9 @@ class ServiceRunner:
         self._target_cls = target_cls
         self._args = args
         self._kwargs = kwargs
-        self._port = port or _find_free_port()
+        from ._utils import find_free_port
+
+        self._port = port or find_free_port()
         self._server = None
 
     def start(self) -> ObjectProxy:

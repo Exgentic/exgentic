@@ -6,11 +6,16 @@
 from __future__ import annotations
 
 import builtins
+import inspect
 import traceback
 from abc import ABC, abstractmethod
 from typing import Any
 
 import cloudpickle as cp
+
+# Sentinel returned by ``get`` when the attribute is a bound method.
+# The proxy checks for this to avoid serialising the entire instance.
+CALLABLE_MARKER = {"__exgentic_callable__": True}
 
 # ── Transport interface ──────────────────────────────────────────────
 
@@ -57,7 +62,13 @@ class ObjectHost:
         if op == "call":
             return getattr(self.obj, name)(*args, **kwargs)
         if op == "get":
-            return getattr(self.obj, name)
+            value = getattr(self.obj, name)
+            # Bound methods cannot be reliably serialised (the instance may
+            # contain locks, threads, etc.).  Return a lightweight marker so
+            # the proxy knows to use ``call`` instead.
+            if inspect.ismethod(value) or inspect.isbuiltin(value):
+                return CALLABLE_MARKER
+            return value
         if op == "set":
             setattr(self.obj, name, args[0])
             return None
@@ -140,7 +151,7 @@ class ObjectProxy:
     def __getattr__(self, name: str) -> Any:
         transport: Transport = object.__getattribute__(self, "_transport")
         value = transport.get(name)
-        if callable(value):
+        if isinstance(value, dict) and value.get("__exgentic_callable__"):
 
             def method(*args: Any, **kwargs: Any) -> Any:
                 return transport.call(name, *args, **kwargs)

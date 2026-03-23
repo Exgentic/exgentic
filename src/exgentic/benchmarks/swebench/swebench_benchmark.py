@@ -493,10 +493,16 @@ class SWEBenchBenchmark(Benchmark):
 
     display_name: ClassVar[str] = "SWE-bench"
     slug_name: ClassVar[str] = "swebench"
-    evaluator_class: ClassVar = SWEBenchEvaluator
-    session_class: ClassVar = SWEBenchSession
-
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @classmethod
+    def get_evaluator_class(cls):
+        return SWEBenchEvaluator
+
+    @classmethod
+    def get_session_class(cls):
+        return SWEBenchSession
+
     subset: str | None = None
     require_submit_for_patch_evaluation: bool = True
     docker_socket: bool = True  # SWE-bench sessions create sibling Docker containers

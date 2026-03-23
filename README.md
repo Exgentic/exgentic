@@ -21,10 +21,11 @@ Exgentic is a universal evaluation framework that enables standardized testing o
 
 ## Quick Start
 
-### Prerequisites
+### Installation
 
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/getting-started/installation/)
+```bash
+uv tool install exgentic
+```
 
 ### API Credentials
 
@@ -38,26 +39,26 @@ export ANTHROPIC_API_KEY=...
 
 ```bash
 # List available benchmarks and agents
-uvx exgentic list benchmarks
-uvx exgentic list agents
+exgentic list benchmarks
+exgentic list agents
 
 # Evaluate an agent on a benchmark
-uvx exgentic evaluate --benchmark tau2 --agent tool_calling --subset retail --num-tasks 2 \
+exgentic evaluate --benchmark tau2 --agent tool_calling --subset retail --num-tasks 2 \
   --model gpt-4o \
   --set benchmark.user_simulator_model="gpt-4o"
 ```
 
-Benchmarks and agents are installed automatically on first run. You can also set them up explicitly:
+Benchmarks are automatically set up in an isolated virtual environment on first run — no manual installation needed. You can also set them up explicitly:
 
 ```bash
-uvx exgentic setup --benchmark tau2
-uvx exgentic setup --agent litellm_tool_calling
+exgentic setup --benchmark tau2
+exgentic setup --agent litellm_tool_calling
 ```
 
-When using Docker as the runner (`--set benchmark.runner=docker`), no local setup is needed — dependencies are installed inside the container automatically. You only need Docker installed and running:
+For full container isolation, use the Docker runner (`--set benchmark.runner=docker`). You only need Docker installed and running:
 
 ```bash
-uvx exgentic evaluate --benchmark tau2 --agent tool_calling --subset retail --num-tasks 2 \
+exgentic evaluate --benchmark tau2 --agent tool_calling --subset retail --num-tasks 2 \
   --model gpt-4o \
   --set benchmark.runner=docker \
   --set benchmark.user_simulator_model="gpt-4o"
@@ -91,7 +92,7 @@ For more examples, see the [`examples/`](./examples/) directory.
 ## Available Benchmarks
 
 ```bash
-uvx exgentic list benchmarks
+exgentic list benchmarks
 ```
 
 | Benchmark | Description |
@@ -111,8 +112,8 @@ uvx exgentic list benchmarks
 | **SmolAgents** | HuggingFace SmolAgents framework |
 | **OpenAI MCP** | OpenAI Responses API with MCP tools |
 | **Claude Code** | Anthropic Claude Code agent |
-| **Codex** | OpenAI Codex CLI agent |
-| **Gemini** | Google Gemini CLI agent |
+| **Codex CLI** | OpenAI Codex CLI agent |
+| **Gemini CLI** | Google Gemini CLI agent |
 
 ---
 
@@ -121,7 +122,7 @@ uvx exgentic list benchmarks
 <img src="misc/assets/gui.png" alt="Dashboard" width="100%"/>
 
 ```bash
-uvx exgentic dashboard
+exgentic dashboard
 ```
 
 ---
@@ -157,26 +158,26 @@ outputs/<run_id>/
 
 ```bash
 # Discover
-uvx exgentic list benchmarks
-uvx exgentic list subsets --benchmark tau2
-uvx exgentic list tasks --benchmark tau2 --subset retail --limit 5
-uvx exgentic list agents
-uvx exgentic setup --benchmark tau2
+exgentic list benchmarks
+exgentic list subsets --benchmark tau2
+exgentic list tasks --benchmark tau2 --subset retail --limit 5
+exgentic list agents
+exgentic setup --benchmark tau2
 
 # Run
-uvx exgentic evaluate --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10
-uvx exgentic batch run --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10
+exgentic evaluate --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10
+exgentic batch run --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10
 
 # Inspect
-uvx exgentic status --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10
-uvx exgentic preview --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10
-uvx exgentic results --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10
+exgentic status --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10
+exgentic preview --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10
+exgentic results --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10
 
 # Analyze
-uvx exgentic compare --agents tool_calling openai --benchmark tau2
+exgentic compare --agents tool_calling openai --benchmark tau2
 
 # Explore
-uvx exgentic dashboard
+exgentic dashboard
 ```
 
 ---
@@ -186,7 +187,7 @@ uvx exgentic dashboard
 ### Model Configuration
 
 ```bash
-uvx exgentic evaluate --benchmark tau2 --agent tool_calling --subset retail --num-tasks 2 \
+exgentic evaluate --benchmark tau2 --agent tool_calling --subset retail --num-tasks 2 \
   --set agent.model.temperature=0.2
 ```
 
@@ -195,7 +196,7 @@ Supported fields: `temperature`, `top_p`, `max_tokens`, `reasoning_effort`, `num
 ### Run Limits
 
 ```bash
-uvx exgentic evaluate --benchmark tau2 --agent tool_calling --subset retail --num-tasks 2 \
+exgentic evaluate --benchmark tau2 --agent tool_calling --subset retail --num-tasks 2 \
   --max-steps 100 --max-actions 100
 ```
 

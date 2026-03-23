@@ -281,7 +281,7 @@ class RunConfig(BaseEvaluationConfig):
             bench_cls = load_benchmark(resolved.benchmark)
             benchmark = bench_cls(**(resolved.benchmark_kwargs or {}))
             evaluator = with_runner(
-                benchmark.evaluator_class,
+                benchmark.get_evaluator_class(),
                 runner=benchmark.resolve_runner(),
                 **benchmark.get_evaluator_kwargs(),
                 **benchmark.runner_kwargs(),

@@ -33,12 +33,13 @@ class TestSession(Session):
     def __init__(
         self,
         *,
-        index: SessionIndex,
+        task_id: str,
+        session_id: str,
         stop_on_step: bool,
         invalid_observation: bool,
     ) -> None:
-        self._session_id = index.session_id
-        self._task_id = str(index.task_id)
+        self._session_id = session_id
+        self._task_id = task_id
         self._stop_on_step = stop_on_step
         self._invalid_observation = invalid_observation
         self._done = False
@@ -127,7 +128,8 @@ class TestEvaluator(Evaluator):
 
     def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
         return {
-            "index": index,
+            "task_id": str(index.task_id),
+            "session_id": index.session_id,
             "stop_on_step": self._stop_on_step,
             "invalid_observation": self._invalid_observation,
         }
@@ -156,10 +158,16 @@ class TestBenchmark(Benchmark):
     __test__ = False
     display_name: ClassVar[str] = "Test Benchmark"
     slug_name: ClassVar[str] = "test_benchmark"
-    evaluator_class: ClassVar = TestEvaluator
-    session_class: ClassVar = TestSession
-
     tasks: list[str] = ["task-1", "task-2", "task-3"]  # noqa: RUF012
+
+    @classmethod
+    def get_evaluator_class(cls):
+        return TestEvaluator
+
+    @classmethod
+    def get_session_class(cls):
+        return TestSession
+
     stop_on_step: bool = False
     invalid_observation: bool = False
 

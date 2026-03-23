@@ -37,14 +37,24 @@ uv run exgentic setup --agent codex
 uv run exgentic setup --agent gemini
 ```
 
-### Docker Runner
+### Isolated Runners (venv / docker)
 
-When using `--set benchmark.runner=docker`, dependencies are installed inside the container automatically — no local setup needed. The Docker runner:
+By default, benchmarks run with the `venv` runner, which creates an isolated `uv` virtual environment per benchmark under `.exgentic/<slug>/venv/`. This means **no local setup is needed** — dependencies are installed automatically in the venv on first run.
 
-1. Builds an image from the project with `requirements.txt` and `setup.sh` baked in
-2. Serializes the benchmark/agent object via cloudpickle
-3. Starts the container with `exgentic serve --object-b64 <payload>`
-4. Communicates over HTTP via the runner transport layer
+You can also use the `docker` runner for full container isolation:
+
+```bash
+uv run exgentic evaluate --benchmark tau2 --agent tool_calling --subset retail --num-tasks 2 \
+  --model gpt-4o \
+  --set benchmark.runner=docker \
+  --set benchmark.user_simulator_model="gpt-4o"
+```
+
+Both isolated runners follow the same pattern:
+
+1. Install `requirements.txt` and run `setup.sh` in the isolated environment
+2. Start `exgentic serve --cls <module:Class> --kwargs <json>` inside the venv/container
+3. Communicate over HTTP via the runner transport layer
 
 Setup scripts can check the `EXGENTIC_DOCKER_BUILD` environment variable to distinguish a Docker build from a local setup (e.g., to skip interactive prompts or large downloads that are handled differently in containers).
 

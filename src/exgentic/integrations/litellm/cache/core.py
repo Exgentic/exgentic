@@ -316,7 +316,7 @@ class LLMCache(Cache):
 
 
 def build_litellm_cache(settings: Any) -> Cache:
-    cache_dir = getattr(settings, "cache_dir", ".exgentic_cache")
+    cache_dir = getattr(settings, "cache_dir", ".exgentic")
     litellm_cache_dir = getattr(settings, "litellm_cache_dir", ".litellm_cache")
     return LLMCache(
         type="disk",

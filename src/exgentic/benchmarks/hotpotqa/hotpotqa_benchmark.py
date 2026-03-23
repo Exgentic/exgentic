@@ -37,7 +37,7 @@ from ...core.types import (
     SingleAction,
     SingleObservation,
 )
-from ...utils.settings import ExgenticSettings, RunnerName, get_settings
+from ...utils.settings import RunnerName, get_settings
 
 HOTPOTQA_TOTAL_TASKS = 7405
 
@@ -99,10 +99,10 @@ class HotpotQASession(Session):
 
     def __init__(
         self,
-        settings: ExgenticSettings,
         with_search_tools: bool,
         instance: dict[str, Any],
         session_id: str | None = None,
+        **_kwargs: Any,
     ) -> None:
         if session_id is not None:
             self._session_id = session_id
@@ -115,15 +115,18 @@ class HotpotQASession(Session):
         self._with_search_tools = with_search_tools
         self._registry = ActionsHandler(logger=self.logger)
         self._mcp_ready = threading.Event()
-        self._mcp_failed = False
+        self._mcp_error: BaseException | None = None
 
         self.mcp_thread: threading.Thread | None = None
         if self._with_search_tools:
             self.mcp_thread = threading.Thread(target=self.run_wikipedia_server, daemon=True)
             self.mcp_thread.start()
             ready = self._mcp_ready.wait(timeout=60.0)
-            if not ready or self._mcp_failed:
-                raise RuntimeError("MCP initialization failed or timed out.")
+            if not ready or self._mcp_error is not None:
+                err = self._mcp_error
+                raise RuntimeError(
+                    f"MCP initialization failed or timed out: {err}"
+                ) from err
         else:
             # No search tools requested; skip MCP startup.
             self._mcp_ready.set()
@@ -196,7 +199,7 @@ class HotpotQASession(Session):
                     self._handle_mcp_action,
                 )
         except Exception as e:
-            self._mcp_failed = True
+            self._mcp_error = e
             self.logger.exception(f"Failed to initialize wikipedia-mcp: {e}")
             raise
         finally:
@@ -324,7 +327,6 @@ class HotpotQAEvaluator(Evaluator):
             raise IndexError(f"Task id {index.task_id} out of range for HotpotQA.")
         instance = {"task_id": idx, **self._dataset[idx]}
         return {
-            "settings": get_settings(),
             "with_search_tools": self._with_search_tools,
             "instance": instance,
             "session_id": index.session_id,
@@ -352,9 +354,16 @@ class HotpotQAEvaluator(Evaluator):
 class HotpotQABenchmark(Benchmark, BaseModel):
     display_name: ClassVar[str] = "HotpotQA"
     slug_name: ClassVar[str] = "hotpotqa"
-    evaluator_class: ClassVar[type] = HotpotQAEvaluator
-    session_class: ClassVar[type] = HotpotQASession
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @classmethod
+    def get_evaluator_class(cls):
+        return HotpotQAEvaluator
+
+    @classmethod
+    def get_session_class(cls):
+        return HotpotQASession
+
 
     subset: Literal["distractor"] = "distractor"
     with_search_tools: bool = True

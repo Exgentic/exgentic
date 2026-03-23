@@ -20,10 +20,15 @@ from .agent import (
     TestAgentInstance,
 )
 from .benchmark import TestBenchmark, TestEvaluator, TestSession
+from .calculator import Calculator, CalculatorError
+from .docker_session import DockerSession
 
 __all__ = [
     "BAD_ACTION_TYPE",
     "BadAction",
+    "Calculator",
+    "CalculatorError",
+    "DockerSession",
     "EmptyArgs",
     "FINISH_ACTION_TYPE",
     "FinishAction",

@@ -23,34 +23,7 @@ from typing import Any, ClassVar
 
 from ...core.agent import Agent
 from ...core.agent_instance import AgentInstance
-from ...core.types import Action, ActionType, Observation
-
-
-class ReplayAgent(Agent):
-    """Agent that replays pre-recorded actions from a trajectory file."""
-
-    display_name: ClassVar[str] = "Replay Agent"
-    slug_name: ClassVar[str] = "replay"
-
-    recording: str  # Path to the recording directory (or trajectory.jsonl file)
-
-    def assign(
-        self,
-        task: str,
-        context: dict[str, Any],
-        actions: list[ActionType],
-        session_id: str,
-    ) -> ReplayAgentInstance:
-        recording_path = Path(self.recording)
-        if recording_path.is_file():
-            trajectory_path = recording_path
-        else:
-            trajectory_path = recording_path / "trajectory.jsonl"
-        return ReplayAgentInstance(
-            session_id=session_id,
-            trajectory_path=trajectory_path,
-            action_types=actions,
-        )
+from ...core.types import Action, Observation
 
 
 class ReplayAgentInstance(AgentInstance):
@@ -61,12 +34,15 @@ class ReplayAgentInstance(AgentInstance):
         *,
         session_id: str,
         trajectory_path: Path,
-        action_types: list[ActionType],
     ) -> None:
         super().__init__(session_id=session_id)
-        self._action_types = {at.name: at for at in action_types}
         self._actions = self._load_actions(trajectory_path)
         self._step = 0
+
+    def start(self, task, context, actions):
+        """Receive work payload and build the action_types lookup."""
+        super().start(task, context, actions)
+        self._action_types = {at.name: at for at in self.actions}
 
     @staticmethod
     def _load_actions(trajectory_path: Path) -> list[dict]:
@@ -102,3 +78,30 @@ class ReplayAgentInstance(AgentInstance):
 
     def close(self) -> None:
         pass
+
+
+class ReplayAgent(Agent):
+    """Agent that replays pre-recorded actions from a trajectory file."""
+
+    display_name: ClassVar[str] = "Replay Agent"
+    slug_name: ClassVar[str] = "replay"
+    recording: str  # Path to the recording directory (or trajectory.jsonl file)
+    runner: str | None = "direct"  # No external deps — run in host process
+
+    @classmethod
+    def get_instance_class(cls):
+        return ReplayAgentInstance
+
+    def get_instance_kwargs(
+        self,
+        session_id: str,
+    ) -> dict[str, Any]:
+        recording_path = Path(self.recording)
+        if recording_path.is_file():
+            trajectory_path = recording_path
+        else:
+            trajectory_path = recording_path / "trajectory.jsonl"
+        return {
+            "session_id": session_id,
+            "trajectory_path": trajectory_path,
+        }
