@@ -100,7 +100,13 @@ _RECORDINGS = _discover_recordings()
         ),
         pytest.param(
             "docker",
-            marks=pytest.mark.skipif(not _docker_available, reason="Docker not available"),
+            marks=[
+                pytest.mark.skipif(not _docker_available, reason="Docker not available"),
+                pytest.mark.skipif(
+                    sys.version_info < (3, 12),
+                    reason="Docker replay tests require Python 3.12+ (CPython 3.11 segfault)",
+                ),
+            ],
         ),
     ],
 )
