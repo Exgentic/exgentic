@@ -665,7 +665,6 @@ class TAU2Benchmark(Benchmark, BaseModel):
     def get_session_class(cls):
         return TAU2Session
 
-
     runner: str | None = "direct"  # TAU2Session uses threading queues; can't pickle across processes
     subset: Literal["mock", "retail", "airline", "telecom"] = "retail"
     user_simulator_model: str = "openai/Azure/gpt-4.1"

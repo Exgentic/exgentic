@@ -22,7 +22,7 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
-from exgentic.interfaces.registry import get_agent_entries, get_benchmark_entries, load_agent, load_benchmark
+from exgentic.interfaces.registry import get_agent_entries, get_benchmark_entries, load_agent
 
 
 def test_all_agent_packages_have_init():
@@ -81,16 +81,14 @@ def test_agent_instance_class_ref_is_valid_string():
     (which would defeat the purpose of the string ref).
     """
     entries = get_agent_entries()
-    for slug, entry in entries.items():
+    for slug, _entry in entries.items():
         agent_cls = load_agent(slug)
         ref = agent_cls.get_instance_class_ref()
         assert isinstance(ref, str), (
-            f"Agent '{slug}': get_instance_class_ref() returned "
-            f"{type(ref).__name__}, expected str"
+            f"Agent '{slug}': get_instance_class_ref() returned " f"{type(ref).__name__}, expected str"
         )
         assert ":" in ref, (
-            f"Agent '{slug}': get_instance_class_ref() returned '{ref}', "
-            f"expected 'module:qualname' format"
+            f"Agent '{slug}': get_instance_class_ref() returned '{ref}', " f"expected 'module:qualname' format"
         )
         module_path, qualname = ref.rsplit(":", 1)
         assert module_path, f"Agent '{slug}': empty module path in ref '{ref}'"
@@ -120,8 +118,7 @@ def test_agent_instance_class_ref_module_file_exists():
         # Now resolve the ref module path
         expected_file = src_root / Path(*parts[:-1]) / f"{parts[-1]}.py"
         assert expected_file.exists(), (
-            f"Agent '{slug}': get_instance_class_ref() points to "
-            f"'{module_path}' but {expected_file} does not exist"
+            f"Agent '{slug}': get_instance_class_ref() points to " f"'{module_path}' but {expected_file} does not exist"
         )
 
 

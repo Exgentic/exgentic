@@ -26,6 +26,5 @@ def test_settings_config_creates_required_subdirs(tmp_path):
     # process doesn't need mkdir permissions on .claude/
     for subdir in ("debug", "conversations", "projects", "todos"):
         assert (claude_dir / subdir).is_dir(), (
-            f".claude/{subdir} must be pre-created to avoid "
-            f"EACCES errors in container environments"
+            f".claude/{subdir} must be pre-created to avoid " f"EACCES errors in container environments"
         )

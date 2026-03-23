@@ -81,7 +81,6 @@ class ReplayBenchmark(Benchmark):
     def get_session_class(cls):
         return ReplaySession
 
-
     def get_evaluator_kwargs(self) -> dict[str, Any]:
         return {"recording_dir": self.recording_dir}
 

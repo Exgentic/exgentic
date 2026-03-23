@@ -41,11 +41,25 @@ def serialize_kwargs(kwargs: dict[str, Any]) -> tuple[str, str]:
         return "--kwargs-b64", base64.b64encode(cp.dumps(kwargs)).decode("ascii")
 
 
-_SYSTEM_ENV_BLOCKLIST = frozenset({
-    "PATH", "HOME", "USER", "SHELL", "HOSTNAME", "LANG", "TERM",
-    "PWD", "OLDPWD", "SHLVL", "_", "TMPDIR", "VIRTUAL_ENV",
-    "CONDA_DEFAULT_ENV", "CONDA_PREFIX",
-})
+_SYSTEM_ENV_BLOCKLIST = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "SHELL",
+        "HOSTNAME",
+        "LANG",
+        "TERM",
+        "PWD",
+        "OLDPWD",
+        "SHLVL",
+        "_",
+        "TMPDIR",
+        "VIRTUAL_ENV",
+        "CONDA_DEFAULT_ENV",
+        "CONDA_PREFIX",
+    }
+)
 _PREFIX_BLOCKLIST = ("LC_", "VSCODE_", "UV_", "PIP_")
 
 

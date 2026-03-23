@@ -41,9 +41,7 @@ def _uv(*args: str, check: bool = True, **kwargs: Any) -> subprocess.CompletedPr
     if check and result.returncode != 0:
         stderr = getattr(result, "stderr", "") or ""
         stdout = getattr(result, "stdout", "") or ""
-        raise RuntimeError(
-            f"uv {' '.join(args[:3])} failed (exit {result.returncode}):\n{stderr}\n{stdout}"
-        )
+        raise RuntimeError(f"uv {' '.join(args[:3])} failed (exit {result.returncode}):\n{stderr}\n{stdout}")
     return result
 
 
@@ -117,12 +115,17 @@ class VenvRunner:
 
         venv.mkdir(parents=True, exist_ok=True)
 
-        _uv("venv", str(venv), "--python", f"{sys.version_info.major}.{sys.version_info.minor}",
-             capture_output=True, text=True)
+        _uv(
+            "venv",
+            str(venv),
+            "--python",
+            f"{sys.version_info.major}.{sys.version_info.minor}",
+            capture_output=True,
+            text=True,
+        )
 
         root = find_project_root()
-        _uv("pip", "install", "--python", str(python), "--no-cache", str(root),
-             capture_output=True, text=True)
+        _uv("pip", "install", "--python", str(python), "--no-cache", str(root), capture_output=True, text=True)
 
         return venv
 
@@ -135,12 +138,30 @@ class VenvRunner:
             if req_path.exists():
                 env = os.environ.copy()
                 env["GIT_LFS_SKIP_SMUDGE"] = "1"
-                _uv("pip", "install", "--python", str(python), "--no-cache",
-                     "-r", str(req_path), capture_output=True, text=True, env=env)
+                _uv(
+                    "pip",
+                    "install",
+                    "--python",
+                    str(python),
+                    "--no-cache",
+                    "-r",
+                    str(req_path),
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                )
 
         if self._dependencies:
-            _uv("pip", "install", "--python", str(python), "--no-cache",
-                 *self._dependencies, capture_output=True, text=True)
+            _uv(
+                "pip",
+                "install",
+                "--python",
+                str(python),
+                "--no-cache",
+                *self._dependencies,
+                capture_output=True,
+                text=True,
+            )
 
     def _run_setup_script(self) -> None:
         """Run setup.sh with the venv activated."""
@@ -189,10 +210,14 @@ class VenvRunner:
         cmd = [
             str(exgentic_bin),
             "serve",
-            "--cls", cls_ref,
-            kwargs_flag, kwargs_value,
-            "--host", "127.0.0.1",
-            "--port", str(self._port),
+            "--cls",
+            cls_ref,
+            kwargs_flag,
+            kwargs_value,
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(self._port),
         ]
 
         self._process = subprocess.Popen(

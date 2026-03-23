@@ -692,18 +692,20 @@ def setup_benchmark(benchmark: str, force: bool = False, runner: str | None = No
         if not (venv_path / "bin" / "python").exists():
             venv_path.mkdir(parents=True, exist_ok=True)
             subprocess.run(
-                [uv_bin, "venv", str(venv_path),
-                 "--python", f"{sys.version_info.major}.{sys.version_info.minor}"],
-                check=True, capture_output=True, text=True,
+                [uv_bin, "venv", str(venv_path), "--python", f"{sys.version_info.major}.{sys.version_info.minor}"],
+                check=True,
+                capture_output=True,
+                text=True,
             )
             # Install exgentic into the venv.
             from ...adapters.runners._utils import find_project_root
 
             root = find_project_root()
             subprocess.run(
-                [uv_bin, "pip", "install", "--python", str(venv_path / "bin" / "python"),
-                 "--no-cache", str(root)],
-                check=True, capture_output=True, text=True,
+                [uv_bin, "pip", "install", "--python", str(venv_path / "bin" / "python"), "--no-cache", str(root)],
+                check=True,
+                capture_output=True,
+                text=True,
             )
 
         venv_python = str(venv_path / "bin" / "python")
@@ -765,18 +767,20 @@ def setup_agent(agent: str, force: bool = False, runner: str | None = None) -> N
         if not (venv_path / "bin" / "python").exists():
             venv_path.mkdir(parents=True, exist_ok=True)
             subprocess.run(
-                [uv_bin, "venv", str(venv_path),
-                 "--python", f"{sys.version_info.major}.{sys.version_info.minor}"],
-                check=True, capture_output=True, text=True,
+                [uv_bin, "venv", str(venv_path), "--python", f"{sys.version_info.major}.{sys.version_info.minor}"],
+                check=True,
+                capture_output=True,
+                text=True,
             )
             # Install exgentic into the venv.
             from ...adapters.runners._utils import find_project_root
 
             root = find_project_root()
             subprocess.run(
-                [uv_bin, "pip", "install", "--python", str(venv_path / "bin" / "python"),
-                 "--no-cache", str(root)],
-                check=True, capture_output=True, text=True,
+                [uv_bin, "pip", "install", "--python", str(venv_path / "bin" / "python"), "--no-cache", str(root)],
+                check=True,
+                capture_output=True,
+                text=True,
             )
 
         venv_python = str(venv_path / "bin" / "python")

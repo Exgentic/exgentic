@@ -170,12 +170,14 @@ class DockerRunner:
         for src_path in force_includes:
             lines.append(f"RUN mkdir -p {src_path}")
 
-        lines.extend([
-            "RUN uv pip install --no-cache .",
-            # Layer 2 — install source code only (fast, deps already cached).
-            "COPY src/ src/",
-            "RUN uv pip install --no-cache --no-deps .",
-        ])
+        lines.extend(
+            [
+                "RUN uv pip install --no-cache .",
+                # Layer 2 — install source code only (fast, deps already cached).
+                "COPY src/ src/",
+                "RUN uv pip install --no-cache --no-deps .",
+            ]
+        )
         if self._requirements_txt:
             req_path = Path(self._requirements_txt)
             if req_path.exists():

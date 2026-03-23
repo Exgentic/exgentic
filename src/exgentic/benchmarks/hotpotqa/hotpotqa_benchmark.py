@@ -37,7 +37,7 @@ from ...core.types import (
     SingleAction,
     SingleObservation,
 )
-from ...utils.settings import RunnerName, get_settings
+from ...utils.settings import RunnerName
 
 HOTPOTQA_TOTAL_TASKS = 7405
 
@@ -124,9 +124,7 @@ class HotpotQASession(Session):
             ready = self._mcp_ready.wait(timeout=60.0)
             if not ready or self._mcp_error is not None:
                 err = self._mcp_error
-                raise RuntimeError(
-                    f"MCP initialization failed or timed out: {err}"
-                ) from err
+                raise RuntimeError(f"MCP initialization failed or timed out: {err}") from err
         else:
             # No search tools requested; skip MCP startup.
             self._mcp_ready.set()
@@ -363,7 +361,6 @@ class HotpotQABenchmark(Benchmark, BaseModel):
     @classmethod
     def get_session_class(cls):
         return HotpotQASession
-
 
     subset: Literal["distractor"] = "distractor"
     with_search_tools: bool = True

@@ -27,7 +27,6 @@ class Retriever:
         # before torch at module level).
         import safetensors  # noqa: F401
         import torch  # noqa: F401
-
         from searcher.searchers import SearcherType
 
         searcher_class = SearcherType.get_searcher_class(searcher_type)
