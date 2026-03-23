@@ -42,6 +42,34 @@ class RegistryEntry:
 
 
 BENCHMARKS: dict[str, RegistryEntry] = {
+    "bfcl": RegistryEntry(
+        slug_name="bfcl",
+        display_name="BFCL",
+        module="exgentic.benchmarks.bfcl.bfcl_benchmark",
+        attr="BFCLBenchmark",
+        kind="benchmark",
+        subsets=(
+            "simple_python",
+            "simple_java",
+            "simple_javascript",
+            "multiple",
+            "parallel",
+            "parallel_multiple",
+            "irrelevance",
+            "live_simple",
+            "live_multiple",
+            "live_parallel",
+            "live_parallel_multiple",
+            "live_irrelevance",
+            "live_relevance",
+            "multi_turn_base",
+            "multi_turn_long_context",
+            "multi_turn_miss_func",
+            "multi_turn_miss_param",
+        ),
+        subset_arg="subset",
+        task_id_type="str",
+    ),
     "tau2": RegistryEntry(
         slug_name="tau2",
         display_name="Tau Bench 2",

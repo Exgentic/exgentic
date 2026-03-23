@@ -74,6 +74,7 @@ class RunResults(BaseModel):
     skipped_session_ids: Optional[list[str]] = None
     skipped_session_reasons: Optional[dict[str, str]] = None
     missing_result_files: Optional[list[str]] = None
+    exgentic_version: str | None = None
 
 
 class Integration(BaseModel):
