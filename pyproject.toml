@@ -11,20 +11,20 @@ license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "typing-extensions",
-    "pydantic-settings",
-    "nicegui",
-    "cloudpickle",
-    "diskcache",
-    "filelock",
-    "click>=8.1.7",
-    "json-schema-to-pydantic",
-    "litellm>=1.65.0,!=1.82.7,!=1.82.8",
-    "mcp>=1.24",
+    "typing-extensions>=4,<5",
+    "pydantic-settings>=2,<3",
+    "nicegui>=3,<4",
+    "cloudpickle>=3,<4",
+    "diskcache>=5,<6",
+    "filelock>=3,<4",
+    "click>=8.1.7,<9",
+    "json-schema-to-pydantic>=0.4,<1",
+    "litellm>=1.65.0,!=1.82.7,!=1.82.8,<2",
+    "mcp>=1.24,<2",
     "pydantic>=2.9.2,<3",
-    "python-dotenv",
-    "rich",
-    "rich-click",
+    "python-dotenv>=1,<2",
+    "rich>=13,<14",
+    "rich-click>=1,<2",
 ]
 
 [project.scripts]
@@ -33,18 +33,18 @@ exgentic = "exgentic.interfaces.cli.main:main"
 [project.optional-dependencies]
 # Observability
 otel = [
-    "opentelemetry-api",
-    "opentelemetry-sdk",
-    "opentelemetry-exporter-otlp-proto-http",
-    "opentelemetry-exporter-otlp-proto-grpc",
-    "opentelemetry-semantic-conventions-ai>=0.4.0",
+    "opentelemetry-api>=1,<2",
+    "opentelemetry-sdk>=1,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1,<2",
+    "opentelemetry-exporter-otlp-proto-grpc>=1,<2",
+    "opentelemetry-semantic-conventions-ai>=0.4.0,<1",
 ]
 analysis = [
-    "matplotlib",
-    "numpy",
-    "pandas",
-    "scipy",
-    "statsmodels",
+    "matplotlib>=3,<4",
+    "numpy>=2,<3",
+    "pandas>=3,<4",
+    "scipy>=1,<2",
+    "statsmodels>=0.14,<1",
 ]
 
 # Development
