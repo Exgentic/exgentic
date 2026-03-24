@@ -1,5 +1,8 @@
 # Releasing Exgentic
 
+**Related docs:**
+[docs/](./README.md) · [DEVELOPMENT.md](../DEVELOPMENT.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
+
 ## Release model
 
 Exgentic uses Git tags as the single source of truth for released versions.
@@ -106,3 +109,11 @@ If you created a test tag by mistake, delete it locally before pushing:
 ```bash
 git tag -d v0.2.0
 ```
+
+---
+
+## See also
+
+- [DEVELOPMENT.md](../DEVELOPMENT.md) — local setup and testing
+- [CONTRIBUTING.md](../CONTRIBUTING.md) — PR workflow and legal requirements
+- [docs/](./README.md) — documentation index

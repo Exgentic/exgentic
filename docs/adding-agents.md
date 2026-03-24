@@ -8,6 +8,9 @@ Use these existing adapters as reference points:
 - `src/exgentic/agents/litellm_tool_calling/litellm_tool_calling_agent.py` + `instance.py` (split pattern)
 - `src/exgentic/agents/cli/claude/agent.py` (light pattern, single file)
 
+**Related docs:**
+[docs/](./README.md) · [Adding Benchmarks](./adding-benchmarks.md) · [Custom Models](./custom-models.md) · [Runners](./runners.md) · [Replay Testing](./replay-testing.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
+
 ## Core Principle
 
 The agent adapts to the benchmark contract, not the other way around.
@@ -368,3 +371,14 @@ When in doubt, ask:
 6. Is the configuration surface minimal and explicit?
 
 If the answer to any of those is no, the adapter is probably too coupled or too leaky.
+
+---
+
+## See also
+
+- [Adding Benchmarks](./adding-benchmarks.md) — the other side of the contract
+- [Custom Models](./custom-models.md) — configuring LLM providers and sampling parameters for the `tool_calling` agent
+- [Runners](./runners.md) — how setup.sh and requirements.txt are discovered and executed
+- [Replay Testing](./replay-testing.md) — write end-to-end tests for your agent without API calls
+- [CONTRIBUTING.md](../CONTRIBUTING.md) — PR workflow and legal requirements
+- [docs/](./README.md) — documentation index

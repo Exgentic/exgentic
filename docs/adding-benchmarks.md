@@ -8,6 +8,9 @@ Use these existing adapters as reference points:
 - `src/exgentic/benchmarks/tau2/tau2_benchmark.py`
 - `src/exgentic/benchmarks/bfcl/bfcl_benchmark.py`
 
+**Related docs:**
+[docs/](./README.md) · [Adding Agents](./adding-agents.md) · [Runners](./runners.md) · [Replay Testing](./replay-testing.md) · [Output Format](./output-format.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
+
 ## Core Principle
 
 The benchmark owns the contract.
@@ -299,3 +302,14 @@ When in doubt, ask:
 6. Will this adapter still make sense for a very different kind of Exgentic agent?
 
 If the answer to any of those is no, the adapter is probably too coupled or too misleading.
+
+---
+
+## See also
+
+- [Adding Agents](./adding-agents.md) — the other side of the contract
+- [Runners](./runners.md) — how setup.sh and requirements.txt are discovered and executed
+- [Replay Testing](./replay-testing.md) — write end-to-end tests for your benchmark without API calls
+- [Output Format](./output-format.md) — trajectory.jsonl and results.json schemas
+- [CONTRIBUTING.md](../CONTRIBUTING.md) — PR workflow and legal requirements
+- [docs/](./README.md) — documentation index
