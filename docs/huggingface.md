@@ -22,7 +22,7 @@ LiteLLM routes the call through HuggingFace's inference providers (billed to you
 HuggingFace Jobs run containerized workloads on HF infrastructure (requires Pro/Team/Enterprise).
 
 ```bash
-pip install huggingface_hub
+uv add huggingface_hub
 ```
 
 ```python
