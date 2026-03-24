@@ -31,12 +31,7 @@ dependencies = [
 exgentic = "exgentic.interfaces.cli.main:main"
 
 [project.optional-dependencies]
-smolagents = [
-    "smolagents>=1.13.0",
-]
-openaimacp = [
-    "openai-agents[litellm]"
-]
+# Observability
 otel = [
     "opentelemetry-api",
     "opentelemetry-sdk",
@@ -52,10 +47,7 @@ analysis = [
     "statsmodels",
 ]
 
-cli = [
-    "litellm[proxy]"
-]
-
+# Development
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio",
@@ -80,7 +72,10 @@ version-file = "src/exgentic/_version.py"
 [tool.hatch.build.targets.wheel]
 packages = ["src/exgentic"]
 include = [
+    "src/exgentic/benchmarks/**/requirements.txt",
     "src/exgentic/benchmarks/**/setup.sh",
+    "src/exgentic/agents/**/requirements.txt",
+    "src/exgentic/agents/**/setup.sh",
 ]
 
 [tool.hatch.build.targets.sdist]
@@ -94,4 +89,17 @@ include = [
 [tool.uv]
 override-dependencies = [
   "rich>=13.9.4",
+]
+
+[tool.codespell]
+skip = "tests/benchmarks/recordings/*,uv.lock"
+ignore-words-list = "requestor"
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+pythonpath = ["."]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.1",
 ]

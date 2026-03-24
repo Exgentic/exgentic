@@ -165,6 +165,11 @@ _CONTEXT: contextvars.ContextVar[Context | None] = contextvars.ContextVar(
     default=None,
 )
 
+# Fallback for threads that don't inherit ContextVar (uvicorn thread-pool
+# workers, service runner threads). Set by init_context_from_env() and
+# set_context_fallback().
+_SUBPROCESS_CONTEXT: Context | None = None
+
 _ENV_LOCK = threading.Lock()
 
 
@@ -177,13 +182,16 @@ def get_context() -> Context:
     """Return the current Context. Raises RuntimeError if none is set."""
     ctx = _CONTEXT.get()
     if ctx is None:
+        ctx = _SUBPROCESS_CONTEXT
+    if ctx is None:
         raise RuntimeError("No context set. Use run_scope() or init_context_from_env().")
     return ctx
 
 
 def try_get_context() -> Context | None:
     """Return the current Context, or None if none is set."""
-    return _CONTEXT.get()
+    ctx = _CONTEXT.get()
+    return ctx if ctx is not None else _SUBPROCESS_CONTEXT
 
 
 def context_env() -> dict[str, str]:
@@ -217,6 +225,12 @@ def context_env_scope() -> Iterator[None]:
 def set_context(ctx: Context) -> None:
     """Imperatively set the current context."""
     _CONTEXT.set(ctx)
+
+
+def set_context_fallback(ctx: Context | None) -> None:
+    """Set a process-wide fallback for threads that don't inherit ContextVar."""
+    global _SUBPROCESS_CONTEXT
+    _SUBPROCESS_CONTEXT = ctx
 
 
 # ---------------------------------------------------------------------------
@@ -285,8 +299,10 @@ def benchmark_scope() -> Iterator[Context]:
 
 def init_context_from_env() -> Context:
     """Bootstrap ContextVar from env vars (called once in subprocess / Docker)."""
+    global _SUBPROCESS_CONTEXT
     ctx = Context.from_env()
     _CONTEXT.set(ctx)
+    _SUBPROCESS_CONTEXT = ctx
     return ctx
 
 
@@ -305,7 +321,9 @@ def _resolve_context(
     resolved_run_id = run_id or os.environ.get(_ENV_RUN_ID) or datetime.now().isoformat().replace(":", "--")
     resolved_run_id = sanitize_path_component(resolved_run_id)
     resolved_output_dir = output_dir or os.environ.get(_ENV_OUTPUT_DIR) or settings.output_dir
+    resolved_output_dir = str(Path(resolved_output_dir).resolve())
     resolved_cache_dir = cache_dir or os.environ.get(_ENV_CACHE_DIR) or settings.cache_dir
+    resolved_cache_dir = str(Path(resolved_cache_dir).resolve())
     if overwrite_run:
         run_root = Path(resolved_output_dir) / resolved_run_id
         if run_root.exists():

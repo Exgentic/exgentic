@@ -8,9 +8,8 @@ import json
 import logging
 import operator as op
 import re
-from typing import Any, ClassVar, Literal, Optional
+from typing import Any, ClassVar, Literal
 
-from datasets import load_dataset
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -18,9 +17,9 @@ from pydantic import (
     field_validator,
 )
 
-from ...adapters.executors.executer import make_executer
 from ...core.actions import ActionsHandler, extract_argument
 from ...core.benchmark import Benchmark
+from ...core.evaluator import Evaluator
 from ...core.session import Session
 from ...core.types import (
     Action,
@@ -36,7 +35,7 @@ from ...core.types import (
 )
 from ...observers.logging import get_logger
 from ...utils.paths import get_run_paths
-from ...utils.settings import ExecuterName, ExgenticSettings, get_settings
+from ...utils.settings import ExgenticSettings, RunnerName, get_settings
 
 GSM8K_TOTAL_TASKS = 1319
 
@@ -140,7 +139,7 @@ class GSM8kFinishAction(FinishAction):
 
 
 class GSM8kSession(Session):
-    """GSM8K session for math problem solving."""
+    """Session for GSM8k benchmark evaluation."""
 
     _question: str
     _done: bool
@@ -167,8 +166,9 @@ class GSM8kSession(Session):
             self._registry.add_action(
                 name="calculate_expression",
                 description=(
-                    "Evaluate a mathematical expression using only numbers and basic operators "
-                    "(+, -, *, /, parentheses)."
+                    "Evaluate a mathematical expression using only"
+                    " numbers and basic operators"
+                    " (+, -, *, /, parentheses)."
                 ),
                 action_cls=GSM8kCalculateExpressionAction,
                 handler=self._handle_calculate_expression,
@@ -208,14 +208,14 @@ class GSM8kSession(Session):
     def task_id(self) -> str:
         return str(self._task_id)
 
-    def _to_observation(self, raw: Any, invoking_actions: Optional[list[SingleAction]] = None) -> Observation:
+    def _to_observation(self, raw: Any, invoking_actions: list[SingleAction] | None = None) -> Observation:
         return SingleObservation(invoking_actions=invoking_actions or [], result=raw)
 
-    def start(self) -> Optional[Observation]:
+    def start(self) -> Observation | None:
         # Empty initial observation; question is carried in the task string.
         return EmptyObservation()
 
-    def step(self, action: Action) -> Optional[Observation]:
+    def step(self, action: Action) -> Observation | None:
         if action is None:
             self._done = True
 
@@ -261,45 +261,40 @@ class GSM8kSession(Session):
         return
 
 
-class GSM8kBenchmark(Benchmark, BaseModel):
-    display_name: ClassVar[str] = "GSM8k"
-    slug_name: ClassVar[str] = "gsm8k"
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-    subset: Literal["main"] = "main"
-    include_calculator_tool: bool = True
-    executer: Optional[ExecuterName] = "inprocess"  # Code is threadsafe
+# ── Evaluator ────────────────────────────────────────────────────────
 
-    # Internals
-    _dataset: Any = None
 
-    def list_tasks(self) -> list[str]:  # type: ignore[override]
-        return [str(i) for i in range(GSM8K_TOTAL_TASKS)]
+class GSM8kEvaluator(Evaluator):
+    """Evaluator for GSM8k — task discovery, session kwargs, aggregation."""
+
+    def __init__(self, subset: str = "main", include_calculator_tool: bool = True) -> None:
+        self._subset = subset
+        self._include_calculator_tool = include_calculator_tool
+        self._dataset = None
 
     def _ensure_dataset(self) -> None:
         if self._dataset is None:
+            from datasets import load_dataset
+
             self._dataset = load_dataset("gsm8k", "main")["test"]
 
-    def create_session(self, index: SessionIndex) -> GSM8kSession:
+    def list_tasks(self) -> list[str]:
+        return [str(i) for i in range(GSM8K_TOTAL_TASKS)]
+
+    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
         self._ensure_dataset()
-        task_id = index.task_id
-        idx = int(task_id)
+        idx = int(index.task_id)
         if idx < 0 or idx >= len(self._dataset):
-            raise IndexError(f"Task id {task_id} out of range for GSM8k.")
+            raise IndexError(f"Task id {index.task_id} out of range for GSM8k.")
         instance = {"task_id": idx, **self._dataset[idx]}
-        session_id = index.session_id
-        executer = make_executer(
-            self.executer,
-            GSM8kSession,
-            get_settings(),
-            self.include_calculator_tool,
-            instance,
-            session_id=session_id,
-        )
-        proxy = executer.get_proxy()
-        return proxy  # type: ignore[return-value]
+        return {
+            "settings": get_settings(),
+            "include_calculator_tool": self._include_calculator_tool,
+            "instance": instance,
+            "session_id": index.session_id,
+        }
 
     def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
-        # Aggregate per-session scores written by sessions
         run_logger = _get_run_logger()
         scores: list[float] = []
         for paths in self.get_sessions_paths(sessions):
@@ -307,10 +302,12 @@ class GSM8kBenchmark(Benchmark, BaseModel):
             try:
                 with open(fp, encoding="utf-8-sig") as f:
                     payload = json.load(f)
-                s = float(payload["score"])  # minimal: assume exists
+                s = float(payload["score"])
                 scores.append(s)
-            except FileNotFoundError:
-                raise FileNotFoundError(f"Missing benchmark result for session '{paths.session_id}' at {fp}") from None
+            except FileNotFoundError as err:
+                raise FileNotFoundError(
+                    f"Missing benchmark result for session" f" '{paths.session_id}' at {fp}"
+                ) from err
             except Exception:
                 run_logger.exception(
                     "Failed to load benchmark result for session %s at %s",
@@ -325,3 +322,30 @@ class GSM8kBenchmark(Benchmark, BaseModel):
             score=avg,
             metrics={},
         )
+
+
+# ── Benchmark config ─────────────────────────────────────────────────
+
+
+class GSM8kBenchmark(Benchmark, BaseModel):
+    display_name: ClassVar[str] = "GSM8k"
+    slug_name: ClassVar[str] = "gsm8k"
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @classmethod
+    def get_evaluator_class(cls):
+        return GSM8kEvaluator
+
+    @classmethod
+    def get_session_class(cls):
+        return GSM8kSession
+
+    subset: Literal["main"] = "main"
+    include_calculator_tool: bool = True
+    runner: RunnerName | None = "direct"  # Code is threadsafe
+
+    def get_evaluator_kwargs(self) -> dict[str, Any]:
+        return {
+            "subset": self.subset,
+            "include_calculator_tool": self.include_calculator_tool,
+        }

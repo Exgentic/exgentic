@@ -25,7 +25,8 @@ share/python-wheels/
 MANIFEST
 src/exgentic/_version.py
 
-# Installation tracking
+# Exgentic local data (venvs, caches, installations)
+.exgentic/
 .exgentic_installations/
 
 # Virtual environments
@@ -101,6 +102,7 @@ old_outputs2/
 outputs
 *outputs*
 .litellm_cache
+trace.jsonl
 
 t.*
 node_modules

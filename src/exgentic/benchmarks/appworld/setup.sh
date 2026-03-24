@@ -2,8 +2,6 @@
 set -euo pipefail
 
 # Usage: setup.sh [--no-tests]
-#   --no-tests   Skip running 'appworld verify tests' at the end
-
 RUN_TESTS=true
 for arg in "$@"; do
     case "$arg" in
@@ -12,28 +10,30 @@ for arg in "$@"; do
     esac
 done
 
-# Require Git LFS for bundled assets
 if ! git lfs version >/dev/null 2>&1; then
-  echo "Error: Git LFS not found. Install Git LFS and re-run." >&2
-  exit 1
+  echo "Git LFS not found — attempting to install..."
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update && apt-get install -y --no-install-recommends git-lfs && rm -rf /var/lib/apt/lists/*
+  elif command -v brew >/dev/null 2>&1; then
+    brew install git-lfs
+  else
+    echo "Error: Git LFS not found and no supported package manager. Install Git LFS and re-run." >&2
+    exit 1
+  fi
 fi
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
-export APPWORLD_ROOT="$SCRIPT_DIR"
+APPWORLD_ROOT="${EXGENTIC_CACHE_DIR:-.exgentic}/appworld"
+mkdir -p "$APPWORLD_ROOT"
+export APPWORLD_ROOT
 
 TMPDIR="$(mktemp -d)"
 git lfs install >/dev/null 2>&1 || true
 git clone https://github.com/StonyBrookNLP/appworld.git "$TMPDIR/appworld"
 cd "$TMPDIR/appworld"
-
 git checkout edc960129fa6889c2b381715ecd108982029f6d1
 git lfs pull
 
-if command -v uv >/dev/null 2>&1; then
-    uv pip install .
-else
-    python -m pip install .
-fi
+uv pip install "."
 
 python -m appworld.cli install
 

@@ -1,0 +1,48 @@
+{
+  "task": "Resolve the given issue by editing the repository files directly on a remote machine.\n\nRepository directory on the remote machine: /testbed\n\n## Issue to resolve:\nmakemigrations --check generating migrations is inconsistent with other uses of --check\nDescription\n\t\nTo script a check for missing migrations but without actually intending to create the migrations, it is necessary to use both --check and --dry-run, which is inconsistent with migrate --check and optimizemigration --check, which just exit (after possibly logging a bit).\nI'm suggesting that makemigrations --check should just exit without making migrations.\nThe choice to write the migrations anyway was not discussed AFAICT on ticket:25604 or ​https://groups.google.com/g/django-developers/c/zczdY6c9KSg/m/ZXCXQsGDDAAJ.\nNoticed when reading ​PR to adjust the documentation of migrate --check. I think the current documentation is silent on this question.\n\n\n## Execution Environment & Access (STRICT):\nAll commands are executed on a remote machine that already contains the full\nrepository and all required system dependencies and prerequisites.\n\nThe remote machine is accessible **ONLY** via the `bash` action.\nAll interactions with the filesystem and environment — including reading files,\nediting files, and running scripts — can be performed by definition only by using `bash`.\nEach command is executed in a separate shell invocation; working directory changes\nand environment variables do not persist between commands. Only files written to disk persist.\nAll bash commands are executed with the working directory set to the root of the remote machine (/).\n\n## Instructions:\nYou must fix the issue by directly modifying files in this repository, in place.\n\n**ALL file edits MUST be performed using `bash` commands on the remote machine.**\nExplanations or code snippets in chat are not sufficient.\n\nOnly changes written to files on disk and present in the working tree will be\nincluded in the final patch. Any fix not reflected in repository files is ignored.\n\nMake changes only to non-test source files in a way that is general and consistent\nwith the existing codebase.\n\n## Hard Boundaries:\n- MODIFY ONLY: regular source code files in /testbed\n- DO NOT MODIFY: tests or configuration files (pyproject.toml, setup.cfg, etc.)\n- DO NOT use interactive editors (vi, nano, etc.)\n- DO NOT suggest changes without implementing them\n\n## Patch & Submission Mechanics:\nSubmission captures the entire working tree using:\n\n  `git add -A && git diff --staged C0`\n\nThis means:\n- All intended fixes MUST appear in repository files\n- Any file present at submission time WILL be included in the patch\n- Temporary files, debug artifacts, or helper scripts MUST be removed before submission\n\n## Recommended Workflow:\n1. Analyze the codebase\n2. Reproduce the issue\n3. Edit source files using `bash`\n4. Verify the fix\n5. Test edge cases\n\n## Submission (FINAL STEP):\nWhen finished, use `submit_patch` exactly once with a short summary.\nEnsure the repository contains ONLY the intended final changes.\nAfter submission, no further reading, editing, or testing is allowed.\n\n## Evaluation:\nYour patch will be applied and validated using a hidden test suite.\n\nThe evaluation verifies that:\n1. The reported issue is fully resolved\n2. All previously passing functionality and tests remain unbroken\n\nSuccess requires all tests to pass.\n",
+  "context": {},
+  "actions": [
+    {
+      "name": "bash",
+      "description": "Run a bash command in the repo root and get the output",
+      "is_finish": false,
+      "is_message": false,
+      "is_hidden": false,
+      "arguments_schema": {
+        "properties": {
+          "command": {
+            "description": "Bash command to execute",
+            "title": "Command",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "title": "BashArgs",
+        "type": "object"
+      }
+    },
+    {
+      "name": "finish",
+      "description": "Finish the task by submitting a brief summary; he system automatically computes the git patch from the repository changes.",
+      "is_finish": true,
+      "is_message": false,
+      "is_hidden": false,
+      "arguments_schema": {
+        "properties": {
+          "summary": {
+            "description": "Brief textual summary of the fix (no diff/patch)",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "summary"
+        ],
+        "title": "SubmitPatchArgs",
+        "type": "object"
+      }
+    }
+  ]
+}

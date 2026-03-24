@@ -3,12 +3,12 @@
 
 import uuid
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any, Optional
 
 from ..observers.logging import get_logger
 from ..utils.cost import CostReport
 from ..utils.paths import SessionPaths
-from .types import Action, Observation
+from .types import Action, ActionType, Observation
 
 
 class AgentInstance(ABC):
@@ -67,12 +67,16 @@ class AgentInstance(ABC):
         """React to observation - agent controls decision making, None = done."""
         pass
 
-    def start(self):
-        """Start the agent.
+    def start(self, task: str, context: dict[str, Any], actions: list[ActionType]):
+        """Receive the work payload and start the agent.
 
-        No-op function for non-coordinated agents.
+        Called via HTTP transport after the instance is constructed, so
+        large payloads (e.g. dozens of ActionTypes) are never serialized
+        as CLI arguments.
         """
-        return
+        self.task = task
+        self.context = context or {}
+        self.actions = actions
 
     @abstractmethod
     def close(self) -> None:

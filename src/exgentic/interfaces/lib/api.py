@@ -5,8 +5,11 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 import subprocess
+import sys
 from importlib import resources
+from pathlib import Path
 from typing import Any
 
 from ...core.agent import Agent
@@ -62,14 +65,14 @@ def list_agents() -> list[dict[str, Any]]:
 def load_benchmark_class(benchmark: str) -> type[Benchmark]:
     entries = get_benchmark_entries()
     if benchmark not in entries:
-        raise ValueError(f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(entries.keys()))}")
+        raise ValueError(f"Unknown benchmark slug '{benchmark}'. Available: {', '.join(sorted(entries.keys()))}")
     return load_benchmark(benchmark)
 
 
 def load_agent_class(agent: str) -> type[Agent]:
     entries = get_agent_entries()
     if agent not in entries:
-        raise ValueError(f"Unknown agent slug '{agent}'. " f"Available: {', '.join(sorted(entries.keys()))}")
+        raise ValueError(f"Unknown agent slug '{agent}'. Available: {', '.join(sorted(entries.keys()))}")
     return load_agent(agent)
 
 
@@ -478,7 +481,7 @@ def get_benchmark_info(benchmark: str) -> dict[str, Any]:
     entries = get_benchmark_entries()
     entry = entries.get(benchmark)
     if entry is None:
-        raise ValueError(f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(entries.keys()))}")
+        raise ValueError(f"Unknown benchmark slug '{benchmark}'. Available: {', '.join(sorted(entries.keys()))}")
     bench_cls = load_benchmark_class(benchmark)
     return {
         "slug_name": entry.slug_name,
@@ -495,7 +498,7 @@ def get_agent_info(agent: str) -> dict[str, Any]:
     entries = get_agent_entries()
     entry = entries.get(agent)
     if entry is None:
-        raise ValueError(f"Unknown agent slug '{agent}'. " f"Available: {', '.join(sorted(entries.keys()))}")
+        raise ValueError(f"Unknown agent slug '{agent}'. Available: {', '.join(sorted(entries.keys()))}")
     agent_cls = load_agent_class(agent)
     return {
         "slug_name": entry.slug_name,
@@ -508,7 +511,7 @@ def list_subsets(benchmark: str) -> list[str]:
     benchmark_entries = get_benchmark_entries()
     if benchmark not in benchmark_entries:
         raise ValueError(
-            f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(benchmark_entries.keys()))}"
+            f"Unknown benchmark slug '{benchmark}'. Available: {', '.join(sorted(benchmark_entries.keys()))}"
         )
     return get_benchmark_subsets(benchmark)
 
@@ -522,47 +525,142 @@ def list_tasks(
     benchmark_entries = get_benchmark_entries()
     if benchmark not in benchmark_entries:
         raise ValueError(
-            f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(benchmark_entries.keys()))}"
+            f"Unknown benchmark slug '{benchmark}'. Available: {', '.join(sorted(benchmark_entries.keys()))}"
         )
     bench_kwargs = dict(benchmark_kwargs or {})
     if subset is not None:
         bench_kwargs = apply_subset_kwargs(benchmark, subset, bench_kwargs)
+    from ...adapters.runners import with_runner
+
     bench_cls = load_benchmark_class(benchmark)
     benchmark_obj: Benchmark = bench_cls(**bench_kwargs)
+    evaluator = with_runner(
+        benchmark_obj.get_evaluator_class(),
+        runner=benchmark_obj.resolve_runner(),
+        **benchmark_obj.get_evaluator_kwargs(),
+        **benchmark_obj.runner_kwargs(),
+    )
     try:
         try:
-            return benchmark_obj.list_tasks()
+            return evaluator.list_tasks()
         except NotImplementedError as exc:
             raise ValueError(str(exc)) from exc
     finally:
+        try:
+            evaluator.close()
+        except Exception:
+            pass
         benchmark_obj.close()
+
+
+def _find_package_file(module_path: str, filename: str) -> Path | None:
+    """Locate *filename* in the package directory for *module_path*.
+
+    Walks up from the deepest package (e.g. ``exgentic.agents.cli.claude``)
+    toward the root until it finds the file.  This lets CLI sub-agents
+    share a single ``requirements.txt`` at ``agents/cli/``.
+    """
+    parts = module_path.split(".")
+    # Start from the deepest package directory, walk up to top-level package.
+    for depth in range(len(parts) - 1, 1, -1):
+        package = ".".join(parts[:depth])
+        try:
+            candidate = resources.files(package) / filename
+        except Exception:
+            continue
+        if candidate.is_file():
+            return Path(str(candidate))
+    return None
+
+
+def _install_requirements(slug: str, kind: str, *, venv_python: str | None = None) -> None:
+    """Install dependencies from the requirements.txt in the benchmark/agent folder.
+
+    Args:
+        slug: The slug name of the benchmark or agent.
+        kind: Either "benchmark" or "agent".
+        venv_python: If provided, install into this Python interpreter's env
+                     instead of the host Python.
+    """
+    entries = get_benchmark_entries() if kind == "benchmark" else get_agent_entries()
+    entry = entries.get(slug)
+    if entry is None:
+        return
+    req_path = _find_package_file(entry.module, "requirements.txt")
+    if req_path is None:
+        return
+    # Skip if requirements.txt is empty or only has comments
+    lines = [
+        line.strip() for line in req_path.read_text().splitlines() if line.strip() and not line.strip().startswith("#")
+    ]
+    if not lines:
+        return
+
+    env = os.environ.copy()
+    env.pop("VIRTUAL_ENV", None)
+    # Skip Git LFS smudge filters during install — pip only needs the
+    # Python source, not large data files tracked by LFS.  Benchmarks
+    # that need LFS data should fetch it in their setup.sh instead.
+    env["GIT_LFS_SKIP_SMUDGE"] = "1"
+
+    python_target = venv_python or sys.executable
+    subprocess.run(
+        ["uv", "pip", "install", "--python", python_target, "-r", str(req_path)],
+        check=True,
+        env=env,
+    )
+
+    # Only refresh host import paths when installing into the host env.
+    if venv_python is None:
+        import importlib
+        import site
+
+        importlib.invalidate_caches()
+        for site_dir in site.getsitepackages():
+            if site_dir not in sys.path:
+                sys.path.insert(0, site_dir)
+
+
+def _setup_env() -> dict[str, str]:
+    """Build environment for setup subprocesses with cache dir."""
+    from ...utils.settings import get_settings
+
+    env = os.environ.copy()
+    env["EXGENTIC_CACHE_DIR"] = str(Path(get_settings().cache_dir).resolve())
+    return env
+
+
+def needs_setup(name: str, kind: str) -> bool:
+    """Return True if a benchmark/agent has a setup.sh or requirements.txt."""
+    entries = get_benchmark_entries() if kind == "benchmark" else get_agent_entries()
+    entry = entries.get(name)
+    if entry is None:
+        return False
+    return (
+        _find_package_file(entry.module, "setup.sh") is not None
+        or _find_package_file(entry.module, "requirements.txt") is not None
+    )
 
 
 def get_setup_script_path(benchmark: str) -> str:
     entries = get_benchmark_entries()
     entry = entries.get(benchmark)
     if entry is None:
-        raise ValueError(f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(entries.keys()))}")
-    parts = entry.module.split(".")
-    if len(parts) < 3:
-        raise ValueError(f"Invalid module path for benchmark '{benchmark}'.")
-    package = ".".join(parts[:3])
-    try:
-        setup_path = resources.files(package) / "setup.sh"
-    except Exception as exc:
-        raise ValueError(f"Unable to locate setup.sh for benchmark '{benchmark}'.") from exc
-    if not setup_path.is_file():
+        raise ValueError(f"Unknown benchmark slug '{benchmark}'. Available: {', '.join(sorted(entries.keys()))}")
+    path = _find_package_file(entry.module, "setup.sh")
+    if path is None:
         raise ValueError(f"setup.sh not found for benchmark '{benchmark}'.")
-    return str(setup_path)
+    return str(path)
 
 
-def setup_benchmark(benchmark: str, force: bool = False, extra_args: list[str] | None = None) -> None:
-    """Setup a benchmark by running its setup.sh script.
+def setup_benchmark(benchmark: str, force: bool = False, runner: str | None = None) -> None:
+    """Install requirements, call Benchmark.setup(), run setup.sh if present.
 
     Args:
         benchmark: Benchmark slug name
         force: Force reinstall even if already installed
-        extra_args: Additional arguments to pass to the setup script
+        runner: Runner type. When ``"venv"``, creates an isolated venv and
+                installs requirements there instead of the host Python.
     """
     from ...utils.installation_tracker import get_installations_dir, is_installed
 
@@ -576,14 +674,46 @@ def setup_benchmark(benchmark: str, force: bool = False, extra_args: list[str] |
         install_file = get_installations_dir() / "benchmark" / f"{benchmark}.json"
         install_file.unlink(missing_ok=True)
 
-    # Run setup script with extra arguments
-    setup_path = get_setup_script_path(benchmark)
-    cmd = ["bash", setup_path]
-    if extra_args:
-        cmd.extend(extra_args)
-    subprocess.run(cmd, check=True)
+    venv_python: str | None = None
+    venv_dir: str | None = None
 
-    # Record successful installation
+    if runner == "venv":
+        import shutil
+
+        from ...utils.cache import benchmark_cache_dir
+
+        venv_path = benchmark_cache_dir(benchmark) / "venv"
+        venv_dir = str(venv_path)
+
+        uv_bin = shutil.which("uv")
+        if uv_bin is None:
+            raise RuntimeError("uv CLI not found on PATH — required for venv runner")
+
+        if not (venv_path / "bin" / "python").exists():
+            venv_path.mkdir(parents=True, exist_ok=True)
+            subprocess.run(
+                [uv_bin, "venv", str(venv_path), "--python", f"{sys.version_info.major}.{sys.version_info.minor}"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            # Install exgentic into the venv.
+            from ...adapters.runners._utils import find_project_root
+
+            root = find_project_root()
+            subprocess.run(
+                [uv_bin, "pip", "install", "--python", str(venv_path / "bin" / "python"), "--no-cache", str(root)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+        venv_python = str(venv_path / "bin" / "python")
+
+    _install_requirements(benchmark, "benchmark", venv_python=venv_python)
+    bench_cls = load_benchmark_class(benchmark)
+    bench_cls.setup()
+    _run_setup_script_if_exists(benchmark, "benchmark", venv_dir=venv_dir)
     record_installation(benchmark, "benchmark")
 
 
@@ -591,34 +721,21 @@ def get_agent_setup_script_path(agent: str) -> str:
     entries = get_agent_entries()
     entry = entries.get(agent)
     if entry is None:
-        raise ValueError(f"Unknown agent slug '{agent}'. " f"Available: {', '.join(sorted(entries.keys()))}")
-    parts = entry.module.split(".")
-    if len(parts) < 3:
-        raise ValueError(f"Invalid module path for agent '{agent}'.")
-
-    # For CLI agents with nested structure (e.g., exgentic.agents.cli.claude.agent),
-    # use 4 parts to get the specific CLI agent directory
-    # For other agents (e.g., exgentic.agents.openai.openai_mcp_agent), use 3 parts
-    if len(parts) >= 4 and parts[2] == "cli":
-        package = ".".join(parts[:4])
-    else:
-        package = ".".join(parts[:3])
-
-    try:
-        setup_path = resources.files(package) / "setup.sh"
-    except Exception as exc:
-        raise ValueError(f"Unable to locate setup.sh for agent '{agent}'.") from exc
-    if not setup_path.is_file():
+        raise ValueError(f"Unknown agent slug '{agent}'. Available: {', '.join(sorted(entries.keys()))}")
+    path = _find_package_file(entry.module, "setup.sh")
+    if path is None:
         raise ValueError(f"setup.sh not found for agent '{agent}'.")
-    return str(setup_path)
+    return str(path)
 
 
-def setup_agent(agent: str, force: bool = False) -> None:
-    """Setup an agent by running its setup.sh script.
+def setup_agent(agent: str, force: bool = False, runner: str | None = None) -> None:
+    """Install requirements, call Agent.setup(), run setup.sh if present.
 
     Args:
         agent: Agent slug name
         force: Force reinstall even if already installed
+        runner: Runner type. When ``"venv"``, creates an isolated venv and
+                installs requirements there instead of the host Python.
     """
     from ...utils.installation_tracker import get_installations_dir, is_installed
 
@@ -632,12 +749,70 @@ def setup_agent(agent: str, force: bool = False) -> None:
         install_file = get_installations_dir() / "agent" / f"{agent}.json"
         install_file.unlink(missing_ok=True)
 
-    # Run setup script
-    setup_path = get_agent_setup_script_path(agent)
-    subprocess.run(["bash", setup_path], check=True)
+    venv_python: str | None = None
+    venv_dir: str | None = None
 
-    # Record successful installation
+    if runner == "venv":
+        import shutil
+
+        from ...utils.cache import benchmark_cache_dir
+
+        venv_path = benchmark_cache_dir(agent) / "venv"
+        venv_dir = str(venv_path)
+
+        uv_bin = shutil.which("uv")
+        if uv_bin is None:
+            raise RuntimeError("uv CLI not found on PATH — required for venv runner")
+
+        if not (venv_path / "bin" / "python").exists():
+            venv_path.mkdir(parents=True, exist_ok=True)
+            subprocess.run(
+                [uv_bin, "venv", str(venv_path), "--python", f"{sys.version_info.major}.{sys.version_info.minor}"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            # Install exgentic into the venv.
+            from ...adapters.runners._utils import find_project_root
+
+            root = find_project_root()
+            subprocess.run(
+                [uv_bin, "pip", "install", "--python", str(venv_path / "bin" / "python"), "--no-cache", str(root)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+        venv_python = str(venv_path / "bin" / "python")
+
+    _install_requirements(agent, "agent", venv_python=venv_python)
+    agent_cls = load_agent_class(agent)
+    agent_cls.setup()
+    _run_setup_script_if_exists(agent, "agent", venv_dir=venv_dir)
     record_installation(agent, "agent")
+
+
+def _run_setup_script_if_exists(slug: str, kind: str, *, venv_dir: str | None = None) -> None:
+    """Run setup.sh for a benchmark or agent if it exists.
+
+    Args:
+        slug: The slug name.
+        kind: Either "benchmark" or "agent".
+        venv_dir: If provided, run setup.sh with this venv activated.
+    """
+    try:
+        if kind == "benchmark":
+            setup_path = get_setup_script_path(slug)
+        else:
+            setup_path = get_agent_setup_script_path(slug)
+        env = _setup_env()
+        if venv_dir is not None:
+            env["VIRTUAL_ENV"] = venv_dir
+            venv_bin = str(Path(venv_dir) / "bin")
+            env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
+        subprocess.run(["bash", setup_path], check=True, env=env)
+    except ValueError:
+        pass  # No setup.sh — fine
 
 
 def _describe_init_args(cls: type) -> list[str]:
@@ -665,18 +840,18 @@ def _describe_init_args(cls: type) -> list[str]:
 
 
 __all__ = [
+    "aggregate",
     "evaluate",
     "execute",
-    "aggregate",
-    "list_benchmarks",
+    "get_agent_setup_script_path",
+    "get_setup_script_path",
     "list_agents",
+    "list_benchmarks",
     "list_subsets",
     "list_tasks",
-    "status",
     "preview",
     "results",
-    "setup_benchmark",
     "setup_agent",
-    "get_setup_script_path",
-    "get_agent_setup_script_path",
+    "setup_benchmark",
+    "status",
 ]

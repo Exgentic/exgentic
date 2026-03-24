@@ -155,10 +155,6 @@ class RunPaths:
     def config(self) -> Path:
         return self.run_dir / "config.json"
 
-    @property
-    def executer_log(self) -> Path:
-        return self.run_dir / "executer.log"
-
     def session(self, session_id: str) -> SessionPaths:
         return SessionPaths(session_id=session_id, run_id=self.run_id, output_dir=self.output_dir)
 

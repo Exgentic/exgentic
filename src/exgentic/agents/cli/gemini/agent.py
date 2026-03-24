@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 from typing import Any, ClassVar
 
-from ....core.types import ActionType, ModelSettings
+from ....core.types import ModelSettings
 from ..base import ExecutionBackend, ProxyBackedAgent, ProxyBackedMCPAgentInstance
 from .cli import GeminiCLI, GeminiCLIConfig
 
@@ -17,24 +17,18 @@ class GeminiAgentInstance(ProxyBackedMCPAgentInstance):
     def __init__(
         self,
         session_id: str,
-        task: str,
-        context: dict[str, Any],
-        actions: list[ActionType],
         model_id: str,
         max_steps: int = 150,
-        runner: ExecutionBackend = ExecutionBackend.PROCESS,
+        execution_backend: ExecutionBackend = ExecutionBackend.AUTO,
         model_settings: ModelSettings | None = None,
     ):
         self._gemini_model_alias = "gemini-2.5-pro"
         super().__init__(
             session_id,
-            task,
-            context,
-            actions,
             model_id,
             max_steps=max_steps,
             model_alias=self._gemini_model_alias,
-            runner=runner,
+            execution_backend=execution_backend,
             model_settings=model_settings,
         )
         self._gemini_log = self.paths.agent_dir / "gemini_cli.log"
@@ -50,6 +44,7 @@ class GeminiAgentInstance(ProxyBackedMCPAgentInstance):
             log_path=self._gemini_log,
             config_dir=cfg_dir,
             logger=self.logger,
+            runner=self.execution_backend,
         )
 
     def _run_cli(
@@ -76,7 +71,11 @@ class GeminiAgentInstance(ProxyBackedMCPAgentInstance):
 class GeminiAgent(ProxyBackedAgent):
     display_name: ClassVar[str] = "Gemini CLI"
     slug_name: ClassVar[str] = "gemini_cli"
-    agent_cls: ClassVar[type[ProxyBackedMCPAgentInstance]] = GeminiAgentInstance
+    execution_backend: ExecutionBackend = ExecutionBackend.AUTO
+
+    @classmethod
+    def get_instance_class(cls):
+        return GeminiAgentInstance
 
     def get_models_names(self) -> list[str]:  # type: ignore[override]
         return [str(self.model_id)]

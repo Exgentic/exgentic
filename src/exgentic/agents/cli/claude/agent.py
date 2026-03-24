@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 from typing import Any, ClassVar
 
-from ....core.types import ActionType, ModelSettings
+from ....core.types import ModelSettings
 from ..base import ExecutionBackend, ProxyBackedAgent, ProxyBackedMCPAgentInstance
 from .cli import ClaudeCLIConfig, ClaudeCodeCLI
 
@@ -17,25 +17,19 @@ class ClaudeCodeAgentInstance(ProxyBackedMCPAgentInstance):
     def __init__(
         self,
         session_id: str,
-        task: str,
-        context: dict[str, Any],
-        actions: list[ActionType],
         model_id: str,
         max_steps: int = 150,
-        runner: ExecutionBackend = ExecutionBackend.DOCKER,
+        execution_backend: ExecutionBackend = ExecutionBackend.AUTO,
         model_settings: ModelSettings | None = None,
     ):
         # The alias is what we ask Claude Code CLI for; the proxy maps it to the backend model.
         self._claude_model_alias = "claude-3-5-sonnet-20241022"
         super().__init__(
             session_id,
-            task,
-            context,
-            actions,
             model_id,
             max_steps=max_steps,
             model_alias=self._claude_model_alias,
-            runner=runner,
+            execution_backend=execution_backend,
             model_settings=model_settings,
         )
         self._claude_log = self.paths.agent_dir / "claude_cli.log"
@@ -51,7 +45,7 @@ class ClaudeCodeAgentInstance(ProxyBackedMCPAgentInstance):
             log_path=self._claude_log,
             config_dir=cfg_dir,
             logger=self.logger,
-            runner=self.runner,
+            runner=self.execution_backend,
         )
 
     def _run_cli(
@@ -86,8 +80,11 @@ class ClaudeCodeAgentInstance(ProxyBackedMCPAgentInstance):
 class ClaudeCodeAgent(ProxyBackedAgent):
     display_name: ClassVar[str] = "Claude Code CLI"
     slug_name: ClassVar[str] = "claude_code"
-    agent_cls: ClassVar[type[ProxyBackedMCPAgentInstance]] = ClaudeCodeAgentInstance
-    runner: ExecutionBackend = ExecutionBackend.DOCKER
+    execution_backend: ExecutionBackend = ExecutionBackend.AUTO
+
+    @classmethod
+    def get_instance_class(cls):
+        return ClaudeCodeAgentInstance
 
     def get_models_names(self) -> list[str]:  # type: ignore[override]
         return [str(self.model_id)]

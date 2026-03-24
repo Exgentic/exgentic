@@ -46,12 +46,11 @@ def openai_tools_to_action_types(tools: list[dict[str, Any]]) -> list[ActionType
 def mcp_to_openai_tool(mcp_tool: Any) -> dict[str, Any]:
     """Converts a tool definition from a 'mcp' format  into  OpenAI tool schema."""
     function_name = mcp_tool.name
-    description = mcp_tool.description
-    parameters_schema = mcp_tool.inputSchema
+    description = mcp_tool.description or ""
+    parameters_schema = mcp_tool.inputSchema or {"type": "object", "properties": {}}
 
-    if not all([function_name, description, parameters_schema]):
-        # Raise an informative error if the expected keys are missing
-        raise ValueError("MCP tool definition is missing required keys: 'function_name', 'summary', or 'input_schema'.")
+    if not function_name:
+        raise ValueError("MCP tool definition is missing a 'name'.")
 
     tool_schema = {
         "type": "function",

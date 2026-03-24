@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
+from ...adapters.runners import with_runner
 from ...interfaces.registry import load_benchmark
 from ...observers.logging import get_logger
 from ...utils.paths import get_run_paths
-from ...utils.settings import get_settings
 from ..types import (
     RunConfig,
     RunPlan,
@@ -58,17 +58,6 @@ def core_run(
     execute: bool,
     aggregate: bool,
 ) -> RunResults:
-    # Perform OTEL health check if enabled
-
-    settings = get_settings()
-    if settings.otel_enabled:
-        # Use local imports to avoid importing otel when not enabled
-        from ...utils.otel import check_otel_collector_health
-
-        is_healthy, error_msg = check_otel_collector_health()
-        if not is_healthy:
-            raise RuntimeError(f"OTEL collector health check failed: {error_msg}")
-
     with run_config.get_context() as ctx:
         if run_config.run_id is None or run_config.cache_dir is None:
             updates = {}
@@ -141,11 +130,22 @@ def core_run(
                 )
             if not session_indexes:
                 log.warning("No completed sessions available for aggregation.")
+            # Create evaluator for aggregation.
             bench_cls = load_benchmark(run_config.benchmark)
             benchmark = bench_cls(**(run_config.benchmark_kwargs or {}))
+            evaluator = with_runner(
+                benchmark.get_evaluator_class(),
+                runner=benchmark.resolve_runner(),
+                **benchmark.get_evaluator_kwargs(),
+                **benchmark.runner_kwargs(),
+            )
             try:
-                results = benchmark.aggregate_sessions(session_indexes)
+                results = evaluator.aggregate_sessions(session_indexes)
             finally:
+                try:
+                    evaluator.close()
+                except Exception:
+                    pass
                 benchmark.close()
         tracker.on_run_success(results, run_config)
         return tracker.results()

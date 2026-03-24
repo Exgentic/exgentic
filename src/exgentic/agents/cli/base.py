@@ -8,13 +8,12 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, ClassVar, Optional
+from typing import Any
 
 from ...adapters.agents.mcp_agent import MCPAgentInstance
 from ...core.agent import Agent
-from ...core.agent_instance import AgentInstance
 from ...core.context import context_env
-from ...core.types import ActionType, ModelSettings
+from ...core.types import ModelSettings
 from ...integrations.litellm import LitellmProxy
 from ...integrations.litellm.health import check_model_accessible_sync
 from ...integrations.litellm.trace_cost import load_trace_cost
@@ -40,17 +39,21 @@ class BaseCLIWrapper(abc.ABC):
 
     def __init__(
         self,
-        env: Optional[dict[str, str]] = None,
-        log_path: Optional[Path] = None,
-        config_dir: Optional[Path] = None,
-        logger: Optional[logging.Logger] = None,
-        runner: ExecutionBackend = ExecutionBackend.DOCKER,
+        env: dict[str, str] | None = None,
+        log_path: Path | None = None,
+        config_dir: Path | None = None,
+        logger: logging.Logger | None = None,
+        runner: ExecutionBackend = ExecutionBackend.AUTO,
     ) -> None:
         self.env = env or os.environ.copy()
         self.config_dir = config_dir
         self.log_path = log_path
         self._last_run_context: dict[str, Any] = {}
         self._logger = logger or logging.getLogger(self.__class__.__name__)
+        if runner == ExecutionBackend.AUTO:
+            from .command_runner import resolve_container_backend
+
+            runner = resolve_container_backend()
         if runner == ExecutionBackend.PROCESS:
             self.runner = ProcessRunner(log_path=log_path, logger=self._logger)
         elif runner == ExecutionBackend.PODMAN:
@@ -112,25 +115,22 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
     def __init__(
         self,
         session_id: str,
-        task: str,
-        context: dict[str, Any],
-        actions: list[ActionType],
         model_id: str,
         *,
         max_steps: int = 150,
-        model_alias: Optional[str] = None,
-        runner: ExecutionBackend = ExecutionBackend.PROCESS,
+        model_alias: str | None = None,
+        execution_backend: ExecutionBackend = ExecutionBackend.AUTO,
         model_settings: ModelSettings | None = None,
     ) -> None:
-        super().__init__(session_id, task, context, actions)
+        super().__init__(session_id)
         self.model_id = model_id
         self.max_steps = max_steps
         self._proxy_log_dir = self.paths.agent_dir / "litellm_proxy"
         self._trace_log_path = self._proxy_log_dir / "trace.jsonl"
-        self._proxy: Optional[LitellmProxy] = None
-        self._cli: Optional[BaseCLIWrapper] = None
+        self._proxy: LitellmProxy | None = None
+        self._cli: BaseCLIWrapper | None = None
         self._model_alias = model_alias
-        self.runner = runner
+        self.execution_backend = execution_backend
         if model_settings is None:
             self.model_settings = ModelSettings()
         elif isinstance(model_settings, ModelSettings):
@@ -224,6 +224,13 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
             self.logger.info("%s run finished", self.cli_display_name)
             return stdout
         except Exception as e:
+            from .command_runner import CLIExecutionError
+
+            if isinstance(e, CLIExecutionError):
+                if e.stderr:
+                    self.logger.error("%s STDERR:\n%s", self.cli_display_name, e.stderr.rstrip())
+                if e.stdout:
+                    self.logger.error("%s STDOUT:\n%s", self.cli_display_name, e.stdout.rstrip())
             self.logger.exception("%s run failed: %s", self.cli_display_name, e)
             raise
         finally:
@@ -306,32 +313,34 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
 class ProxyBackedAgent(Agent):
     """Minimal agent factory helper for proxy-backed CLI agents."""
 
-    agent_cls: ClassVar[type[ProxyBackedMCPAgentInstance] | None] = None
     model: str
     max_steps: int = 150
-    runner: ExecutionBackend = ExecutionBackend.PROCESS
+
+    @classmethod
+    def get_instance_class(cls):
+        raise NotImplementedError
+
+    execution_backend: ExecutionBackend = ExecutionBackend.AUTO
     model_settings: ModelSettings | None = None
 
-    def assign(
+    def get_instance_kwargs(
         self,
-        task: str,
-        context: dict[str, Any],
-        actions: list[ActionType],
         session_id: str,
-    ) -> AgentInstance:
-        agent_cls = self.__class__.agent_cls
-        if agent_cls is None:
-            raise ValueError("agent_cls must be set on the agent class.")
-        return agent_cls(
-            session_id=session_id,
-            task=task,
-            context=context,
-            actions=actions,
-            model_id=self.model,
-            max_steps=self.max_steps,
-            runner=self.runner,
-            model_settings=self.model_settings,
-        )
+    ) -> dict[str, Any]:
+        # Resolve AUTO on the host side so the concrete backend (PODMAN/DOCKER)
+        # is serialized to the venv, where podman may not be on PATH.
+        backend = self.execution_backend
+        if backend == ExecutionBackend.AUTO:
+            from .command_runner import resolve_container_backend
+
+            backend = resolve_container_backend()
+        return {
+            "session_id": session_id,
+            "model_id": self.model,
+            "max_steps": self.max_steps,
+            "execution_backend": backend,
+            "model_settings": self.model_settings,
+        }
 
     @property
     def model_name(self) -> str:  # type: ignore[override]

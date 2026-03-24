@@ -63,8 +63,9 @@ class AgentCoordinator(AgentInstance):
         self._pending_actions: List[Action | None] = []
         self._last_actions: List[SingleAction] = []
 
-    def start(self) -> None:
-        """Start the internal agent thread (once)."""
+    def start(self, task, context, actions) -> None:
+        """Receive work payload and start the internal agent thread (once)."""
+        super().start(task, context, actions)
         with self._condition:
             if self._started:
                 raise RuntimeError("AgentCoordinator already started")

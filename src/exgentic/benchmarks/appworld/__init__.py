@@ -5,6 +5,6 @@ from .appworld_benchmark import AppWorldBenchmark, AppWorldObservation, AppWorld
 
 __all__ = [
     "AppWorldBenchmark",
-    "AppWorldSession",
     "AppWorldObservation",
+    "AppWorldSession",
 ]

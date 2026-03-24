@@ -5,23 +5,21 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import shutil
 from pathlib import Path
 from shutil import copytree
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    PrivateAttr,
     create_model,
 )
 
-from ...adapters.executors.executer import make_executer
 from ...core.actions import ActionsHandler
 from ...core.benchmark import Benchmark
+from ...core.evaluator import Evaluator
 from ...core.session import Session
 from ...core.types import (
     Action,
@@ -74,12 +72,12 @@ class AppWorldSession(Session):
 
     def __init__(
         self,
-        session_id: Optional[str] = None,
-        task_spec: Optional[dict[str, Any]] = None,
-        env_kwargs: Optional[dict[str, Any]] = None,
+        session_id: str | None = None,
+        task_spec: dict[str, Any] | None = None,
+        env_kwargs: dict[str, Any] | None = None,
         use_cache: bool = True,
         tool_name_separator: str = ".",
-        max_interactions: Optional[int] = None,
+        max_interactions: int | None = None,
     ) -> None:
         if session_id is not None:
             self._session_id = session_id
@@ -98,7 +96,7 @@ class AppWorldSession(Session):
         self._step_count: int = 0
         self._done: bool = False
         self._world_closed: bool = False
-        self._cached_score: Optional[SessionScore] = None
+        self._cached_score: SessionScore | None = None
 
         # Resolve task_id
         task_id = self._task_spec.get("task_id") if isinstance(self._task_spec, dict) else None
@@ -109,9 +107,14 @@ class AppWorldSession(Session):
         self._task_id = str(task_id)
 
         # Construct AppWorld in-process (lazy import to defer side effects)
+        from appworld import update_root  # type: ignore
         from appworld.common.constants import DEFAULT_EXPERIMENT_NAME  # type: ignore
         from appworld.common.path_store import path_store  # type: ignore
         from appworld.environment import AppWorld  # type: ignore
+
+        # Point appworld at the correct data directory before loading the task.
+        cache = Path(settings.cache_dir).expanduser()
+        update_root(str(cache / "appworld"))
 
         self._world: AppWorld = AppWorld(task_id=self._task_id, **self._env_kwargs)
         self._experiment_name: str = self._world.experiment_name or DEFAULT_EXPERIMENT_NAME
@@ -144,39 +147,56 @@ class AppWorldSession(Session):
         if self.world.task is None:
             raise ValueError("AppWorld task is not initialized")
 
+        allowed = ", ".join(app for app in self.world.task.allowed_apps if app != "api_docs")
         return {
             "policy": (
-                "This environment provides a set of applications, each exposing a predefined set of APIs "
-                "that may be used to perform tasks on behalf of the supervisor. "
-                f"The applications include: "
-                f"{', '.join(app for app in self.world.task.allowed_apps if app != 'api_docs')}.\n"
-                " The available applications and their APIs are fixed for the task.\n"
+                "This environment provides a set of applications,"
+                " each exposing a predefined set of APIs that may"
+                " be used to perform tasks on behalf of the"
+                " supervisor. The applications include:"
+                f" {allowed}.\n"
+                " The available applications and their APIs are"
+                " fixed for the task.\n"
                 "\n"
-                "Supervisor account credentials (such as emails, usernames, and passwords) are available "
-                "through the supervisor application's APIs and are accessed from there when required.\n"
+                "Supervisor account credentials (such as emails,"
+                " usernames, and passwords) are available through"
+                " the supervisor application's APIs and are"
+                " accessed from there when required.\n"
                 "\n"
-                "If an application requires an access token to perform authenticated operations, "
-                "the access token is obtained by calling that application's authentication/login API "
-                "using the credentials retrieved from the supervisor application. "
-                "Access tokens are not provided by the supervisor application.\n"
+                "If an application requires an access token to"
+                " perform authenticated operations, the access"
+                " token is obtained by calling that application's"
+                " authentication/login API using the credentials"
+                " retrieved from the supervisor application."
+                " Access tokens are not provided by the supervisor"
+                " application.\n"
                 "\n"
-                "References to people (e.g., friends, family, roommates) correspond to entries "
-                "in the phone_contacts application.\n"
-                "References to files or storage correspond to the file_system application, "
-                "not the local machine filesystem.\n"
+                "References to people (e.g., friends, family,"
+                " roommates) correspond to entries in the"
+                " phone_contacts application.\n"
+                "References to files or storage correspond to the"
+                " file_system application, not the local machine"
+                " filesystem.\n"
                 "\n"
-                "Time-based instructions (e.g., 'this month', 'yesterday') are interpreted "
-                "with full calendar boundary ranges.\n"
-                "If an API returns paginated results, all pages constitute the complete result.\n"
+                "Time-based instructions (e.g., 'this month',"
+                " 'yesterday') are interpreted with full calendar"
+                " boundary ranges.\n"
+                "If an API returns paginated results, all pages"
+                " constitute the complete result.\n"
                 "\n"
-                "The environment consists only of the provided applications and their documented APIs "
-                "and parameters. No additional endpoints, methods, arguments, or capabilities "
-                "are assumed beyond those explicitly defined.\n"
+                "The environment consists only of the provided"
+                " applications and their documented APIs and"
+                " parameters. No additional endpoints, methods,"
+                " arguments, or capabilities are assumed beyond"
+                " those explicitly defined.\n"
                 "\n"
-                "When task execution is finished, the designated task-completion API is used "
-                "to signal completion. If the task requires a final answer value, the answer is returned "
-                "through that completion API. If the task cannot be completed using the available "
-                "applications and APIs, the task may be marked as failed."
+                "When task execution is finished, the designated"
+                " task-completion API is used to signal completion."
+                " If the task requires a final answer value, the"
+                " answer is returned through that completion API."
+                " If the task cannot be completed using the"
+                " available applications and APIs, the task may be"
+                " marked as failed."
             ),
             "supervisor": dict(self.world.task.supervisor),
             # "app_descriptions": self.world.task.app_descriptions,
@@ -205,7 +225,7 @@ class AppWorldSession(Session):
                 args_model = make_args_model_from_json_schema(name, function["parameters"])
 
                 if raw_name == "supervisor__complete_task":
-                    finish_action_model = create_model(
+                    finish_act = create_model(
                         "AppWorldFinishAction",
                         __base__=FinishAction,
                         arguments=(args_model, ...),
@@ -213,12 +233,12 @@ class AppWorldSession(Session):
                     self._registry.add_action(
                         name="finish",
                         description=function["description"],
-                        action_cls=finish_action_model,
+                        action_cls=finish_act,
                         handler=self.apply_action,
                         is_finish=True,
                     )
                 else:
-                    action_model = create_model(
+                    act = create_model(
                         f"{name}_Action",
                         __base__=SingleAction,
                         name=(Literal[name], name),
@@ -227,7 +247,7 @@ class AppWorldSession(Session):
                     self._registry.add_action(
                         name=name,
                         description=function["description"],
-                        action_cls=action_model,
+                        action_cls=act,
                         handler=self.apply_action,
                     )
         return self._registry.actions
@@ -240,10 +260,10 @@ class AppWorldSession(Session):
     def _actions_names(self) -> set[str]:
         return {a.name for a in self.actions}
 
-    def _to_observation(self, raw: Any, invoking: Optional[list[SingleAction]] = None) -> Observation:
+    def _to_observation(self, raw: Any, invoking: list[SingleAction] | None = None) -> Observation:
         return AppWorldObservation(invoking_actions=invoking or [], result=raw)
 
-    def start(self) -> Optional[Observation]:
+    def start(self) -> Observation | None:
         self.logger.info(f"session_start id={self.session_id} task_id={self._task_id}")
         # Empty initial observation; task details are provided via task/context.
         return EmptyObservation()
@@ -306,7 +326,7 @@ class AppWorldSession(Session):
                 return True
         return False
 
-    def step(self, action: Action) -> Optional[Observation]:
+    def step(self, action: Action) -> Observation | None:
         if self._done:
             return None
 
@@ -477,35 +497,41 @@ class AppWorldSession(Session):
                 self.logger.exception("AppWorld temp experiment cleanup failed")
 
 
-class AppWorldBenchmark(Benchmark, BaseModel):
-    display_name: ClassVar[str] = "AppWorld"
-    slug_name: ClassVar[str] = "appworld"
-    available_subsets: ClassVar[list[str]] = ["train", "dev", "test_normal"]
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+class AppWorldEvaluator(Evaluator):
+    """Evaluator for AppWorld -- task discovery, session config, and aggregation."""
 
-    # Inputs
-    subset: Literal["train", "dev", "test_normal"] = "test_normal"
-    env_kwargs: dict[str, Any] = Field(default_factory=dict)
-    max_interactions: int = 200
-    tool_name_separator: Literal[".", "__"] = "__"
-    SCORES_FILE_NAME: ClassVar[str] = "scores.json"
+    def __init__(
+        self,
+        subset: str = "test_normal",
+        env_kwargs: dict[str, Any] | None = None,
+        max_interactions: int = 200,
+        tool_name_separator: str = "__",
+        use_cache: bool = True,
+    ) -> None:
+        self._subset = subset
+        self._env_kwargs = env_kwargs or {}
+        self._max_interactions = max_interactions
+        self._tool_name_separator = tool_name_separator
+        self._use_cache = use_cache
+        self._experiment_name: str = ""
 
-    # Internals
-    _experiment_name: str = PrivateAttr(default="")
+    def _ensure_appworld_root(self) -> None:
+        from appworld import update_root  # type: ignore
 
-    def list_subsets(self) -> list[str]:  # type: ignore[override]
-        return list(self.available_subsets)
+        cache = Path(settings.cache_dir).expanduser()
+        root = str(cache / "appworld")
+        update_root(root)
 
-    def list_tasks(self) -> list[str]:  # type: ignore[override]
+    def list_tasks(self) -> list[str]:
         from appworld.task import load_task_ids  # type: ignore
 
         self._ensure_appworld_root()
-        items: Optional[list[str]] = load_task_ids(self.subset)
+        items: list[str] | None = load_task_ids(self._subset)
         if not items:
             return []
         return [str(t) for t in items]
 
-    def create_session(self, index: SessionIndex) -> AppWorldSession:
+    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
         self._ensure_appworld_root()
         if not self._experiment_name:
             self._experiment_name = get_run_id()
@@ -514,26 +540,18 @@ class AppWorldBenchmark(Benchmark, BaseModel):
         experiment_name = f"{self._experiment_name}__{session_id}"
         spec = {"task_id": task_id}
 
-        executer = make_executer(
-            self.executer,
-            AppWorldSession,
-            session_id=session_id,
-            task_spec=spec,
-            env_kwargs={
-                **self.env_kwargs,
-                "max_interactions": self.max_interactions,
+        return {
+            "session_id": session_id,
+            "task_spec": spec,
+            "env_kwargs": {
+                **self._env_kwargs,
+                "max_interactions": self._max_interactions,
                 "experiment_name": experiment_name,
             },
-            use_cache=self.use_cache,
-            tool_name_separator=self.tool_name_separator,
-            max_interactions=self.max_interactions,
-        )
-        return executer.get_proxy()  # type: ignore[return-value]
-
-    def _ensure_appworld_root(self) -> None:
-        from appworld import update_root  # type: ignore
-
-        update_root(os.path.abspath(os.path.dirname(__file__)))
+            "use_cache": self._use_cache,
+            "tool_name_separator": self._tool_name_separator,
+            "max_interactions": self._max_interactions,
+        }
 
     def _stage_task_outputs(
         self,
@@ -550,8 +568,7 @@ class AppWorldBenchmark(Benchmark, BaseModel):
             session_task_output = run_paths.session(session_id).benchmark_dir / AppWorldSession.TASK_OUTPUT_SUBDIR
             if not session_task_output.exists():
                 raise FileNotFoundError(
-                    "Missing staged task output for "
-                    f"task='{task_id}' session='{session_id}' at {session_task_output}"
+                    f"Missing staged task output for task='{task_id}' session='{session_id}' at {session_task_output}"
                 )
             dest_task_dir = temp_output_dir / "tasks" / task_id
             dest_task_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -575,7 +592,7 @@ class AppWorldBenchmark(Benchmark, BaseModel):
         for session in sessions:
             task_id = str(session.task_id)
             results_path = run_paths.session(session.session_id).results
-            scores_path = run_paths.session(session.session_id).benchmark_dir / self.SCORES_FILE_NAME
+            scores_path = run_paths.session(session.session_id).benchmark_dir / AppWorldSession.SCORES_FILE_NAME
 
             if scores_path.exists():
                 with open(scores_path, encoding="utf-8") as f:
@@ -610,3 +627,37 @@ class AppWorldBenchmark(Benchmark, BaseModel):
             score=evaluation_dict["aggregate"]["task_goal_completion"] / 100,
             metrics=report,
         )
+
+
+class AppWorldBenchmark(Benchmark, BaseModel):
+    display_name: ClassVar[str] = "AppWorld"
+    slug_name: ClassVar[str] = "appworld"
+    available_subsets: ClassVar[list[str]] = ["train", "dev", "test_normal"]
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @classmethod
+    def get_evaluator_class(cls):
+        return AppWorldEvaluator
+
+    @classmethod
+    def get_session_class(cls):
+        return AppWorldSession
+
+    # Inputs
+    subset: Literal["train", "dev", "test_normal"] = "test_normal"
+    env_kwargs: dict[str, Any] = Field(default_factory=dict)
+    max_interactions: int = 200
+    tool_name_separator: Literal[".", "__"] = "__"
+    SCORES_FILE_NAME: ClassVar[str] = "scores.json"
+
+    def list_subsets(self) -> list[str]:  # type: ignore[override]
+        return list(self.available_subsets)
+
+    def get_evaluator_kwargs(self) -> dict[str, Any]:
+        return {
+            "subset": self.subset,
+            "env_kwargs": self.env_kwargs,
+            "max_interactions": self.max_interactions,
+            "tool_name_separator": self.tool_name_separator,
+            "use_cache": self.use_cache,
+        }

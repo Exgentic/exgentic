@@ -1,0 +1,1 @@
+appworld @ git+https://github.com/StonyBrookNLP/appworld.git@edc960129fa6889c2b381715ecd108982029f6d1

@@ -1,44 +1,33 @@
 #!/bin/bash
-# Install Codex Agent dependencies
+set -euo pipefail
 
-echo "Installing Codex Agent..."
-
-# Check if we're in the project root
-if [ ! -f "pyproject.toml" ]; then
-    echo "Error: setup.sh must be run from the root directory of the Exgentic project"
-    exit 1
-fi
-
-# Install the base dependencies with CLI extra
-if command -v uv >/dev/null 2>&1; then
-    echo "Using uv for installation..."
-    uv pip install -e ".[cli]"
-else
-    echo "Using pip for installation..."
-    python -m pip install -e ".[cli]"
-fi
-
-if [ $? -ne 0 ]; then
-    echo "Codex Agent installation failed"
-    exit 1
-fi
-
-# Install Codex CLI
-echo "Installing Codex CLI..."
-if command -v npm >/dev/null 2>&1; then
-    npm install -g codex-cli
-    if [ $? -eq 0 ]; then
-        echo "Codex CLI installed successfully"
-    else
-        echo "Warning: Codex CLI installation failed"
-        echo "You may need to install it manually with: npm install -g codex-cli"
+# Determine container runtime
+CONTAINER_CMD=""
+if command -v podman >/dev/null 2>&1; then
+    CONTAINER_CMD="podman"
+    # Start podman machine if needed (macOS/Windows)
+    if podman machine list >/dev/null 2>&1; then
+        MACHINE_STATUS=$(podman machine list --format "{{.Running}}" 2>/dev/null | head -n 1)
+        if [ -z "$MACHINE_STATUS" ]; then
+            podman machine init && podman machine start
+        elif [ "$MACHINE_STATUS" != "true" ]; then
+            podman machine start
+        fi
     fi
+elif command -v docker >/dev/null 2>&1; then
+    CONTAINER_CMD="docker"
 else
-    echo "Warning: npm not found. Please install Node.js and npm to use Codex CLI"
-    echo "After installing npm, run: npm install -g codex-cli"
+    echo "Error: Neither Podman nor Docker found." >&2
+    exit 1
 fi
 
-echo "Codex Agent setup complete"
-echo "Note: Additional Codex-specific configuration may be required"
+# Build Codex CLI container image (inline — no external Dockerfile needed)
+$CONTAINER_CMD build -t exgentic-codex:dev -f - . <<'DOCKERFILE'
+FROM registry.access.redhat.com/ubi9/nodejs-20
+RUN npm install -g @openai/codex@0.93.0
+WORKDIR /work
+CMD ["codex","--help"]
+DOCKERFILE
+$CONTAINER_CMD run --rm exgentic-codex:dev codex --version
 
-# Made with Bob
+echo "Codex Agent setup complete (using $CONTAINER_CMD)"

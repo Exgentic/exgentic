@@ -2,7 +2,7 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 import json
-from typing import Any, Dict
+from typing import Any
 
 import litellm
 from pydantic import BaseModel
@@ -25,7 +25,7 @@ _settings = get_settings()
 
 class BrowseCompEvaluator(BaseModel):
     eval_model_id: str
-    sampling_params: Dict[str, Any] = {}
+    sampling_params: dict[str, Any] = {}
     grader_template: str
 
     def evaluate_response(

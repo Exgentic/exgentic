@@ -86,7 +86,7 @@ task_prompt: |
 benchmark:
   subset: "princeton-nlp/SWE-bench_Verified"
   num_tasks: 3                     # Number of tasks to run (null for all)
-  executer: "remote_process"       # Executer type: "inprocess" or "remote_process"
+  runner: "process"                # Runner type: "direct", "process", "docker"
   seed: 42
   require_submit_for_patch_evaluation: true  # If false, evaluate patch even without submit_patch
 

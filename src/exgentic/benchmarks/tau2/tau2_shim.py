@@ -8,6 +8,7 @@ provides re-exports for Tau2 symbols used by Exgentic. It also disables
 propagation on the stdlib logger for Tau2 so library logs don't bubble to
 the application's console. Session code can add file sinks as needed.
 """
+
 from __future__ import annotations
 
 import logging
@@ -55,21 +56,21 @@ from ...utils.settings import get_settings  # noqa: E402
 configure_litellm(config=get_settings().to_litellm_config(), cache_only=True)
 
 __all__ = [
+    "AssistantMessage",
+    "Console",
+    "ConsoleDisplay",
+    "LLMAgent",
+    "MultiToolMessage",
     "Results",
     "RunConfig",
     "TerminationReason",
-    "compute_metrics",
-    "is_successful",
     "Tool",
-    "registry",
-    "load_tasks",
-    "run_domain",
-    "ConsoleDisplay",
-    "Console",
-    "LLMAgent",
-    "AssistantMessage",
-    "MultiToolMessage",
     "ToolCall",
     "ToolMessage",
     "UserMessage",
+    "compute_metrics",
+    "is_successful",
+    "load_tasks",
+    "registry",
+    "run_domain",
 ]

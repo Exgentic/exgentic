@@ -9,8 +9,78 @@ import rich_click as click
 
 from ....core.types import RunConfig, SessionConfig
 from ....utils.installation_tracker import is_installed
-from ...lib.api import aggregate, evaluate, execute
+from ....utils.settings import get_settings
+from ...lib.api import (
+    aggregate,
+    evaluate,
+    execute,
+    setup_agent,
+    setup_benchmark,
+)
 from ..options import add_run_options, has_run_options, run_with
+
+
+def _is_isolated_runner(set_values: tuple[str, ...]) -> bool:
+    """Check if the runner is docker or venv (via --set or global settings)."""
+    isolated = {"docker", "venv"}
+    for item in set_values:
+        if "=" not in item:
+            continue
+        key, val = item.split("=", 1)
+        if key in ("benchmark.runner", "agent.runner", "settings.default_runner") and val.strip("\"'") in isolated:
+            return True
+    return get_settings().default_runner in isolated
+
+
+def _get_runner_from_set(set_values: tuple[str, ...]) -> str | None:
+    """Extract the runner name from --set values, if specified."""
+    for item in set_values:
+        if "=" not in item:
+            continue
+        key, val = item.split("=", 1)
+        if key in ("benchmark.runner", "agent.runner", "settings.default_runner"):
+            return val.strip("\"'")
+    return None
+
+
+def _needs_setup(name: str, install_type: str) -> bool:
+    """Check if a benchmark/agent has a setup.sh or requirements.txt."""
+    from ...lib.api import needs_setup
+
+    return needs_setup(name, install_type)
+
+
+def _ensure_installed(
+    benchmark: str,
+    agent: str,
+    set_values: tuple[str, ...],
+) -> None:
+    """Ensure benchmark/agent are set up.
+
+    For isolated runners (docker/venv), setup runs automatically without prompting.
+    For other runners, the user is prompted to confirm.
+    """
+    to_setup: list[tuple[str, str]] = []
+    if not is_installed(benchmark, "benchmark") and _needs_setup(benchmark, "benchmark"):
+        to_setup.append(("benchmark", benchmark))
+    if not is_installed(agent, "agent") and _needs_setup(agent, "agent"):
+        to_setup.append(("agent", agent))
+
+    if not to_setup:
+        return
+
+    # Isolated runners (docker/venv): auto-setup silently.  Others: prompt user.
+    if not _is_isolated_runner(set_values):
+        names = ", ".join(f"{t} '{n}'" for t, n in to_setup)
+        if not click.confirm(f"{names} not set up. Install now?", default=True):
+            raise click.Abort()
+
+    runner = _get_runner_from_set(set_values) or get_settings().default_runner
+    for install_type, name in to_setup:
+        if install_type == "benchmark":
+            setup_benchmark(name, runner=runner)
+        else:
+            setup_agent(name, runner=runner)
 
 
 def _load_config_file(path: str) -> dict:
@@ -115,17 +185,7 @@ def evaluate_cmd(
     if not benchmark or not agent:
         raise click.ClickException("--benchmark and --agent are required.")
 
-    # Check if benchmark and agent are installed
-    errors = []
-    if not is_installed(benchmark, "benchmark"):
-        errors.append(
-            f"Benchmark '{benchmark}' has not been set up. "
-            f"Run 'exgentic setup --benchmark {benchmark}' to install it."
-        )
-    if not is_installed(agent, "agent"):
-        errors.append(f"Agent '{agent}' has not been set up. " f"Run 'exgentic setup --agent {agent}' to install it.")
-    if errors:
-        raise click.ClickException("\n".join(errors))
+    _ensure_installed(benchmark, agent, set_values)
 
     run_with(
         evaluate,
@@ -173,6 +233,7 @@ def evaluate_execute_cmd(
     max_workers: int | None,
 ) -> None:
     """Run sessions only."""
+    _ensure_installed(benchmark, agent, set_values)
     run_with(
         execute,
         benchmark=benchmark,
@@ -303,6 +364,7 @@ def evaluate_session_cmd(
         raise click.ClickException("Use --task instead of --num-tasks for sessions.")
     if len(tasks) != 1:
         raise click.ClickException("Exactly one --task is required for sessions.")
+    _ensure_installed(benchmark, agent, set_values)
     run_with(
         execute,
         benchmark=benchmark,
@@ -327,8 +389,8 @@ def evaluate_session_cmd(
 
 
 __all__ = [
+    "evaluate_aggregate_cmd",
     "evaluate_cmd",
     "evaluate_execute_cmd",
-    "evaluate_aggregate_cmd",
     "evaluate_session_cmd",
 ]

@@ -19,6 +19,7 @@ class GeminiCLIConfig(BaseCLIConfig):
     approval_mode: str = "yolo"
     allowed_mcp_server_names: Optional[list[str]] = None
     allowed_tools: Optional[list[str]] = None
+    image: str = "exgentic-gemini:dev"
 
 
 class GeminiCLI(BaseCLIWrapper):
@@ -61,8 +62,15 @@ class GeminiCLI(BaseCLIWrapper):
         settings_path = gemini_cfg_dir / "settings.json"
         self._settings_path = settings_path
 
+        # Rewrite localhost addresses to host gateway for container runners
+        mcp_host = config.mcp_host
+        from ..command_runner import ContainerRunner
+
+        if isinstance(self.runner, ContainerRunner) and mcp_host in ("0.0.0.0", "127.0.0.1", "localhost"):
+            mcp_host = self.runner.host_gateway
+
         gemini_cfg_dir.mkdir(parents=True, exist_ok=True)
-        mcp_url = f"http://{config.mcp_host}:{config.mcp_port}/mcp"
+        mcp_url = f"http://{mcp_host}:{config.mcp_port}/mcp"
         self._ensure_settings(settings_path, config.server_name, mcp_url)
 
         cmd: list[str] = [

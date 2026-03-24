@@ -11,13 +11,10 @@ import string
 import textwrap
 import threading
 from collections import Counter
-from typing import Any, ClassVar, Literal, Optional
+from typing import Any, ClassVar, Literal
 
-from datasets import load_dataset
-from fastmcp import Client
 from pydantic import BaseModel, ConfigDict
 
-from ...adapters.executors.executer import make_executer
 from ...adapters.schemas.openai import (
     mcp_tools_to_openai_tools,
     openai_tools_to_action_types,
@@ -26,6 +23,7 @@ from ...adapters.schemas.openai import (
 # Copied scoring functions from https://github.com/hotpotqa/hotpot/blob/master/hotpot_evaluate_v1.py
 from ...core.actions import ActionsHandler, extract_argument
 from ...core.benchmark import Benchmark
+from ...core.evaluator import Evaluator
 from ...core.session import Session
 from ...core.types import (
     Action,
@@ -39,7 +37,7 @@ from ...core.types import (
     SingleAction,
     SingleObservation,
 )
-from ...utils.settings import ExecuterName, ExgenticSettings, get_settings
+from ...utils.settings import RunnerName
 
 HOTPOTQA_TOTAL_TASKS = 7405
 
@@ -94,17 +92,17 @@ class HotpotFinishAction(FinishAction):
 
 
 class HotpotQASession(Session):
-    """HotpotQA session for multi-hop question answering."""
+    """Session for HotpotQA benchmark evaluation."""
 
     _question: str
     _done: bool
 
     def __init__(
         self,
-        settings: ExgenticSettings,
         with_search_tools: bool,
         instance: dict[str, Any],
         session_id: str | None = None,
+        **_kwargs: Any,
     ) -> None:
         if session_id is not None:
             self._session_id = session_id
@@ -117,15 +115,16 @@ class HotpotQASession(Session):
         self._with_search_tools = with_search_tools
         self._registry = ActionsHandler(logger=self.logger)
         self._mcp_ready = threading.Event()
-        self._mcp_failed = False
+        self._mcp_error: BaseException | None = None
 
-        self.mcp_thread: Optional[threading.Thread] = None
+        self.mcp_thread: threading.Thread | None = None
         if self._with_search_tools:
             self.mcp_thread = threading.Thread(target=self.run_wikipedia_server, daemon=True)
             self.mcp_thread.start()
             ready = self._mcp_ready.wait(timeout=60.0)
-            if not ready or self._mcp_failed:
-                raise RuntimeError("MCP initialization failed or timed out.")
+            if not ready or self._mcp_error is not None:
+                err = self._mcp_error
+                raise RuntimeError(f"MCP initialization failed or timed out: {err}") from err
         else:
             # No search tools requested; skip MCP startup.
             self._mcp_ready.set()
@@ -183,6 +182,8 @@ class HotpotQASession(Session):
             self._mcp_ready.set()
             return
         try:
+            from fastmcp import Client
+
             config = self._mcp_client_config()
             mcp_client = Client(config)
 
@@ -196,7 +197,7 @@ class HotpotQASession(Session):
                     self._handle_mcp_action,
                 )
         except Exception as e:
-            self._mcp_failed = True
+            self._mcp_error = e
             self.logger.exception(f"Failed to initialize wikipedia-mcp: {e}")
             raise
         finally:
@@ -222,10 +223,10 @@ class HotpotQASession(Session):
     def actions(self) -> list[ActionType]:
         return self._registry.actions
 
-    def _to_observation(self, raw: Any, invoking: Optional[list[SingleAction]] = None) -> Observation:
+    def _to_observation(self, raw: Any, invoking: list[SingleAction] | None = None) -> Observation:
         return SingleObservation(invoking_actions=invoking or [], result=raw)
 
-    def start(self) -> Optional[Observation]:
+    def start(self) -> Observation | None:
         # Empty initial observation; question is carried in the task string.
         return EmptyObservation()
 
@@ -233,6 +234,8 @@ class HotpotQASession(Session):
         return asyncio.run(self.run_mcp_command_async(name, arguments))
 
     async def run_mcp_command_async(self, name, arguments) -> Any:
+        from fastmcp import Client
+
         config = self._mcp_client_config()
         mcp_client = Client(config)
 
@@ -241,7 +244,7 @@ class HotpotQASession(Session):
             # print(response.structured_content)
             return response.structured_content
 
-    def step(self, action: Action) -> Optional[Observation]:
+    def step(self, action: Action) -> Observation | None:
         if action is None:
             self._done = True
 
@@ -295,51 +298,44 @@ class HotpotQASession(Session):
         return result
 
 
-class HotpotQABenchmark(Benchmark, BaseModel):
-    display_name: ClassVar[str] = "HotpotQA"
-    slug_name: ClassVar[str] = "hotpotqa"
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+# ── Evaluator ────────────────────────────────────────────────────────
 
-    subset: Literal["distractor"] = "distractor"
-    with_search_tools: bool = True
-    executer: Optional[ExecuterName] = "inprocess"  # Code is threadsafe
 
-    # Internals
-    _dataset: Any = None
+class HotpotQAEvaluator(Evaluator):
+    """Evaluator for HotpotQA — task discovery, session kwargs, aggregation."""
 
-    def list_tasks(self) -> list[str]:  # type: ignore[override]
-        return [str(i) for i in range(HOTPOTQA_TOTAL_TASKS)]
+    def __init__(self, subset: str = "distractor", with_search_tools: bool = True) -> None:
+        self._subset = subset
+        self._with_search_tools = with_search_tools
+        self._dataset = None
 
     def _ensure_dataset(self) -> None:
         if self._dataset is None:
+            from datasets import load_dataset
+
             self._dataset = load_dataset("hotpotqa/hotpot_qa", "distractor")["validation"]
 
-    def create_session(self, index: SessionIndex) -> HotpotQASession:
+    def list_tasks(self) -> list[str]:
+        return [str(i) for i in range(HOTPOTQA_TOTAL_TASKS)]
+
+    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
         self._ensure_dataset()
-        task_id = index.task_id
-        idx = int(task_id)
+        idx = int(index.task_id)
         if idx < 0 or idx >= len(self._dataset):
-            raise IndexError(f"Task id {task_id} out of range for HotpotQA.")
+            raise IndexError(f"Task id {index.task_id} out of range for HotpotQA.")
         instance = {"task_id": idx, **self._dataset[idx]}
-        session_id = index.session_id
-        executer = make_executer(
-            self.executer,
-            HotpotQASession,
-            get_settings(),
-            self.with_search_tools,
-            instance,
-            session_id=session_id,
-        )
-        proxy = executer.get_proxy()
-        return proxy  # type: ignore[return-value]
+        return {
+            "with_search_tools": self._with_search_tools,
+            "instance": instance,
+            "session_id": index.session_id,
+        }
 
     def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
-        # Aggregate per-session scores written by sessions
         scores: list[float] = []
         for paths in self.get_sessions_paths(sessions):
             with open(paths.benchmark_results, encoding="utf-8-sig") as f:
                 payload = json.load(f)
-            s = float(payload["score"])  # minimal: assume exists
+            s = float(payload["score"])
             scores.append(s)
         avg = sum(scores) / len(scores) if scores else 0.0
         return BenchmarkResults(
@@ -348,3 +344,30 @@ class HotpotQABenchmark(Benchmark, BaseModel):
             score=avg,
             metrics={},
         )
+
+
+# ── Benchmark config ─────────────────────────────────────────────────
+
+
+class HotpotQABenchmark(Benchmark, BaseModel):
+    display_name: ClassVar[str] = "HotpotQA"
+    slug_name: ClassVar[str] = "hotpotqa"
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @classmethod
+    def get_evaluator_class(cls):
+        return HotpotQAEvaluator
+
+    @classmethod
+    def get_session_class(cls):
+        return HotpotQASession
+
+    subset: Literal["distractor"] = "distractor"
+    with_search_tools: bool = True
+    runner: RunnerName | None = "direct"  # Code is threadsafe
+
+    def get_evaluator_kwargs(self) -> dict[str, Any]:
+        return {
+            "subset": self.subset,
+            "with_search_tools": self.with_search_tools,
+        }
