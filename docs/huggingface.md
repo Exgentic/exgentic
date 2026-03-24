@@ -1,4 +1,4 @@
-# Running Exgentic on HuggingFace
+# HuggingFace
 
 ## Using HuggingFace Models
 
@@ -21,8 +21,6 @@ LiteLLM routes the call through HuggingFace's inference providers (billed to you
 
 HuggingFace Jobs run containerized workloads on HF infrastructure (requires Pro/Team/Enterprise).
 
-### CLI
-
 ```bash
 hf jobs run astral-sh/uv:python3.12-bookworm sh -c "
   uvx exgentic evaluate \
@@ -32,26 +30,6 @@ hf jobs run astral-sh/uv:python3.12-bookworm sh -c "
     --output-dir /tmp/outputs &&
   uvx exgentic batch publish --repo-id your-org/eval-results /tmp/outputs
 " --env HF_TOKEN=hf_...
-```
-
-### Python
-
-```python
-from huggingface_hub import run_job
-
-job = run_job(
-    image="astral-sh/uv:python3.12-bookworm",
-    command=["sh", "-c", """
-        uvx exgentic evaluate \
-          --benchmark gsm8k \
-          --agent tool_calling \
-          --model huggingface/together/meta-llama/Llama-3.1-70B-Instruct \
-          --output-dir /tmp/outputs &&
-        uvx exgentic batch publish --repo-id your-org/eval-results /tmp/outputs
-    """],
-    environment={"HF_TOKEN": "hf_..."},
-    hardware="cpu-basic",
-)
 ```
 
 Results are published to `https://huggingface.co/datasets/your-org/eval-results`.

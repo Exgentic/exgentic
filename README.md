@@ -202,6 +202,10 @@ exgentic evaluate --benchmark tau2 --agent tool_calling --subset retail --num-ta
 
 Sessions stop at either limit and record `limit_reached` status. Default: 100 for both.
 
+### HuggingFace
+
+Use HuggingFace models or run evaluations on HuggingFace Jobs. See [docs/huggingface.md](./docs/huggingface.md).
+
 ---
 
 ## How It Works
