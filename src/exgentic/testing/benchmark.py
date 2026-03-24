@@ -158,6 +158,7 @@ class TestBenchmark(Benchmark):
     __test__ = False
     display_name: ClassVar[str] = "Test Benchmark"
     slug_name: ClassVar[str] = "test_benchmark"
+    runner: str | None = "direct"  # Run in-process; override via benchmark_kwargs for runner tests
     tasks: list[str] = ["task-1", "task-2", "task-3"]  # noqa: RUF012
 
     @classmethod
