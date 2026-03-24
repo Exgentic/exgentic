@@ -42,13 +42,6 @@ class RegistryEntry:
 
 
 BENCHMARKS: dict[str, RegistryEntry] = {
-    "test_benchmark": RegistryEntry(
-        slug_name="test_benchmark",
-        display_name="Test Benchmark",
-        module="exgentic.testing.benchmark",
-        attr="TestBenchmark",
-        kind="benchmark",
-    ),
     "bfcl": RegistryEntry(
         slug_name="bfcl",
         display_name="BFCL",
@@ -140,13 +133,6 @@ BENCHMARKS: dict[str, RegistryEntry] = {
 }
 
 AGENTS: dict[str, RegistryEntry] = {
-    "test_agent": RegistryEntry(
-        slug_name="test_agent",
-        display_name="Test Agent",
-        module="exgentic.testing.agent",
-        attr="TestAgent",
-        kind="agent",
-    ),
     "tool_calling": RegistryEntry(
         slug_name="tool_calling",
         display_name="LiteLLM Tool Calling",
