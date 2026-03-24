@@ -28,10 +28,10 @@ jobs:
         run: uv sync --frozen --extra dev --extra analysis
 
       - name: Run core tests
-        run: uv run pytest tests -v --ignore=tests/integrations --ignore=tests/adapters/runners --tb=short
+        run: uv run --frozen pytest tests -v --ignore=tests/integrations --ignore=tests/adapters/runners --tb=short
 
       - name: Run runner tests
-        run: uv run pytest tests/adapters/runners -v --tb=short -p no:faulthandler
+        run: uv run --frozen pytest tests/adapters/runners -v --tb=short -p no:faulthandler
 
       - name: Upload test results
         if: failure()
