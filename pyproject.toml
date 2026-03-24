@@ -19,7 +19,7 @@ dependencies = [
     "filelock",
     "click>=8.1.7",
     "json-schema-to-pydantic",
-    "litellm>=1.65.0",
+    "litellm>=1.65.0,!=1.82.7,!=1.82.8",
     "mcp>=1.24",
     "pydantic>=2.9.2,<3",
     "python-dotenv",
