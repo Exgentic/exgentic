@@ -30,13 +30,12 @@ from huggingface_hub import run_job
 
 job = run_job(
     command=["sh", "-c", """
-        uv tool install exgentic &&
-        exgentic evaluate \
+        uvx exgentic evaluate \
           --benchmark gsm8k \
           --agent tool_calling \
           --model huggingface/together/meta-llama/Llama-3.1-70B-Instruct \
           --output-dir /tmp/outputs &&
-        exgentic batch publish --repo-id your-org/eval-results /tmp/outputs
+        uvx exgentic batch publish --repo-id your-org/eval-results /tmp/outputs
     """],
     environment={
         "HF_TOKEN": "hf_...",
