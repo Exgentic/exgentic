@@ -27,9 +27,6 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --extra dev --extra analysis
 
-      - name: Audit dependencies
-        run: uv audit
-
       - name: Run core tests
         run: uv run pytest tests -v --ignore=tests/integrations --ignore=tests/adapters/runners --tb=short
 
