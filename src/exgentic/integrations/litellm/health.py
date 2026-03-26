@@ -46,21 +46,8 @@ def check_model_accessible_sync(
         run_sync(acheck_model_accessible(model), timeout=timeout)
         logger.info("Model health check passed for %s", model)
     except Exception as exc:
-        logger.error("Model health check failed for %s: %s", model, exc)
-
-        # Import from litellm.exceptions to fail fast if exceptions don't exist.
-        # Imported here (not at module level) to avoid circular import issues.
-        from litellm.exceptions import AuthenticationError, PermissionDeniedError
-
-        # Provide specific error messages for authentication issues
-        if isinstance(exc, AuthenticationError):
-            raise RuntimeError(
-                f"Model {model} is not accessible: API key authentication failed. "
-                "Please check your API key configuration."
-            ) from exc
-        if isinstance(exc, PermissionDeniedError):
-            raise RuntimeError(
-                f"Model {model} is not accessible: Permission denied. "
-                "Your API key does not have access to this model."
-            ) from exc
-        raise RuntimeError(f"Model {model} is not accessible: {exc}") from exc
+        # Extract error details from exception attributes (e.g., .message, .status_code)
+        # rather than relying on str(exc) which may return empty for some LiteLLM exceptions
+        error_msg = getattr(exc, "message", "") or str(exc) or repr(exc)
+        logger.error("Model health check failed for %s: %s", model, error_msg)
+        raise RuntimeError(f"Model {model} is not accessible: {error_msg}") from exc
