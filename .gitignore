@@ -38,6 +38,14 @@ ENV/
 env.bak/
 venv.bak/
 
+# AI/CLI agent metadata
+.bob/
+.claude/
+.cursor/
+.aider*
+.copilot/
+.continue/
+
 # VS Code settings
 .vscode/
 .history/
