@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026, The Exgentic organization and its contributors.
+
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2024-present Exgentic Team
 # SPDX-License-Identifier: MIT
@@ -35,7 +38,6 @@ def check_dependency_caps(pyproject_path: Path) -> list[str]:
 
     for match in dep_pattern.finditer(content):
         full_line = match.group(0).strip()
-        package_name = match.group(1)
         version_spec = match.group(2)
 
         # Check if there's an upper bound (< or <=)
