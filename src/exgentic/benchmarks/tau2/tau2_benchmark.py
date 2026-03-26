@@ -35,6 +35,7 @@ from ...core.types import (
     SingleObservation,
 )
 from ...integrations.litellm.config import configure_litellm
+from ...integrations.litellm.health import check_model_accessible_sync
 from ...observers.logging import (
     add_loguru_file_sink,
     attach_library_logger_to_handler,
@@ -178,6 +179,10 @@ class TAU2Session(PairableProxySession):
         base.mkdir(parents=True, exist_ok=True)
         self.file_path = str((base / f"{self._cfg.save_to}.json").resolve())
         self.results_file = self.paths.benchmark_results
+
+        # Check user simulator model accessibility before starting Tau2 runner
+        check_model_accessible_sync(self._cfg.llm_user, logger=self.logger)
+
         # Start Tau2 runner
         self.logger.debug("Staging for pairing")
         self.stage_for_pairing()
