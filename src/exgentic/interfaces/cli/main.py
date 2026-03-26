@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import rich_click as click
 
+from exgentic import __version__
+
 from .commands.analyze import analyse_cmd
 from .commands.batch import batch_cmd
 from .commands.compare import compare_cmd
@@ -65,6 +67,7 @@ click.rich_click.COMMAND_GROUPS = {
     is_flag=True,
     help="Enable debug mode (sets settings.debug=true and log level to DEBUG)",
 )
+@click.version_option(__version__, "--version", "-V", prog_name="exgentic", message="%(prog)s, version %(version)s")
 def cli(debug: bool) -> None:
     """Exgentic CLI."""
     apply_debug_mode(debug)
