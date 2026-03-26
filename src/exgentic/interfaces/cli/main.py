@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import rich_click as click
 
+from ... import __version__
 from .commands.analyze import analyse_cmd
 from .commands.batch import batch_cmd
 from .commands.compare import compare_cmd
@@ -59,7 +60,23 @@ click.rich_click.COMMAND_GROUPS = {
 }
 
 
+def _version_callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
+    if not value or ctx.resilient_parsing:
+        return
+    click.echo(f"exgentic {__version__}")
+    ctx.exit()
+
+
 @click.group()
+@click.option(
+    "--version",
+    "-V",
+    is_flag=True,
+    callback=_version_callback,
+    expose_value=False,
+    is_eager=True,
+    help="Show version and exit.",
+)
 @click.option(
     "--debug",
     is_flag=True,
