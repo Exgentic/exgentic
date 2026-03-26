@@ -5,7 +5,8 @@
     {
       "matchManagers": ["uv"],
       "minimumReleaseAge": "14 days",
-      "groupName": "python dependencies"
+      "groupName": "python dependencies",
+      "rangeStrategy": "bump"
     }
   ],
   "schedule": ["every weekend"]

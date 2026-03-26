@@ -47,6 +47,12 @@ repos:
         files: ^src/.*\.py$
         # Optional: Specify types or exclude files
         types: [python]
+      - id: enforce-dependency-caps
+        name: Enforce Dependency Version Caps
+        entry: python3 misc/utils/enforce_dependency_caps.py
+        language: system
+        files: ^pyproject\.toml$
+        pass_filenames: false
 
   - repo: local
     hooks:

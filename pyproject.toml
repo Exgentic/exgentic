@@ -49,13 +49,13 @@ analysis = [
 
 # Development
 dev = [
-    "pytest>=7.0.0",
-    "pytest-asyncio",
-    "pytest-mock",
-    "pre-commit",
-    "ruff",
-    "codespell",
-    "detect-secrets",
+    "pytest>=7.0.0,<9",
+    "pytest-asyncio>=0.21.0,<1",
+    "pytest-mock>=3.0.0,<4",
+    "pre-commit>=3.0.0,<4",
+    "ruff>=0.1.0,<1",
+    "codespell>=2.0.0,<3",
+    "detect-secrets>=1.0.0,<2",
 ]
 
 [tool.hatch.metadata]
@@ -88,7 +88,7 @@ include = [
 
 [tool.uv]
 override-dependencies = [
-  "rich>=13.9.4",
+  "rich>=13.9.4,<14",
 ]
 
 [tool.codespell]
@@ -101,5 +101,5 @@ pythonpath = ["."]
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.1",
+    "pytest>=9.0.1,<10",
 ]
