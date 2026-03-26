@@ -6,14 +6,13 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
-
 from exgentic.integrations.litellm.health import check_model_accessible_sync
 
 
-class MockLiteLLMException(Exception):
+class MockLiteLLMError(Exception):
     """Mock exception that mimics LiteLLM exceptions with .message attribute."""
 
     def __init__(self, message: str):
@@ -31,7 +30,7 @@ def test_health_check_extracts_message_attribute_from_exception(caplog):
 
     with patch("exgentic.utils.sync.run_sync") as mock_run_sync:
         # Create an exception with .message attribute but empty __str__
-        exc = MockLiteLLMException("API key authentication failed")
+        exc = MockLiteLLMError("API key authentication failed")
         mock_run_sync.side_effect = exc
 
         logger = logging.getLogger("test")
@@ -70,14 +69,14 @@ def test_health_check_uses_repr_as_last_resort(caplog):
     """Test that health check uses repr(exc) when both .message and str(exc) are empty."""
     caplog.set_level(logging.ERROR)
 
-    class EmptyException(Exception):
+    class EmptyError(Exception):
         """Exception that returns empty string from __str__."""
 
         def __str__(self) -> str:
             return ""
 
     with patch("exgentic.utils.sync.run_sync") as mock_run_sync:
-        exc = EmptyException("hidden")
+        exc = EmptyError("hidden")
         mock_run_sync.side_effect = exc
 
         logger = logging.getLogger("test")
@@ -87,5 +86,5 @@ def test_health_check_uses_repr_as_last_resort(caplog):
 
         # Verify the error message includes repr(exc) as fallback
         error_msg = str(exc_info.value)
-        assert "EmptyException" in error_msg
+        assert "EmptyError" in error_msg
         assert "test-model" in error_msg
