@@ -1,24 +1,23 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-"""Integration test for proxy subprocess callback registration.
+"""Integration test for proxy subprocess config validation and trace detail.
 
-This test verifies that trace callbacks work end-to-end when the litellm proxy
-runs as an actual subprocess, catching issues like those in PR #61 where
-callback registration silently broke in the subprocess.
+Complements test_proxy_callback_execution.py (which already exercises the full
+subprocess path via LitellmProxy) by adding:
 
-Background:
-- PR #61 broke trace logging in subprocess while passing all in-process tests
-- Existing tests in test_proxy_callback_execution.py call configure_litellm() directly
-- None verify the full subprocess startup -> callback registration -> trace write path
-- This test fills that gap by running the proxy as a real subprocess
+- Config file validation: checks that the generated JSON config contains the
+  expected callback entries before any request is made.
+- Explicit subprocess liveness assertions (proxy._proc is not None / running).
+- Detailed trace field validation: model name, token counts, request/response
+  presence — fields not checked by the existing execution test.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -31,27 +30,17 @@ from exgentic.integrations.litellm import LitellmProxy
     reason="litellm CLI not installed in active venv",
 )
 def test_proxy_subprocess_writes_trace_end_to_end(tmp_path, fake_openai_server) -> None:
-    """Integration test: verify trace callbacks work in actual proxy subprocess.
+    """Verify config file contents, subprocess liveness, and detailed trace fields.
 
-    This test catches regressions where callback registration breaks in the subprocess
-    (like PR #61) while passing in-process tests.
-
-    Test flow:
-    1. LitellmProxy writes config with trace callbacks to disk
-    2. Proxy subprocess starts via Popen and loads the config
-    3. Callbacks are registered in the subprocess (not in-process)
-    4. Request flows through the subprocess proxy
-    5. Trace callback executes in subprocess and writes to trace.jsonl
-    6. Verify trace file exists and contains expected data
-
-    This is the ONLY test that verifies the full subprocess callback path.
+    Adds assertions that go beyond test_proxy_callback_execution.py:
+    - Config JSON contains the expected success_callback entries.
+    - The subprocess process object is alive during the request.
+    - Trace entries include model, token counts, request/response, and timestamp.
     """
     backend_port = fake_openai_server.server_address[1]
     backend_base = f"http://127.0.0.1:{backend_port}/v1"
     trace_path = tmp_path / "trace.jsonl"
     log_path = tmp_path / "proxy.log"
-
-    import os
 
     env = os.environ.copy()
     env.update(
@@ -103,9 +92,6 @@ def test_proxy_subprocess_writes_trace_end_to_end(tmp_path, fake_openai_server) 
         assert "choices" in response_data
         assert len(response_data["choices"]) > 0
         assert response_data["choices"][0]["message"]["content"] == "ok"
-
-        # Give subprocess time to write trace (callbacks are async)
-        time.sleep(0.5)
 
     # Verify trace was written by subprocess
     assert trace_path.exists(), f"Trace file should exist at {trace_path}"
