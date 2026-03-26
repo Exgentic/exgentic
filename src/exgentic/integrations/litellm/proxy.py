@@ -162,8 +162,6 @@ class LitellmProxy:
         return litellm_params
 
     def _build_config_data(self) -> dict[str, object]:
-        trace_cb = TRACE_CALLBACK
-        async_cb = ASYNC_TRACE_CALLBACK
         config_data: dict[str, object] = {
             "model_list": [
                 {
@@ -172,8 +170,6 @@ class LitellmProxy:
                 }
             ],
             "litellm_settings": {
-                "success_callback": [trace_cb, async_cb],
-                "failure_callback": [trace_cb, async_cb],
                 # Force chat/completions instead of /responses for Anthropic
                 # message translation — many backends (Azure proxies, etc.)
                 # don't expose the newer Responses API endpoint.

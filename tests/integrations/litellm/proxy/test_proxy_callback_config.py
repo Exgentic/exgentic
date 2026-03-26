@@ -9,6 +9,12 @@ from exgentic.integrations.litellm import LitellmProxy
 
 
 def test_proxy_writes_exgentic_trace_callback_to_litellm_settings_config(tmp_path, monkeypatch) -> None:
+    """Verify that proxy config is created without explicit callbacks.
+
+    Callbacks are now auto-registered via configure_litellm() during settings
+    initialization to prevent duplicates. This test verifies the config file
+    doesn't contain explicit callback registrations.
+    """
     import exgentic.integrations.litellm.proxy as proxy_mod
 
     class _DummyProc:
@@ -42,13 +48,6 @@ def test_proxy_writes_exgentic_trace_callback_to_litellm_settings_config(tmp_pat
         config_path = log_path.with_name("litellm_config.json")
         assert config_path.exists()
         config_data = json.loads(config_path.read_text(encoding="utf-8"))
-        callback = "exgentic.integrations.litellm.trace_logger.trace_logger"
-        async_callback = "exgentic.integrations.litellm.trace_logger.async_trace_logger"
-        assert set(config_data["litellm_settings"]["success_callback"]) == {
-            callback,
-            async_callback,
-        }
-        assert set(config_data["litellm_settings"]["failure_callback"]) == {
-            callback,
-            async_callback,
-        }
+        # Verify callbacks are NOT in the config (they're registered via configure_litellm)
+        assert "success_callback" not in config_data.get("litellm_settings", {})
+        assert "failure_callback" not in config_data.get("litellm_settings", {})

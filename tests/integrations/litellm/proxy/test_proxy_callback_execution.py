@@ -83,8 +83,8 @@ def test_raw_litellm_proxy_executes_litellm_settings_callbacks_and_writes_trace(
     trace_path = tmp_path / "trace.jsonl"
     config_path = tmp_path / "litellm_config.json"
 
-    callback_path = "exgentic.integrations.litellm.trace_logger.trace_logger"
-    async_callback_path = "exgentic.integrations.litellm.trace_logger.async_trace_logger"
+    # Note: Callbacks are auto-registered via configure_litellm() during settings initialization
+    # No need to explicitly add them to litellm_settings to avoid duplicates
     config_path.write_text(
         json.dumps(
             {
@@ -94,10 +94,7 @@ def test_raw_litellm_proxy_executes_litellm_settings_callbacks_and_writes_trace(
                         "litellm_params": {"model": "openai/gpt-4o-mini"},
                     }
                 ],
-                "litellm_settings": {
-                    "success_callback": [callback_path, async_callback_path],
-                    "failure_callback": [callback_path, async_callback_path],
-                },
+                "litellm_settings": {},
             }
         ),
         encoding="utf-8",
