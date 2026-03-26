@@ -29,7 +29,6 @@ def test_health_check_extracts_message_attribute_from_exception(caplog):
     caplog.set_level(logging.ERROR)
 
     with patch("exgentic.utils.sync.run_sync") as mock_run_sync:
-        # Create an exception with .message attribute but empty __str__
         exc = MockLiteLLMError("API key authentication failed")
         mock_run_sync.side_effect = exc
 
@@ -38,7 +37,6 @@ def test_health_check_extracts_message_attribute_from_exception(caplog):
         with pytest.raises(RuntimeError) as exc_info:
             check_model_accessible_sync("test-model", logger)
 
-        # Verify the error message includes the content from .message attribute
         error_msg = str(exc_info.value)
         assert "API key authentication failed" in error_msg
         assert "test-model" in error_msg
@@ -50,7 +48,6 @@ def test_health_check_falls_back_to_str_when_no_message_attribute(caplog):
     caplog.set_level(logging.ERROR)
 
     with patch("exgentic.utils.sync.run_sync") as mock_run_sync:
-        # Create a standard exception without .message attribute
         exc = ValueError("Standard error message")
         mock_run_sync.side_effect = exc
 
@@ -59,7 +56,6 @@ def test_health_check_falls_back_to_str_when_no_message_attribute(caplog):
         with pytest.raises(RuntimeError) as exc_info:
             check_model_accessible_sync("test-model", logger)
 
-        # Verify the error message includes the content from str(exc)
         error_msg = str(exc_info.value)
         assert "Standard error message" in error_msg
         assert "test-model" in error_msg
@@ -84,7 +80,6 @@ def test_health_check_uses_repr_as_last_resort(caplog):
         with pytest.raises(RuntimeError) as exc_info:
             check_model_accessible_sync("test-model", logger)
 
-        # Verify the error message includes repr(exc) as fallback
         error_msg = str(exc_info.value)
         assert "EmptyError" in error_msg
         assert "test-model" in error_msg
