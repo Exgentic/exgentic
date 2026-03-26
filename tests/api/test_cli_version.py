@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from click.testing import CliRunner
-
 from exgentic import __version__
 from exgentic.interfaces.cli.main import cli
 
