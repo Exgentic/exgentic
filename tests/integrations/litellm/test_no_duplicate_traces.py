@@ -7,9 +7,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 
 def test_trace_logger_writes_single_entry_on_success(tmp_path: Path) -> None:
@@ -93,11 +90,9 @@ def test_trace_logger_writes_single_entry_on_failure(tmp_path: Path) -> None:
     assert entry["trace_id"] == "test-trace-456"
 
 
-
 def test_configure_litellm_does_not_duplicate_callbacks() -> None:
     """Verify that calling configure_litellm multiple times doesn't duplicate callbacks."""
     import litellm
-
     from exgentic.integrations.litellm.config import configure_litellm
     from exgentic.integrations.litellm.trace_logger import AsyncTraceLogger, SyncTraceLogger
     from exgentic.utils.settings import get_settings
