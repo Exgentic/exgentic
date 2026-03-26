@@ -46,8 +46,6 @@ def check_model_accessible_sync(
         run_sync(acheck_model_accessible(model), timeout=timeout)
         logger.info("Model health check passed for %s", model)
     except Exception as exc:
-        # Extract error details from exception attributes (e.g., .message, .status_code)
-        # rather than relying on str(exc) which may return empty for some LiteLLM exceptions
         error_msg = getattr(exc, "message", "") or str(exc) or repr(exc)
         logger.error("Model health check failed for %s: %s", model, error_msg)
         raise RuntimeError(f"Model {model} is not accessible: {error_msg}") from exc
