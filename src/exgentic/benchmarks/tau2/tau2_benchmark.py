@@ -311,30 +311,36 @@ class TAU2Session(PairableProxySession):
 
     def close(self):
         self.logger.debug("Closing session")
-        # Check if the runner thread encountered an error and surface it
-        if self._runner_error is not None:
-            raise RuntimeError(f"TAU2 runner thread failed with error: {self._runner_error}") from self._runner_error
-        super().close()  # This sets self.completed = True
-        t = self._runner_thread
-        self.logger.debug(f"Thread state: alive={t.is_alive() if t else 'None'}")
-        if t and t.is_alive():
-            self.logger.debug("Waiting for runner thread")
-            t.join(timeout=10.0)
-            if t.is_alive():
-                self.logger.warning("Runner thread did not exit cleanly, continuing anyway")
-        self.logger.debug("Thread join completed")
-        if not Path(self.results_file).exists():
-            if self.file_path and Path(self.file_path).exists():
-                self.logger.debug("Moving results file")
-                move(self.file_path, self.results_file)
-                self.logger.debug("File move completed")
-            else:
-                self.logger.error("Results file not found")
-                raise FileNotFoundError(f"TAU2 results file not found for session {self.session_id}: {self.file_path}")
+        try:
+            super().close()  # This sets self.completed = True
+            t = self._runner_thread
+            self.logger.debug(f"Thread state: alive={t.is_alive() if t else 'None'}")
+            if t and t.is_alive():
+                self.logger.debug("Waiting for runner thread")
+                t.join(timeout=10.0)
+                if t.is_alive():
+                    self.logger.warning("Runner thread did not exit cleanly, continuing anyway")
+            self.logger.debug("Thread join completed")
+            if not Path(self.results_file).exists():
+                if self.file_path and Path(self.file_path).exists():
+                    self.logger.debug("Moving results file")
+                    move(self.file_path, self.results_file)
+                    self.logger.debug("File move completed")
+                else:
+                    self.logger.error("Results file not found")
+                    raise FileNotFoundError(
+                        f"TAU2 results file not found for session {self.session_id}: {self.file_path}"
+                    )
 
-        self.logger.debug("Closing logging")
-        if not t or not t.is_alive():
-            close_logger(self.logger)
+            self.logger.debug("Closing logging")
+            if not t or not t.is_alive():
+                close_logger(self.logger)
+        finally:
+            # Surface runner thread error after cleanup to avoid leaking resources
+            if self._runner_error is not None:
+                raise RuntimeError(
+                    f"TAU2 runner thread failed with error: {self._runner_error}"
+                ) from self._runner_error
 
     def get_cost(self) -> CostReport:
         def _custom_token_cost(input_tokens: int, output_tokens: int) -> float | None:
