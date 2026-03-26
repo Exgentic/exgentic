@@ -13,11 +13,19 @@ from typing import Any
 
 
 def find_project_root() -> Path:
-    """Walk up from the exgentic package to find the project root (pyproject.toml)."""
+    """Return the project root directory.
+
+    Walks up from the exgentic package looking for a ``pyproject.toml``.
+    When none is found (e.g. ``uv tool install exgentic``), falls back
+    to ``~/.exgentic/`` so that benchmark venvs and caches still have a
+    stable home directory.
+    """
     for parent in Path(__file__).resolve().parents:
         if (parent / "pyproject.toml").exists():
             return parent
-    raise FileNotFoundError("Cannot find project root (pyproject.toml)")
+    fallback = Path.home() / ".exgentic"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
 
 
 def find_free_port() -> int:
