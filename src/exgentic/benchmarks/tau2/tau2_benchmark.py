@@ -313,9 +313,7 @@ class TAU2Session(PairableProxySession):
         self.logger.debug("Closing session")
         # Check if the runner thread encountered an error and surface it
         if self._runner_error is not None:
-            raise RuntimeError(
-                f"TAU2 runner thread failed with error: {self._runner_error}"
-            ) from self._runner_error
+            raise RuntimeError(f"TAU2 runner thread failed with error: {self._runner_error}") from self._runner_error
         super().close()  # This sets self.completed = True
         t = self._runner_thread
         self.logger.debug(f"Thread state: alive={t.is_alive() if t else 'None'}")
@@ -417,9 +415,7 @@ class TAU2Session(PairableProxySession):
     def score(self) -> SessionScore:
         # Check if the runner thread encountered an error and surface it
         if self._runner_error is not None:
-            raise RuntimeError(
-                f"TAU2 runner thread failed with error: {self._runner_error}"
-            ) from self._runner_error
+            raise RuntimeError(f"TAU2 runner thread failed with error: {self._runner_error}") from self._runner_error
         # Ensure the results file is in place.  score() may be called before
         # close() by the framework, so move the tau2 simulation output now.
         if not Path(self.results_file).exists():
