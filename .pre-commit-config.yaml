@@ -17,6 +17,12 @@ repos:
         args: [--baseline, misc/utils/.secrets.baseline]
         exclude: misc/utils/.secrets.baseline
 
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.7.12
+    hooks:
+      - id: uv-lock
+        args: [--locked]
+
   - repo: https://github.com/codespell-project/codespell
     rev: v2.2.6
     hooks:
