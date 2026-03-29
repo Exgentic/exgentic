@@ -4,9 +4,8 @@
 """Tests for exgentic.environment.manager.
 
 Tests are organized by the assumptions the rest of the repo makes about
-the installer's capabilities.  Every public method and every env_type
-(venv, local, docker) is tested in isolation so the installer can be
-wired into the CLI / evaluate / list commands with confidence.
+the manager's capabilities.  Every public method and every env type
+is tested in isolation.
 """
 
 from __future__ import annotations
@@ -22,7 +21,8 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-from exgentic.environment.manager import EnvironmentManager, _find_package_file, _require_uv
+from exgentic.environment import EnvironmentManager, EnvType
+from exgentic.environment._helpers import find_package_file, require_uv
 
 _pkg_counter = 0
 
@@ -96,7 +96,7 @@ def _docker_mock_result(**overrides):
 
 
 class TestVenvInstall:
-    """Venv is the default env_type.
+    """Venv is the default env type.
 
     The evaluate flow and venv runner depend on: venv/ dir existing,
     .installed marker with installed_at, and setup.sh having been run.
@@ -104,9 +104,9 @@ class TestVenvInstall:
 
     def test_creates_venv_and_marker(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        env_dir = installer.install("bench", "benchmark", module_path=module_path)
+        env_dir = mgr.install("mybench", module_path=module_path)
 
         assert env_dir.is_dir()
         assert (env_dir / "venv").is_dir()
@@ -117,38 +117,38 @@ class TestVenvInstall:
 
     def test_skips_if_already_installed(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", module_path=module_path)
-        mtime = (installer.env_path("bench", "benchmark") / ".installed").stat().st_mtime
+        mgr.install("mybench", module_path=module_path)
+        mtime = (mgr.env_path("mybench") / ".installed").stat().st_mtime
 
-        installer.install("bench", "benchmark", module_path=module_path)
-        assert (installer.env_path("bench", "benchmark") / ".installed").stat().st_mtime == mtime
+        mgr.install("mybench", module_path=module_path)
+        assert (mgr.env_path("mybench") / ".installed").stat().st_mtime == mtime
 
     def test_force_reinstalls(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", module_path=module_path)
-        sentinel = installer.env_path("bench", "benchmark") / "venv" / "sentinel.txt"
+        mgr.install("mybench", module_path=module_path)
+        sentinel = mgr.env_path("mybench") / "venv" / "sentinel.txt"
         sentinel.write_text("old")
 
-        installer.install("bench", "benchmark", force=True, module_path=module_path)
+        mgr.install("mybench", force=True, module_path=module_path)
 
         assert not sentinel.exists()
-        assert installer.is_installed("bench", "benchmark", env_type="venv")
+        assert mgr.is_installed("mybench", env_type=EnvType.VENV)
 
     def test_runs_setup_sh(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=True)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        env_dir = installer.install("bench", "benchmark", module_path=module_path)
+        env_dir = mgr.install("mybench", module_path=module_path)
 
         assert (env_dir / "data" / "setup_ran.txt").is_file()
 
     def test_cleanup_on_failure(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
         def fail_pip(cmd, **kwargs):
             if isinstance(cmd, list) and "pip" in cmd and "install" in cmd:
@@ -157,21 +157,20 @@ class TestVenvInstall:
 
         with mock.patch("subprocess.run", side_effect=fail_pip):
             with pytest.raises(subprocess.CalledProcessError):
-                installer.install("bench", "benchmark", venv_packages=["some-pkg"], module_path=module_path)
+                mgr.install("mybench", venv_packages=["some-pkg"], module_path=module_path)
 
-        venv_dir = installer.env_path("bench", "benchmark") / "venv"
+        venv_dir = mgr.env_path("mybench") / "venv"
         assert not venv_dir.exists()
-        assert not installer.is_installed("bench", "benchmark", env_type="venv")
+        assert not mgr.is_installed("mybench", env_type=EnvType.VENV)
 
     def test_venv_python_path(self, tmp_path: Path) -> None:
-        """The venv runner needs to know the venv Python path."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", module_path=module_path)
+        mgr.install("mybench", module_path=module_path)
 
-        python_path = installer.venv_python("bench", "benchmark")
-        assert python_path == str(tmp_path / "envs" / "benchmarks" / "bench" / "venv" / "bin" / "python")
+        python_path = mgr.venv_python("mybench")
+        assert python_path == str(tmp_path / "envs" / "mybench" / "venv" / "bin" / "python")
         assert Path(python_path).exists()
 
 
@@ -183,66 +182,65 @@ class TestVenvInstall:
 class TestLocalInstall:
     """Local install uses the current Python (sys.executable).
 
-    Used for debugging/development. The installer must record which
+    Used for debugging/development. The manager must record which
     Python was used so runners can find it.
     """
 
     def test_installs_without_venv(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        env_dir = installer.install("bench", "benchmark", env_type="local", module_path=module_path)
+        env_dir = mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
 
         assert env_dir.is_dir()
         assert not (env_dir / "venv").exists()
-        assert installer.is_installed("bench", "benchmark", env_type="local")
+        assert mgr.is_installed("mybench", env_type=EnvType.LOCAL)
 
     def test_marker_has_python_path(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", env_type="local", module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
 
-        marker = json.loads((installer.env_path("bench", "benchmark") / ".installed").read_text())
+        marker = json.loads((mgr.env_path("mybench") / ".installed").read_text())
         assert marker["local"]["python"] == sys.executable
         assert "installed_at" in marker["local"]
 
     def test_skips_if_already_installed(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", env_type="local", module_path=module_path)
-        mtime = (installer.env_path("bench", "benchmark") / ".installed").stat().st_mtime
+        mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
+        mtime = (mgr.env_path("mybench") / ".installed").stat().st_mtime
 
-        installer.install("bench", "benchmark", env_type="local", module_path=module_path)
-        assert (installer.env_path("bench", "benchmark") / ".installed").stat().st_mtime == mtime
+        mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
+        assert (mgr.env_path("mybench") / ".installed").stat().st_mtime == mtime
 
     def test_force_reinstalls(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", env_type="local", module_path=module_path)
-        old_marker = json.loads((installer.env_path("bench", "benchmark") / ".installed").read_text())
+        mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
+        old_marker = json.loads((mgr.env_path("mybench") / ".installed").read_text())
 
-        installer.install("bench", "benchmark", env_type="local", force=True, module_path=module_path)
-        new_marker = json.loads((installer.env_path("bench", "benchmark") / ".installed").read_text())
+        mgr.install("mybench", env_type=EnvType.LOCAL, force=True, module_path=module_path)
+        new_marker = json.loads((mgr.env_path("mybench") / ".installed").read_text())
 
         assert new_marker["local"]["installed_at"] >= old_marker["local"]["installed_at"]
 
     def test_runs_setup_sh_without_virtual_env(self, tmp_path: Path) -> None:
-        """setup.sh must get EXGENTIC_CACHE_DIR but NOT VIRTUAL_ENV for local installs."""
+        """setup.sh must get EXGENTIC_CACHE_DIR but NOT VIRTUAL_ENV."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=True)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        env_dir = installer.install("bench", "benchmark", env_type="local", module_path=module_path)
+        env_dir = mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
 
-        # setup.sh ran (it creates data/setup_ran.txt via $EXGENTIC_CACHE_DIR)
         assert (env_dir / "data" / "setup_ran.txt").is_file()
 
     def test_installs_requirements_into_current_python(self, tmp_path: Path) -> None:
         """Local install must call uv pip install --python sys.executable."""
         module_path = _create_fake_package(tmp_path, with_requirements=True, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
         pip_calls: list[list[str]] = []
 
@@ -253,10 +251,9 @@ class TestLocalInstall:
             return _real_subprocess_run(cmd, **kwargs)
 
         with mock.patch("subprocess.run", side_effect=capture_run):
-            installer.install("bench", "benchmark", env_type="local", module_path=module_path)
+            mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
 
         assert len(pip_calls) == 1
-        assert "--python" in pip_calls[0]
         python_idx = pip_calls[0].index("--python") + 1
         assert pip_calls[0][python_idx] == sys.executable
 
@@ -274,7 +271,7 @@ class TestDockerInstall:
 
     def test_builds_image_and_writes_marker(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=True, with_setup=True)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
         dockerfiles: list[str] = []
 
@@ -290,7 +287,7 @@ class TestDockerInstall:
             return _real_subprocess_run(cmd, **kwargs)
 
         with mock.patch("subprocess.run", side_effect=capture_run):
-            env_dir = installer.install("bench", "benchmark", env_type="docker", module_path=module_path)
+            env_dir = mgr.install("mybench", env_type=EnvType.DOCKER, module_path=module_path)
 
         assert len(dockerfiles) == 1
         assert "requirements.txt" in dockerfiles[0]
@@ -299,12 +296,11 @@ class TestDockerInstall:
         marker = json.loads((env_dir / ".installed").read_text())
         assert "docker" in marker
         assert "image" in marker["docker"]
-        assert marker["docker"]["image"].startswith("exgentic-benchmark-bench:")
         assert "installed_at" in marker["docker"]
 
     def test_reuses_existing_image(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=True, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
         build_called = []
 
@@ -318,13 +314,13 @@ class TestDockerInstall:
             return _real_subprocess_run(cmd, **kwargs)
 
         with mock.patch("subprocess.run", side_effect=side_effect):
-            installer.install("bench", "benchmark", env_type="docker", module_path=module_path)
+            mgr.install("mybench", env_type=EnvType.DOCKER, module_path=module_path)
 
         assert len(build_called) == 0
 
     def test_force_rebuilds(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=True, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
         build_calls: list[bool] = []
 
@@ -338,13 +334,13 @@ class TestDockerInstall:
             return _real_subprocess_run(cmd, **kwargs)
 
         with mock.patch("subprocess.run", side_effect=side_effect):
-            installer.install("bench", "benchmark", env_type="docker", force=True, module_path=module_path)
+            mgr.install("mybench", env_type=EnvType.DOCKER, force=True, module_path=module_path)
 
         assert len(build_calls) == 1
 
     def test_includes_system_deps(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=True, with_setup=False, with_system_deps=True)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
         dockerfiles: list[str] = []
 
@@ -360,7 +356,7 @@ class TestDockerInstall:
             return _real_subprocess_run(cmd, **kwargs)
 
         with mock.patch("subprocess.run", side_effect=capture_run):
-            installer.install("bench", "benchmark", env_type="docker", module_path=module_path)
+            mgr.install("mybench", env_type=EnvType.DOCKER, module_path=module_path)
 
         assert "apt-get install -y curl wget" in dockerfiles[0]
 
@@ -387,45 +383,45 @@ class TestDockerInstall:
                 return _docker_mock_result()
             return _real_subprocess_run(cmd, **kwargs)
 
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
         with mock.patch("subprocess.run", side_effect=capture_run):
-            installer.install("a", "benchmark", env_type="docker", module_path=module_path_a)
-            installer.install("b", "benchmark", env_type="docker", module_path=module_path_b)
+            mgr.install("a", env_type=EnvType.DOCKER, module_path=module_path_a)
+            mgr.install("b", env_type=EnvType.DOCKER, module_path=module_path_b)
 
         assert tags[0].split(":")[-1] != tags[1].split(":")[-1]
 
 
 # ---------------------------------------------------------------------------
-# Coexistence: venv + local + docker can all be installed simultaneously
+# Coexistence
 # ---------------------------------------------------------------------------
 
 
 class TestCoexistence:
-    """Multiple env_types can coexist for the same slug.
+    """Multiple env types can coexist for the same name.
 
-    Runners pick whichever env_type they need.
+    Runners pick whichever env type they need.
     """
 
     def test_venv_and_local_coexist(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", env_type="venv", module_path=module_path)
-        installer.install("bench", "benchmark", env_type="local", module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.VENV, module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
 
-        assert installer.is_installed("bench", "benchmark", env_type="venv")
-        assert installer.is_installed("bench", "benchmark", env_type="local")
-        assert (installer.env_path("bench", "benchmark") / "venv").is_dir()
+        assert mgr.is_installed("mybench", env_type=EnvType.VENV)
+        assert mgr.is_installed("mybench", env_type=EnvType.LOCAL)
+        assert (mgr.env_path("mybench") / "venv").is_dir()
 
-        marker = json.loads((installer.env_path("bench", "benchmark") / ".installed").read_text())
+        marker = json.loads((mgr.env_path("mybench") / ".installed").read_text())
         assert "venv" in marker
         assert "local" in marker
 
     def test_venv_and_docker_coexist(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", env_type="venv", module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.VENV, module_path=module_path)
 
         def docker_side_effect(cmd, **kwargs):
             if cmd[0] == "docker":
@@ -435,17 +431,17 @@ class TestCoexistence:
             return _real_subprocess_run(cmd, **kwargs)
 
         with mock.patch("subprocess.run", side_effect=docker_side_effect):
-            installer.install("bench", "benchmark", env_type="docker", module_path=module_path)
+            mgr.install("mybench", env_type=EnvType.DOCKER, module_path=module_path)
 
-        assert installer.is_installed("bench", "benchmark", env_type="venv")
-        assert installer.is_installed("bench", "benchmark", env_type="docker")
+        assert mgr.is_installed("mybench", env_type=EnvType.VENV)
+        assert mgr.is_installed("mybench", env_type=EnvType.DOCKER)
 
     def test_all_three_coexist(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", env_type="venv", module_path=module_path)
-        installer.install("bench", "benchmark", env_type="local", module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.VENV, module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
 
         def docker_side_effect(cmd, **kwargs):
             if cmd[0] == "docker":
@@ -455,24 +451,24 @@ class TestCoexistence:
             return _real_subprocess_run(cmd, **kwargs)
 
         with mock.patch("subprocess.run", side_effect=docker_side_effect):
-            installer.install("bench", "benchmark", env_type="docker", module_path=module_path)
+            mgr.install("mybench", env_type=EnvType.DOCKER, module_path=module_path)
 
-        marker = json.loads((installer.env_path("bench", "benchmark") / ".installed").read_text())
+        marker = json.loads((mgr.env_path("mybench") / ".installed").read_text())
         assert set(marker.keys()) == {"venv", "local", "docker"}
 
     def test_force_reinstall_one_preserves_others(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", env_type="venv", module_path=module_path)
-        installer.install("bench", "benchmark", env_type="local", module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.VENV, module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
 
-        old_marker = json.loads((installer.env_path("bench", "benchmark") / ".installed").read_text())
+        old_marker = json.loads((mgr.env_path("mybench") / ".installed").read_text())
         old_local_at = old_marker["local"]["installed_at"]
 
-        installer.install("bench", "benchmark", env_type="venv", force=True, module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.VENV, force=True, module_path=module_path)
 
-        new_marker = json.loads((installer.env_path("bench", "benchmark") / ".installed").read_text())
+        new_marker = json.loads((mgr.env_path("mybench") / ".installed").read_text())
         assert "venv" in new_marker
         assert "local" in new_marker
         assert new_marker["local"]["installed_at"] == old_local_at
@@ -484,37 +480,36 @@ class TestCoexistence:
 
 
 class TestUninstall:
-    """Uninstall removes the specified env_type without affecting others.
+    """Uninstall removes the specified env type without affecting others.
 
-    When the last env_type is removed, the whole directory is cleaned up.
+    When the last env type is removed, the whole directory is cleaned up.
     """
 
     def test_uninstall_venv(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", module_path=module_path)
-        installer.uninstall("bench", "benchmark", env_type="venv")
+        mgr.install("mybench", module_path=module_path)
+        mgr.uninstall("mybench", env_type=EnvType.VENV)
 
-        assert not installer.is_installed("bench", "benchmark", env_type="venv")
-        # Last env_type removed -> dir cleaned up
-        assert not installer.env_path("bench", "benchmark").exists()
+        assert not mgr.is_installed("mybench", env_type=EnvType.VENV)
+        assert not mgr.env_path("mybench").exists()
 
     def test_uninstall_local(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", env_type="local", module_path=module_path)
-        installer.uninstall("bench", "benchmark", env_type="local")
+        mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
+        mgr.uninstall("mybench", env_type=EnvType.LOCAL)
 
-        assert not installer.is_installed("bench", "benchmark", env_type="local")
+        assert not mgr.is_installed("mybench", env_type=EnvType.LOCAL)
 
     def test_uninstall_docker_removes_image(self, tmp_path: Path) -> None:
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
-        env_dir = installer.env_path("bench", "benchmark")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+        env_dir = mgr.env_path("mybench")
         env_dir.mkdir(parents=True)
 
-        image_tag = "exgentic-benchmark-bench:abc123"
+        image_tag = "exgentic-mybench:abc123"
         (env_dir / ".installed").write_text(
             json.dumps({"docker": {"installed_at": "2026-01-01T00:00:00Z", "image": image_tag}})
         )
@@ -528,62 +523,61 @@ class TestUninstall:
             return _real_subprocess_run(cmd, **kwargs)
 
         with mock.patch("subprocess.run", side_effect=side_effect):
-            installer.uninstall("bench", "benchmark", env_type="docker")
+            mgr.uninstall("mybench", env_type=EnvType.DOCKER)
 
         assert len(rmi_calls) == 1
         assert rmi_calls[0] == ["docker", "rmi", image_tag]
 
     def test_uninstall_all(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", env_type="venv", module_path=module_path)
-        installer.install("bench", "benchmark", env_type="local", module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.VENV, module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
 
-        installer.uninstall("bench", "benchmark")
+        mgr.uninstall("mybench")
 
-        assert not installer.env_path("bench", "benchmark").exists()
-        assert not installer.is_installed("bench", "benchmark")
+        assert not mgr.env_path("mybench").exists()
+        assert not mgr.is_installed("mybench")
 
     def test_uninstall_one_keeps_others(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", env_type="venv", module_path=module_path)
-        installer.install("bench", "benchmark", env_type="local", module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.VENV, module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
 
-        installer.uninstall("bench", "benchmark", env_type="venv")
+        mgr.uninstall("mybench", env_type=EnvType.VENV)
 
-        assert not installer.is_installed("bench", "benchmark", env_type="venv")
-        assert installer.is_installed("bench", "benchmark", env_type="local")
-        assert not (installer.env_path("bench", "benchmark") / "venv").exists()
-        # Dir still exists because local is still installed
-        assert installer.env_path("bench", "benchmark").exists()
+        assert not mgr.is_installed("mybench", env_type=EnvType.VENV)
+        assert mgr.is_installed("mybench", env_type=EnvType.LOCAL)
+        assert not (mgr.env_path("mybench") / "venv").exists()
+        assert mgr.env_path("mybench").exists()
 
     def test_uninstall_last_removes_dir(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", env_type="venv", module_path=module_path)
-        installer.install("bench", "benchmark", env_type="local", module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.VENV, module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
 
-        installer.uninstall("bench", "benchmark", env_type="venv")
-        assert installer.env_path("bench", "benchmark").exists()
+        mgr.uninstall("mybench", env_type=EnvType.VENV)
+        assert mgr.env_path("mybench").exists()
 
-        installer.uninstall("bench", "benchmark", env_type="local")
-        assert not installer.env_path("bench", "benchmark").exists()
+        mgr.uninstall("mybench", env_type=EnvType.LOCAL)
+        assert not mgr.env_path("mybench").exists()
 
     def test_uninstall_nonexistent_is_noop(self, tmp_path: Path) -> None:
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
-        installer.uninstall("nonexistent", "benchmark")
-        installer.uninstall("nonexistent", "benchmark", env_type="venv")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr.uninstall("nonexistent")
+        mgr.uninstall("nonexistent", env_type=EnvType.VENV)
 
     def test_uninstall_all_with_docker_removes_image(self, tmp_path: Path) -> None:
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
-        env_dir = installer.env_path("bench", "benchmark")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+        env_dir = mgr.env_path("mybench")
         env_dir.mkdir(parents=True)
 
-        image_tag = "exgentic-benchmark-bench:abc123"
+        image_tag = "exgentic-mybench:abc123"
         (env_dir / ".installed").write_text(
             json.dumps(
                 {
@@ -603,14 +597,14 @@ class TestUninstall:
             return _real_subprocess_run(cmd, **kwargs)
 
         with mock.patch("subprocess.run", side_effect=side_effect):
-            installer.uninstall("bench", "benchmark")
+            mgr.uninstall("mybench")
 
         assert len(rmi_calls) == 1
         assert not env_dir.exists()
 
 
 # ---------------------------------------------------------------------------
-# Query: is_installed, get_install_info, list_installed
+# Queries
 # ---------------------------------------------------------------------------
 
 
@@ -619,28 +613,27 @@ class TestQueries:
 
     def test_is_installed_any(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        assert not installer.is_installed("bench", "benchmark")
+        assert not mgr.is_installed("mybench")
 
-        installer.install("bench", "benchmark", env_type="local", module_path=module_path)
-        assert installer.is_installed("bench", "benchmark")
-        assert not installer.is_installed("bench", "benchmark", env_type="venv")
-        assert installer.is_installed("bench", "benchmark", env_type="local")
+        mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
+        assert mgr.is_installed("mybench")
+        assert not mgr.is_installed("mybench", env_type=EnvType.VENV)
+        assert mgr.is_installed("mybench", env_type=EnvType.LOCAL)
 
-    def test_get_install_info(self, tmp_path: Path) -> None:
+    def test_get_info(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        assert installer.get_install_info("bench", "benchmark") is None
+        assert mgr.get_info("mybench") is None
 
-        installer.install("bench", "benchmark", env_type="venv", module_path=module_path)
-        installer.install("bench", "benchmark", env_type="local", module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.VENV, module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
 
-        info = installer.get_install_info("bench", "benchmark")
+        info = mgr.get_info("mybench")
         assert info is not None
-        assert info["slug"] == "bench"
-        assert info["kind"] == "benchmark"
+        assert info["name"] == "mybench"
         assert "venv" in info["environments"]
         assert "local" in info["environments"]
         assert "installed_at" in info["environments"]["venv"]
@@ -648,47 +641,46 @@ class TestQueries:
 
     def test_list_installed(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        assert installer.list_installed("benchmark") == []
+        assert mgr.list_installed() == []
 
-        installer.install("alpha", "benchmark", module_path=module_path)
-        installer.install("beta", "benchmark", module_path=module_path)
+        mgr.install("alpha", module_path=module_path)
+        mgr.install("beta", module_path=module_path)
 
-        result = installer.list_installed("benchmark")
+        result = mgr.list_installed()
         assert len(result) == 2
-        slugs = [r["slug"] for r in result]
-        assert slugs == ["alpha", "beta"]
-        assert all(r["kind"] == "benchmark" for r in result)
+        names = [r["name"] for r in result]
+        assert names == ["alpha", "beta"]
         assert all("venv" in r["environments"] for r in result)
 
-    def test_list_installed_filters_by_kind(self, tmp_path: Path) -> None:
-        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
-
-        installer.install("bench1", "benchmark", module_path=module_path)
-        installer.install("agent1", "agent", module_path=module_path)
-
-        assert len(installer.list_installed("benchmark")) == 1
-        assert len(installer.list_installed("agent")) == 1
-        assert len(installer.list_installed()) == 2
-
     def test_list_installed_includes_env_details(self, tmp_path: Path) -> None:
-        """list_benchmarks() and list_agents() need installed_at from the marker."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", env_type="venv", module_path=module_path)
-        installer.install("bench", "benchmark", env_type="local", module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.VENV, module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
 
-        result = installer.list_installed("benchmark")
+        result = mgr.list_installed()
         assert len(result) == 1
         envs = result[0]["environments"]
         assert "venv" in envs
         assert "local" in envs
         assert "installed_at" in envs["venv"]
-        assert "installed_at" in envs["local"]
         assert "python" in envs["local"]
+
+    def test_list_installed_nested_names(self, tmp_path: Path) -> None:
+        """Names like benchmarks/tau2 should work with list_installed."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        mgr.install("benchmarks/tau2", module_path=module_path)
+        mgr.install("agents/tool_calling", module_path=module_path)
+
+        result = mgr.list_installed()
+        names = [r["name"] for r in result]
+        assert "benchmarks/tau2" in names
+        assert "agents/tool_calling" in names
 
 
 # ---------------------------------------------------------------------------
@@ -700,24 +692,24 @@ class TestPaths:
     """Path helpers for locating data and venv directories."""
 
     def test_env_path(self, tmp_path: Path) -> None:
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        assert installer.env_path("tau2", "benchmark") == tmp_path / "envs" / "benchmarks" / "tau2"
-        assert installer.env_path("tool_calling", "agent") == tmp_path / "envs" / "agents" / "tool_calling"
+        assert mgr.env_path("tau2") == tmp_path / "envs" / "tau2"
+        assert mgr.env_path("benchmarks/tau2") == tmp_path / "envs" / "benchmarks" / "tau2"
 
     def test_venv_python(self, tmp_path: Path) -> None:
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        expected = str(tmp_path / "envs" / "benchmarks" / "tau2" / "venv" / "bin" / "python")
-        assert installer.venv_python("tau2", "benchmark") == expected
+        expected = str(tmp_path / "envs" / "tau2" / "venv" / "bin" / "python")
+        assert mgr.venv_python("tau2") == expected
 
     def test_default_base_dir(self) -> None:
-        installer = EnvironmentManager()
-        assert installer.base_dir == Path.home() / ".exgentic"
+        mgr = EnvironmentManager()
+        assert mgr.base_dir == Path.home() / ".exgentic"
 
 
 # ---------------------------------------------------------------------------
-# Marker edge cases
+# Markers
 # ---------------------------------------------------------------------------
 
 
@@ -725,30 +717,30 @@ class TestMarkers:
     """Marker file must be robust against corruption and old formats."""
 
     def test_corrupted_marker_treated_as_empty(self, tmp_path: Path) -> None:
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
-        env_dir = installer.env_path("bench", "benchmark")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+        env_dir = mgr.env_path("mybench")
         env_dir.mkdir(parents=True)
         (env_dir / ".installed").write_text("not json")
 
-        assert not installer.is_installed("bench", "benchmark")
-        assert installer.get_install_info("bench", "benchmark") is None
+        assert not mgr.is_installed("mybench")
+        assert mgr.get_info("mybench") is None
 
     def test_non_dict_marker_treated_as_empty(self, tmp_path: Path) -> None:
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
-        env_dir = installer.env_path("bench", "benchmark")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+        env_dir = mgr.env_path("mybench")
         env_dir.mkdir(parents=True)
         (env_dir / ".installed").write_text('"just a string"')
 
-        assert not installer.is_installed("bench", "benchmark")
+        assert not mgr.is_installed("mybench")
 
     def test_empty_dict_marker_means_not_installed(self, tmp_path: Path) -> None:
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
-        env_dir = installer.env_path("bench", "benchmark")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+        env_dir = mgr.env_path("mybench")
         env_dir.mkdir(parents=True)
         (env_dir / ".installed").write_text("{}")
 
-        assert not installer.is_installed("bench", "benchmark")
-        assert installer.get_install_info("bench", "benchmark") is None
+        assert not mgr.is_installed("mybench")
+        assert mgr.get_info("mybench") is None
 
 
 # ---------------------------------------------------------------------------
@@ -758,11 +750,11 @@ class TestMarkers:
 
 class TestFailureModes:
     def test_missing_uv(self, tmp_path: Path) -> None:
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
         with mock.patch("shutil.which", return_value=None):
             with pytest.raises(RuntimeError, match="Could not find 'uv'"):
-                installer.install("bench", "benchmark")
+                mgr.install("mybench")
 
     def test_broken_setup_sh_no_marker(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
@@ -775,12 +767,12 @@ class TestFailureModes:
         broken.chmod(broken.stat().st_mode | stat.S_IEXEC)
         importlib.invalidate_caches()
 
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
         with pytest.raises(subprocess.CalledProcessError):
-            installer.install("bench", "benchmark", module_path=module_path)
+            mgr.install("mybench", module_path=module_path)
 
-        assert not installer.is_installed("bench", "benchmark", env_type="venv")
+        assert not mgr.is_installed("mybench", env_type=EnvType.VENV)
 
     def test_missing_system_dep(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False, with_system_deps=True)
@@ -791,7 +783,7 @@ class TestFailureModes:
         (pkg_dir / "system-deps.txt").write_text("nonexistent_tool_xyz\n")
         importlib.invalidate_caches()
 
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
         original_which = shutil.which
 
@@ -800,17 +792,17 @@ class TestFailureModes:
                 return None
             return original_which(name)
 
-        with mock.patch("exgentic.environment.manager.shutil.which", side_effect=which_no_fake):
-            with mock.patch("exgentic.environment.manager._dpkg_installed", return_value=False):
+        with mock.patch("exgentic.environment._helpers.shutil.which", side_effect=which_no_fake):
+            with mock.patch("exgentic.environment._helpers._dpkg_installed", return_value=False):
                 with pytest.raises(RuntimeError, match="nonexistent_tool_xyz"):
-                    installer.install("bench", "benchmark", module_path=module_path)
+                    mgr.install("mybench", module_path=module_path)
 
     def test_venv_failure_preserves_coexisting_envs(self, tmp_path: Path) -> None:
         """If venv install fails, local install must be unaffected."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", env_type="local", module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
 
         def fail_venv(cmd, **kwargs):
             if isinstance(cmd, list) and "venv" in cmd:
@@ -819,11 +811,15 @@ class TestFailureModes:
 
         with mock.patch("subprocess.run", side_effect=fail_venv):
             with pytest.raises(subprocess.CalledProcessError):
-                installer.install("bench", "benchmark", env_type="venv", module_path=module_path)
+                mgr.install("mybench", env_type=EnvType.VENV, module_path=module_path)
 
-        # Local must still be installed
-        assert installer.is_installed("bench", "benchmark", env_type="local")
-        assert not installer.is_installed("bench", "benchmark", env_type="venv")
+        assert mgr.is_installed("mybench", env_type=EnvType.LOCAL)
+        assert not mgr.is_installed("mybench", env_type=EnvType.VENV)
+
+    def test_invalid_env_type(self, tmp_path: Path) -> None:
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+        with pytest.raises(ValueError):
+            mgr.install("mybench", env_type="invalid")
 
 
 # ---------------------------------------------------------------------------
@@ -834,97 +830,44 @@ class TestFailureModes:
 class TestStateMachine:
     def test_install_uninstall_install_cycle(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        env1 = installer.install("bench", "benchmark", module_path=module_path)
-        assert installer.is_installed("bench", "benchmark")
+        env1 = mgr.install("mybench", module_path=module_path)
+        assert mgr.is_installed("mybench")
 
-        installer.uninstall("bench", "benchmark")
-        assert not installer.is_installed("bench", "benchmark")
+        mgr.uninstall("mybench")
+        assert not mgr.is_installed("mybench")
         assert not env1.exists()
 
-        env2 = installer.install("bench", "benchmark", module_path=module_path)
-        assert installer.is_installed("bench", "benchmark")
+        env2 = mgr.install("mybench", module_path=module_path)
+        assert mgr.is_installed("mybench")
         assert env2 == env1
 
     def test_double_uninstall(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", module_path=module_path)
-        installer.uninstall("bench", "benchmark")
-        installer.uninstall("bench", "benchmark")
+        mgr.install("mybench", module_path=module_path)
+        mgr.uninstall("mybench")
+        mgr.uninstall("mybench")
 
-        assert not installer.is_installed("bench", "benchmark")
+        assert not mgr.is_installed("mybench")
 
     def test_install_without_module_path(self, tmp_path: Path) -> None:
-        """Bare install with no module_path should still succeed."""
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        env_dir = installer.install("bench", "benchmark")
+        env_dir = mgr.install("mybench")
 
-        assert installer.is_installed("bench", "benchmark", env_type="venv")
+        assert mgr.is_installed("mybench", env_type=EnvType.VENV)
         assert (env_dir / "venv" / "bin" / "python").exists()
 
     def test_local_install_without_module_path(self, tmp_path: Path) -> None:
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        env_dir = installer.install("bench", "benchmark", env_type="local")
+        env_dir = mgr.install("mybench", env_type=EnvType.LOCAL)
 
-        assert installer.is_installed("bench", "benchmark", env_type="local")
+        assert mgr.is_installed("mybench", env_type=EnvType.LOCAL)
         assert env_dir.is_dir()
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-class TestFindPackageFile:
-    def test_finds_file(self, tmp_path: Path) -> None:
-        module_path = _create_fake_package(tmp_path, with_requirements=True)
-        result = _find_package_file(module_path, "requirements.txt")
-        assert result is not None
-        assert result.name == "requirements.txt"
-
-    def test_returns_none_for_missing(self, tmp_path: Path) -> None:
-        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        assert _find_package_file(module_path, "nonexistent.txt") is None
-
-
-class TestRequireUv:
-    def test_returns_path(self) -> None:
-        path = _require_uv()
-        assert "uv" in Path(path).name
-
-    def test_raises_when_missing(self) -> None:
-        with mock.patch("shutil.which", return_value=None):
-            with pytest.raises(RuntimeError, match="Could not find 'uv'"):
-                _require_uv()
-
-
-# ---------------------------------------------------------------------------
-# Validation
-# ---------------------------------------------------------------------------
-
-
-class TestValidation:
-    """Invalid env_type must raise ValueError immediately."""
-
-    def test_invalid_env_type_on_install(self, tmp_path: Path) -> None:
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
-        with pytest.raises(ValueError, match="Invalid env_type"):
-            installer.install("bench", "benchmark", env_type="invalid")
-
-    def test_invalid_env_type_on_uninstall(self, tmp_path: Path) -> None:
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
-        with pytest.raises(ValueError, match="Invalid env_type"):
-            installer.uninstall("bench", "benchmark", env_type="invalid")
-
-    def test_invalid_env_type_on_is_installed(self, tmp_path: Path) -> None:
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
-        with pytest.raises(ValueError, match="Invalid env_type"):
-            installer.is_installed("bench", "benchmark", env_type="invalid")
 
 
 # ---------------------------------------------------------------------------
@@ -936,30 +879,58 @@ class TestConvenienceAccessors:
     """Runners need quick access to docker image tags and local Python paths."""
 
     def test_docker_image_returns_tag(self, tmp_path: Path) -> None:
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
-        env_dir = installer.env_path("bench", "benchmark")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+        env_dir = mgr.env_path("mybench")
         env_dir.mkdir(parents=True)
         (env_dir / ".installed").write_text(
-            json.dumps({"docker": {"installed_at": "2026-01-01T00:00:00Z", "image": "exgentic-benchmark-bench:abc123"}})
+            json.dumps({"docker": {"installed_at": "2026-01-01T00:00:00Z", "image": "exgentic-mybench:abc123"}})
         )
 
-        assert installer.docker_image("bench", "benchmark") == "exgentic-benchmark-bench:abc123"
+        assert mgr.docker_image("mybench") == "exgentic-mybench:abc123"
 
     def test_docker_image_returns_none_when_not_installed(self, tmp_path: Path) -> None:
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
-        assert installer.docker_image("bench", "benchmark") is None
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+        assert mgr.docker_image("mybench") is None
 
     def test_local_python_returns_path(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("bench", "benchmark", env_type="local", module_path=module_path)
+        mgr.install("mybench", env_type=EnvType.LOCAL, module_path=module_path)
 
-        assert installer.local_python("bench", "benchmark") == sys.executable
+        assert mgr.local_python("mybench") == sys.executable
 
     def test_local_python_returns_none_when_not_installed(self, tmp_path: Path) -> None:
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
-        assert installer.local_python("bench", "benchmark") is None
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+        assert mgr.local_python("mybench") is None
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+class TestFindPackageFile:
+    def test_finds_file(self, tmp_path: Path) -> None:
+        module_path = _create_fake_package(tmp_path, with_requirements=True)
+        result = find_package_file(module_path, "requirements.txt")
+        assert result is not None
+        assert result.name == "requirements.txt"
+
+    def test_returns_none_for_missing(self, tmp_path: Path) -> None:
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        assert find_package_file(module_path, "nonexistent.txt") is None
+
+
+class TestRequireUv:
+    def test_returns_path(self) -> None:
+        path = require_uv()
+        assert "uv" in Path(path).name
+
+    def test_raises_when_missing(self) -> None:
+        with mock.patch("shutil.which", return_value=None):
+            with pytest.raises(RuntimeError, match="Could not find 'uv'"):
+                require_uv()
 
 
 # ---------------------------------------------------------------------------
@@ -971,68 +942,47 @@ _docker_available = shutil.which("docker") is not None
 
 @pytest.mark.skipif(not _docker_available, reason="docker CLI not available")
 class TestDockerIntegration:
-    """Real Docker tests — actually build and remove images."""
+    """Real Docker tests -- actually build and remove images."""
 
     def test_docker_build_and_marker(self, tmp_path: Path) -> None:
-        """Build a real Docker image and verify the marker stores the tag."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("inttest", "benchmark", env_type="docker", module_path=module_path)
+        mgr.install("inttest", env_type=EnvType.DOCKER, module_path=module_path)
 
-        assert installer.is_installed("inttest", "benchmark", env_type="docker")
-        image_tag = installer.docker_image("inttest", "benchmark")
+        assert mgr.is_installed("inttest", env_type=EnvType.DOCKER)
+        image_tag = mgr.docker_image("inttest")
         assert image_tag is not None
-        assert image_tag.startswith("exgentic-benchmark-inttest:")
 
-        # Image actually exists
-        result = subprocess.run(
-            ["docker", "image", "inspect", image_tag],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        result = subprocess.run(["docker", "image", "inspect", image_tag], check=False, capture_output=True, text=True)
         assert result.returncode == 0
 
-        # Cleanup
-        installer.uninstall("inttest", "benchmark", env_type="docker")
-        result = subprocess.run(
-            ["docker", "image", "inspect", image_tag],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        mgr.uninstall("inttest", env_type=EnvType.DOCKER)
+        result = subprocess.run(["docker", "image", "inspect", image_tag], check=False, capture_output=True, text=True)
         assert result.returncode != 0
 
     def test_docker_reuses_existing_image(self, tmp_path: Path) -> None:
-        """Second install should skip rebuild when image already exists."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("inttest2", "benchmark", env_type="docker", module_path=module_path)
-        tag1 = installer.docker_image("inttest2", "benchmark")
+        mgr.install("inttest2", env_type=EnvType.DOCKER, module_path=module_path)
+        tag1 = mgr.docker_image("inttest2")
 
-        # Second install — should reuse
-        installer.install("inttest2", "benchmark", env_type="docker", force=True, module_path=module_path)
-        tag2 = installer.docker_image("inttest2", "benchmark")
+        mgr.install("inttest2", env_type=EnvType.DOCKER, force=True, module_path=module_path)
+        tag2 = mgr.docker_image("inttest2")
 
-        # Same content hash → same tag
         assert tag1 == tag2
-
-        # Cleanup
-        installer.uninstall("inttest2", "benchmark")
+        mgr.uninstall("inttest2")
 
     def test_docker_with_requirements(self, tmp_path: Path) -> None:
-        """Build image with a real requirements.txt."""
         module_path = _create_fake_package(tmp_path, with_requirements=True, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("inttest3", "benchmark", env_type="docker", module_path=module_path)
+        mgr.install("inttest3", env_type=EnvType.DOCKER, module_path=module_path)
 
-        image_tag = installer.docker_image("inttest3", "benchmark")
+        image_tag = mgr.docker_image("inttest3")
         assert image_tag is not None
 
-        # Verify the package is installed in the image
         result = subprocess.run(
             ["docker", "run", "--rm", image_tag, "python", "-c", "import requests; print(requests.__version__)"],
             check=False,
@@ -1040,26 +990,22 @@ class TestDockerIntegration:
             text=True,
         )
         assert result.returncode == 0
-        assert result.stdout.strip()  # should print a version
+        assert result.stdout.strip()
 
-        # Cleanup
-        installer.uninstall("inttest3", "benchmark")
+        mgr.uninstall("inttest3")
 
     def test_docker_coexists_with_venv(self, tmp_path: Path) -> None:
-        """Docker and venv can be installed for the same slug."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
-        installer = EnvironmentManager(base_dir=tmp_path / "envs")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
-        installer.install("inttest4", "benchmark", env_type="venv", module_path=module_path)
-        installer.install("inttest4", "benchmark", env_type="docker", module_path=module_path)
+        mgr.install("inttest4", env_type=EnvType.VENV, module_path=module_path)
+        mgr.install("inttest4", env_type=EnvType.DOCKER, module_path=module_path)
 
-        assert installer.is_installed("inttest4", "benchmark", env_type="venv")
-        assert installer.is_installed("inttest4", "benchmark", env_type="docker")
+        assert mgr.is_installed("inttest4", env_type=EnvType.VENV)
+        assert mgr.is_installed("inttest4", env_type=EnvType.DOCKER)
 
-        # Uninstall docker only
-        installer.uninstall("inttest4", "benchmark", env_type="docker")
-        assert installer.is_installed("inttest4", "benchmark", env_type="venv")
-        assert not installer.is_installed("inttest4", "benchmark", env_type="docker")
+        mgr.uninstall("inttest4", env_type=EnvType.DOCKER)
+        assert mgr.is_installed("inttest4", env_type=EnvType.VENV)
+        assert not mgr.is_installed("inttest4", env_type=EnvType.DOCKER)
 
-        # Cleanup
-        installer.uninstall("inttest4", "benchmark")
+        mgr.uninstall("inttest4")

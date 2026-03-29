@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026, The Exgentic organization and its contributors.
+
+"""Venv environment: creates an isolated Python venv with dependencies."""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+from ._helpers import (
+    build_subprocess_env,
+    install_packages,
+    install_requirements,
+    require_uv,
+    run_setup_sh,
+    validate_system_deps,
+)
+
+
+def install(
+    env_dir: Path,
+    *,
+    module_path: str | None = None,
+    venv_packages: list[str] | None = None,
+) -> None:
+    """Create a venv-based environment.
+
+    Args:
+        env_dir: Root directory for this environment.
+        module_path: Dotted module path for locating package resources.
+        venv_packages: Extra packages to install into the venv.
+
+    On failure, the ``venv/`` directory is cleaned up but the parent
+    ``env_dir`` is left intact (other env types may coexist).
+    """
+    venv_dir = env_dir / "venv"
+    if venv_dir.exists():
+        shutil.rmtree(venv_dir)
+
+    try:
+        uv = require_uv()
+
+        subprocess.run(
+            [uv, "venv", str(venv_dir), "--python", f"{sys.version_info.major}.{sys.version_info.minor}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        venv_py = str(venv_dir / "bin" / "python")
+        env = build_subprocess_env()
+
+        if venv_packages:
+            install_packages(uv, venv_py, venv_packages, env)
+
+        if module_path is not None:
+            install_requirements(uv, venv_py, module_path, env)
+            validate_system_deps(module_path)
+            run_setup_sh(module_path, env_dir, venv_dir=venv_dir)
+    except BaseException:
+        if venv_dir.exists():
+            shutil.rmtree(venv_dir, ignore_errors=True)
+        raise
