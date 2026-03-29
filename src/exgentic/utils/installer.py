@@ -25,19 +25,22 @@ class EnvironmentInstaller:
 
     The lifecycle is split into two stages:
 
-    1. **install()** -- runner-agnostic data setup.  Creates a venv (needed
+    1. **install()** -- env_type-agnostic data setup.  Creates a venv (needed
        for ``setup.sh``), installs pip deps, runs ``setup.sh``, and writes an
        ``.installed`` marker.  Directory layout after install::
 
            venv/          -- Python venv with dependencies
            data/          -- benchmark data (populated by setup.sh)
-           .installed     -- JSON marker (runner-agnostic)
+           .installed     -- JSON marker (env_type-agnostic)
 
-    2. **build_runner()** -- builds a runner-specific execution environment.
-       For ``runner="venv"`` this is a no-op (the venv from *install* is
-       reused).  For ``runner="docker"`` a Docker image is built.  Layout::
+    2. **build_env()** -- builds an env_type-specific execution environment.
+       For ``env_type="venv"`` this is a no-op (the venv from *install* is
+       reused).  For ``env_type="docker"`` a Docker image is built.
+       For ``env_type="local"`` dependencies are installed directly into the
+       current Python environment.  Layout::
 
            docker/        -- contains ``image_tag`` file (optional)
+           local/         -- contains ``.installed`` marker (optional)
     """
 
     def __init__(self, base_dir: Path | None = None) -> None:
@@ -57,7 +60,7 @@ class EnvironmentInstaller:
     ) -> Path:
         """Download data, install pip deps, run setup.sh.
 
-        This is runner-agnostic.  A venv is always created because
+        This is env_type-agnostic.  A venv is always created because
         ``setup.sh`` may need the installed Python packages.
 
         Args:
@@ -150,7 +153,7 @@ class EnvironmentInstaller:
                     setup_env["PATH"] = venv_bin + os.pathsep + setup_env.get("PATH", "")
                     subprocess.run(["bash", str(setup_path)], check=True, env=setup_env)
 
-            # 6  -- write .installed marker (runner-agnostic)
+            # 6  -- write .installed marker (env_type-agnostic)
             (env_dir / ".installed").write_text(json.dumps({"installed_at": datetime.now(timezone.utc).isoformat()}))
         except BaseException:
             shutil.rmtree(env_dir, ignore_errors=True)
@@ -158,28 +161,29 @@ class EnvironmentInstaller:
 
         return env_dir
 
-    def build_runner(
+    def build_env(
         self,
         slug: str,
         kind: str = "benchmark",
         *,
-        runner: str = "venv",
+        env_type: str = "local",
         force: bool = False,
         module_path: str | None = None,
     ) -> Path:
-        """Build a runner-specific execution environment.
+        """Build an env_type-specific execution environment.
 
         Auto-calls :meth:`install` first if not already installed.
 
-        For ``runner="venv"`` this is a no-op because :meth:`install`
-        already creates the venv.  For ``runner="docker"`` a Docker
-        image is built.
+        For ``env_type="venv"`` this is a no-op because :meth:`install`
+        already creates the venv.  For ``env_type="docker"`` a Docker
+        image is built.  For ``env_type="local"`` dependencies are
+        installed directly into the current Python environment.
 
         Args:
             slug: Short identifier for the benchmark / agent.
             kind: ``"benchmark"`` or ``"agent"``.
-            runner: ``"venv"`` (default) or ``"docker"``.
-            force: Re-build even if runner environment already exists.
+            env_type: ``"local"`` (default), ``"venv"``, or ``"docker"``.
+            force: Re-build even if environment already exists.
             module_path: Dotted module path for package resources.
 
         Returns:
@@ -189,14 +193,68 @@ class EnvironmentInstaller:
         if not self.is_installed(slug, kind):
             self.install(slug, kind, module_path=module_path)
 
-        if runner == "docker":
+        if env_type == "docker":
             return self._build_docker(slug, kind, force=force, module_path=module_path)
 
-        # runner == "venv": the venv already exists from install()
+        if env_type == "local":
+            return self._build_local(slug, kind, force=force, module_path=module_path)
+
+        # env_type == "venv": the venv already exists from install()
         return self.env_path(slug, kind)
 
     # ------------------------------------------------------------------
-    # Docker runner build
+    # Local env build
+    # ------------------------------------------------------------------
+
+    def _build_local(
+        self,
+        slug: str,
+        kind: str,
+        *,
+        force: bool = False,
+        module_path: str | None = None,
+    ) -> Path:
+        """Install dependencies directly into the current Python environment.
+
+        This is intended for debugging -- it installs ``requirements.txt``
+        into the active interpreter using ``uv pip install`` and writes a
+        ``local/.installed`` marker so :meth:`has_env` can detect it.
+        """
+        env_dir = self.env_path(slug, kind)
+        local_dir = env_dir / "local"
+        marker = local_dir / ".installed"
+
+        if not force and marker.is_file():
+            return env_dir
+
+        uv_bin = _require_uv()
+
+        # Install requirements.txt into the current Python
+        if module_path is not None:
+            req_path = _find_package_file(module_path, "requirements.txt")
+            if req_path is not None:
+                lines = [
+                    line.strip()
+                    for line in req_path.read_text().splitlines()
+                    if line.strip() and not line.strip().startswith("#")
+                ]
+                if lines:
+                    env = os.environ.copy()
+                    env["GIT_LFS_SKIP_SMUDGE"] = "1"
+                    subprocess.run(
+                        [uv_bin, "pip", "install", "-r", str(req_path)],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                        env=env,
+                    )
+
+        local_dir.mkdir(parents=True, exist_ok=True)
+        marker.write_text(json.dumps({"installed_at": datetime.now(timezone.utc).isoformat()}))
+        return env_dir
+
+    # ------------------------------------------------------------------
+    # Docker env build
     # ------------------------------------------------------------------
 
     def _build_docker(
@@ -306,7 +364,7 @@ class EnvironmentInstaller:
         return env_dir
 
     def uninstall(self, slug: str, kind: str = "benchmark") -> None:
-        """Remove everything -- data, all runner environments, and docker images."""
+        """Remove everything -- data, all execution environments, and docker images."""
         env_dir = self.env_path(slug, kind)
         if not env_dir.exists():
             return
@@ -329,14 +387,16 @@ class EnvironmentInstaller:
         """Check if the ``.installed`` marker exists (data is set up)."""
         return (self.env_path(slug, kind) / ".installed").is_file()
 
-    def has_runner(self, slug: str, kind: str = "benchmark", runner: str = "venv") -> bool:
-        """Check if a specific runner environment exists."""
+    def has_env(self, slug: str, kind: str = "benchmark", env_type: str = "local") -> bool:
+        """Check if a specific execution environment exists."""
         env_dir = self.env_path(slug, kind)
-        if runner == "venv":
+        if env_type == "venv":
             return (env_dir / "venv" / "bin" / "python").exists()
-        if runner == "docker":
+        if env_type == "docker":
             tag_file = env_dir / "docker" / "image_tag"
             return tag_file.is_file() and bool(tag_file.read_text().strip())
+        if env_type == "local":
+            return (env_dir / "local" / ".installed").is_file()
         return False
 
     def get_install_info(self, slug: str, kind: str = "benchmark") -> dict | None:

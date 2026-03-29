@@ -209,14 +209,14 @@ def _docker_mock_result(**overrides):
     return result
 
 
-class TestBuildRunnerDocker:
-    """Tests for build_runner with runner='docker'."""
+class TestBuildEnvDocker:
+    """Tests for build_env with env_type='docker'."""
 
-    def test_build_runner_docker_generates_dockerfile(self, tmp_path: Path) -> None:
+    def test_build_env_docker_generates_dockerfile(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=True, with_setup=True)
         installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
 
-        # First install (runner-agnostic)
+        # First install (env_type-agnostic)
         installer.install("my-bench", "benchmark", module_path=module_path)
 
         dockerfiles: list[str] = []
@@ -234,7 +234,7 @@ class TestBuildRunnerDocker:
             return _real_subprocess_run(cmd, **kwargs)
 
         with mock.patch("subprocess.run", side_effect=capture_run):
-            env_dir = installer.build_runner("my-bench", "benchmark", runner="docker", module_path=module_path)
+            env_dir = installer.build_env("my-bench", "benchmark", env_type="docker", module_path=module_path)
 
         assert env_dir.is_dir()
         assert (env_dir / "docker" / "image_tag").is_file()
@@ -245,7 +245,7 @@ class TestBuildRunnerDocker:
         assert "requirements.txt" in df
         assert "setup.sh" in df
 
-    def test_build_runner_docker_reuses_existing_image(self, tmp_path: Path) -> None:
+    def test_build_env_docker_reuses_existing_image(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=True, with_setup=False)
         installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
 
@@ -263,12 +263,12 @@ class TestBuildRunnerDocker:
             return _real_subprocess_run(cmd, **kwargs)
 
         with mock.patch("subprocess.run", side_effect=side_effect):
-            env_dir = installer.build_runner("my-bench", "benchmark", runner="docker", module_path=module_path)
+            env_dir = installer.build_env("my-bench", "benchmark", env_type="docker", module_path=module_path)
 
         assert env_dir.is_dir()
         assert len(build_called) == 0, "docker build should not be called when image exists"
 
-    def test_build_runner_docker_includes_system_deps(self, tmp_path: Path) -> None:
+    def test_build_env_docker_includes_system_deps(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=True, with_setup=False, with_system_deps=True)
         installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
 
@@ -291,13 +291,13 @@ class TestBuildRunnerDocker:
             return _real_subprocess_run(cmd, **kwargs)
 
         with mock.patch("subprocess.run", side_effect=capture_run):
-            installer.build_runner("my-bench", "benchmark", runner="docker", module_path=module_path)
+            installer.build_env("my-bench", "benchmark", env_type="docker", module_path=module_path)
 
         assert len(dockerfiles) == 1
         df = dockerfiles[0]
         assert "apt-get install -y curl wget" in df
 
-    def test_build_runner_docker_content_hash_changes(self, tmp_path: Path) -> None:
+    def test_build_env_docker_content_hash_changes(self, tmp_path: Path) -> None:
         """Different requirements produce different image tags."""
         module_path_a = _create_fake_package(tmp_path, with_requirements=True, with_setup=False)
         module_path_b = _create_fake_package(tmp_path, with_requirements=True, with_setup=False)
@@ -325,9 +325,9 @@ class TestBuildRunnerDocker:
         installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
         with mock.patch("subprocess.run", side_effect=capture_run):
             installer.install("bench-a", "benchmark", module_path=module_path_a)
-            installer.build_runner("bench-a", "benchmark", runner="docker", module_path=module_path_a)
+            installer.build_env("bench-a", "benchmark", env_type="docker", module_path=module_path_a)
             installer.install("bench-b", "benchmark", module_path=module_path_b)
-            installer.build_runner("bench-b", "benchmark", runner="docker", module_path=module_path_b)
+            installer.build_env("bench-b", "benchmark", env_type="docker", module_path=module_path_b)
 
         assert len(tags) == 2
         # Tags have different hashes because requirements differ
@@ -343,7 +343,7 @@ class TestBuildRunnerDocker:
         image_tag = "exgentic-benchmark-my-bench:abc123"
         # Write .installed marker
         (env_dir / ".installed").write_text(json.dumps({"installed_at": "2026-01-01T00:00:00+00:00"}))
-        # Write docker runner info
+        # Write docker env info
         docker_dir = env_dir / "docker"
         docker_dir.mkdir()
         (docker_dir / "image_tag").write_text(image_tag)
@@ -387,7 +387,7 @@ class TestDockerForceReinstall:
             return _real_subprocess_run(cmd, **kwargs)
 
         with mock.patch("subprocess.run", side_effect=side_effect):
-            installer.build_runner("my-bench", "benchmark", runner="docker", force=True, module_path=module_path)
+            installer.build_env("my-bench", "benchmark", env_type="docker", force=True, module_path=module_path)
 
         assert len(build_calls) == 1, "docker build should be called when force=True even if image exists"
 
@@ -502,8 +502,8 @@ class TestFailureModes:
             # Error message should contain install instructions
             assert "install" in str(exc_info.value).lower()
 
-    def test_build_runner_docker_missing_docker(self, tmp_path: Path) -> None:
-        """Docker not available -> clear error on docker build_runner."""
+    def test_build_env_docker_missing_docker(self, tmp_path: Path) -> None:
+        """Docker not available -> clear error on docker build_env."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
         installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
 
@@ -516,7 +516,7 @@ class TestFailureModes:
 
         with mock.patch("subprocess.run", side_effect=fail_docker):
             with pytest.raises(FileNotFoundError):
-                installer.build_runner("bench", "benchmark", runner="docker", module_path=module_path)
+                installer.build_env("bench", "benchmark", env_type="docker", module_path=module_path)
 
     def test_install_venv_missing_system_dep(self, tmp_path: Path) -> None:
         """system-deps.txt lists a tool not installed -> RuntimeError."""
@@ -576,8 +576,8 @@ class TestCleanupOnFailedInstall:
 class TestContentCorrectness:
     """Tests for marker content and directory structure."""
 
-    def test_installed_marker_is_runner_agnostic(self, tmp_path: Path) -> None:
-        """The .installed marker does not contain a runner field."""
+    def test_installed_marker_is_env_type_agnostic(self, tmp_path: Path) -> None:
+        """The .installed marker does not contain an env_type field."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
         installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
 
@@ -587,13 +587,14 @@ class TestContentCorrectness:
         assert marker.is_file()
         info = json.loads(marker.read_text())
         assert "runner" not in info
+        assert "env_type" not in info
         assert "installed_at" in info
         # Verify installed_at is a valid ISO timestamp
         ts = datetime.fromisoformat(info["installed_at"])
         assert ts.tzinfo is not None  # must be timezone-aware
 
-    def test_build_runner_docker_creates_docker_dir(self, tmp_path: Path) -> None:
-        """build_runner(runner='docker') creates docker/ dir with image_tag."""
+    def test_build_env_docker_creates_docker_dir(self, tmp_path: Path) -> None:
+        """build_env(env_type='docker') creates docker/ dir with image_tag."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
         installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
 
@@ -607,7 +608,7 @@ class TestContentCorrectness:
             return _real_subprocess_run(cmd, **kwargs)
 
         with mock.patch("subprocess.run", side_effect=side_effect):
-            env_dir = installer.build_runner("bench", "benchmark", runner="docker", module_path=module_path)
+            env_dir = installer.build_env("bench", "benchmark", env_type="docker", module_path=module_path)
 
         assert (env_dir / "docker" / "image_tag").is_file()
         tag = (env_dir / "docker" / "image_tag").read_text().strip()
@@ -673,50 +674,50 @@ class TestContentCorrectness:
 
 
 # ---------------------------------------------------------------------------
-# New tests for build_runner / has_runner
+# New tests for build_env / has_env
 # ---------------------------------------------------------------------------
 
 
-class TestBuildRunnerVenv:
-    """Tests for build_runner with runner='venv'."""
+class TestBuildEnvVenv:
+    """Tests for build_env with env_type='venv'."""
 
-    def test_build_runner_venv_is_noop(self, tmp_path: Path) -> None:
-        """build_runner(runner='venv') is a no-op since install created venv."""
+    def test_build_env_venv_is_noop(self, tmp_path: Path) -> None:
+        """build_env(env_type='venv') is a no-op since install created venv."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
         installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
 
         env_dir = installer.install("bench", "benchmark", module_path=module_path)
         venv_mtime = (env_dir / "venv" / "bin" / "python").stat().st_mtime
 
-        result = installer.build_runner("bench", "benchmark", runner="venv", module_path=module_path)
+        result = installer.build_env("bench", "benchmark", env_type="venv", module_path=module_path)
 
         assert result == env_dir
         # venv must not have been recreated
         assert (env_dir / "venv" / "bin" / "python").stat().st_mtime == venv_mtime
 
 
-class TestHasRunner:
-    """Tests for has_runner."""
+class TestHasEnv:
+    """Tests for has_env."""
 
-    def test_has_runner_venv_false_before_install(self, tmp_path: Path) -> None:
+    def test_has_env_venv_false_before_install(self, tmp_path: Path) -> None:
         installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
-        assert not installer.has_runner("bench", "benchmark", runner="venv")
+        assert not installer.has_env("bench", "benchmark", env_type="venv")
 
-    def test_has_runner_venv_true_after_install(self, tmp_path: Path) -> None:
+    def test_has_env_venv_true_after_install(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
         installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
 
         installer.install("bench", "benchmark", module_path=module_path)
-        assert installer.has_runner("bench", "benchmark", runner="venv")
+        assert installer.has_env("bench", "benchmark", env_type="venv")
 
-    def test_has_runner_docker_false_before_build(self, tmp_path: Path) -> None:
+    def test_has_env_docker_false_before_build(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
         installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
 
         installer.install("bench", "benchmark", module_path=module_path)
-        assert not installer.has_runner("bench", "benchmark", runner="docker")
+        assert not installer.has_env("bench", "benchmark", env_type="docker")
 
-    def test_has_runner_docker_true_after_build(self, tmp_path: Path) -> None:
+    def test_has_env_docker_true_after_build(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
         installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
 
@@ -730,28 +731,82 @@ class TestHasRunner:
             return _real_subprocess_run(cmd, **kwargs)
 
         with mock.patch("subprocess.run", side_effect=side_effect):
-            installer.build_runner("bench", "benchmark", runner="docker", module_path=module_path)
+            installer.build_env("bench", "benchmark", env_type="docker", module_path=module_path)
 
-        assert installer.has_runner("bench", "benchmark", runner="docker")
+        assert installer.has_env("bench", "benchmark", env_type="docker")
 
 
-class TestBuildRunnerAutoInstalls:
-    """Tests that build_runner auto-calls install() if not installed."""
+class TestBuildEnvLocal:
+    """Tests for build_env with env_type='local'."""
 
-    def test_build_runner_auto_installs(self, tmp_path: Path) -> None:
-        """build_runner calls install() if not already installed."""
+    def test_build_env_local(self, tmp_path: Path) -> None:
+        """build_env(env_type='local') installs deps into current Python."""
+        module_path = _create_fake_package(tmp_path, with_requirements=True, with_setup=False)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        installer.install("bench", "benchmark", module_path=module_path)
+
+        pip_calls: list[list[str]] = []
+
+        def side_effect(cmd, **kwargs):
+            if isinstance(cmd, list) and len(cmd) >= 3 and cmd[1] == "pip" and cmd[2] == "install":
+                pip_calls.append(list(cmd))
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=side_effect):
+            env_dir = installer.build_env("bench", "benchmark", env_type="local", module_path=module_path)
+
+        assert env_dir.is_dir()
+        assert (env_dir / "local" / ".installed").is_file()
+        # Should have called uv pip install -r ... (without --python flag)
+        assert len(pip_calls) == 1
+        assert "-r" in pip_calls[0]
+        assert "--python" not in pip_calls[0]
+
+
+class TestHasEnvLocal:
+    """Tests for has_env with env_type='local'."""
+
+    def test_has_env_local_false_before_build(self, tmp_path: Path) -> None:
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        installer.install("bench", "benchmark", module_path=module_path)
+        assert not installer.has_env("bench", "benchmark", env_type="local")
+
+    def test_has_env_local_true_after_build(self, tmp_path: Path) -> None:
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        installer.install("bench", "benchmark", module_path=module_path)
+
+        # Manually create the local marker (since no requirements to install)
+        env_dir = installer.env_path("bench", "benchmark")
+        local_dir = env_dir / "local"
+        local_dir.mkdir(parents=True, exist_ok=True)
+        (local_dir / ".installed").write_text("{}")
+
+        assert installer.has_env("bench", "benchmark", env_type="local")
+
+
+class TestBuildEnvAutoInstalls:
+    """Tests that build_env auto-calls install() if not installed."""
+
+    def test_build_env_auto_installs(self, tmp_path: Path) -> None:
+        """build_env calls install() if not already installed."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
         installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
 
         assert not installer.is_installed("bench", "benchmark")
 
-        env_dir = installer.build_runner("bench", "benchmark", runner="venv", module_path=module_path)
+        env_dir = installer.build_env("bench", "benchmark", env_type="venv", module_path=module_path)
 
         assert installer.is_installed("bench", "benchmark")
         assert (env_dir / "venv" / "bin" / "python").exists()
 
-    def test_build_runner_docker_auto_installs(self, tmp_path: Path) -> None:
-        """build_runner(runner='docker') auto-installs then builds docker."""
+    def test_build_env_docker_auto_installs(self, tmp_path: Path) -> None:
+        """build_env(env_type='docker') auto-installs then builds docker."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
         installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
 
@@ -765,32 +820,32 @@ class TestBuildRunnerAutoInstalls:
             return _real_subprocess_run(cmd, **kwargs)
 
         with mock.patch("subprocess.run", side_effect=side_effect):
-            env_dir = installer.build_runner("bench", "benchmark", runner="docker", module_path=module_path)
+            env_dir = installer.build_env("bench", "benchmark", env_type="docker", module_path=module_path)
 
         assert installer.is_installed("bench", "benchmark")
         assert (env_dir / "venv" / "bin" / "python").exists()
-        assert installer.has_runner("bench", "benchmark", runner="docker")
+        assert installer.has_env("bench", "benchmark", env_type="docker")
 
 
-class TestUninstallRemovesAllRunners:
-    """Tests that uninstall removes data + all runner environments."""
+class TestUninstallRemovesAllEnvs:
+    """Tests that uninstall removes data + all execution environments."""
 
-    def test_uninstall_removes_all_runners(self, tmp_path: Path) -> None:
+    def test_uninstall_removes_all_envs(self, tmp_path: Path) -> None:
         """Uninstall removes venv + docker image + all data."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
         installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
 
         installer.install("bench", "benchmark", module_path=module_path)
 
-        # Simulate docker runner having been built
+        # Simulate docker env having been built
         env_dir = installer.env_path("bench", "benchmark")
         docker_dir = env_dir / "docker"
         docker_dir.mkdir()
         image_tag = "exgentic-benchmark-bench:abc123"
         (docker_dir / "image_tag").write_text(image_tag)
 
-        assert installer.has_runner("bench", "benchmark", runner="venv")
-        assert installer.has_runner("bench", "benchmark", runner="docker")
+        assert installer.has_env("bench", "benchmark", env_type="venv")
+        assert installer.has_env("bench", "benchmark", env_type="docker")
 
         rmi_calls: list[list[str]] = []
 
@@ -805,7 +860,7 @@ class TestUninstallRemovesAllRunners:
 
         assert not env_dir.exists()
         assert not installer.is_installed("bench", "benchmark")
-        assert not installer.has_runner("bench", "benchmark", runner="venv")
-        assert not installer.has_runner("bench", "benchmark", runner="docker")
+        assert not installer.has_env("bench", "benchmark", env_type="venv")
+        assert not installer.has_env("bench", "benchmark", env_type="docker")
         assert len(rmi_calls) == 1
         assert rmi_calls[0] == ["docker", "rmi", image_tag]
