@@ -5,10 +5,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from importlib import resources
 from pathlib import Path
 
@@ -37,29 +40,50 @@ class EnvironmentInstaller:
         slug: str,
         kind: str = "benchmark",
         *,
+        runner: str = "venv",
         force: bool = False,
         module_path: str | None = None,
     ) -> Path:
         """Create a complete ready-to-run environment.
+
+        Args:
+            slug: Short identifier for the benchmark / agent.
+            kind: ``"benchmark"`` or ``"agent"``.
+            runner: ``"venv"`` (default) or ``"docker"``.
+            force: Re-create even if already installed.
+            module_path: Dotted module path used to locate package resources
+                (``requirements.txt``, ``setup.sh``, ``system-deps.txt``).
+                When *None*, the resource-lookup steps are skipped.
+
+        Returns:
+            The environment directory path.
+        """
+        if runner == "docker":
+            return self._install_docker(slug, kind, force=force, module_path=module_path)
+        return self._install_venv(slug, kind, force=force, module_path=module_path)
+
+    # ------------------------------------------------------------------
+    # Venv-based install
+    # ------------------------------------------------------------------
+
+    def _install_venv(
+        self,
+        slug: str,
+        kind: str,
+        *,
+        force: bool = False,
+        module_path: str | None = None,
+    ) -> Path:
+        """Create a venv-based environment.
 
         Steps:
             1. Create dir at ``base_dir/{kind}s/{slug}/``
             2. Create a Python venv inside it
             3. Install *exgentic* into the venv
             4. Find and install ``requirements.txt`` into the venv
-            5. Find and run ``setup.sh`` (with ``EXGENTIC_CACHE_DIR`` set)
-            6. Write ``.installed`` marker
-
-        Args:
-            slug: Short identifier for the benchmark / agent.
-            kind: ``"benchmark"`` or ``"agent"``.
-            force: Re-create even if already installed.
-            module_path: Dotted module path used to locate package resources
-                (``requirements.txt``, ``setup.sh``).  When *None*, the
-                resource-lookup steps are skipped.
-
-        Returns:
-            The environment directory path.
+            5. Validate ``system-deps.txt`` packages are installed on host
+            6. Find and run ``setup.sh`` (with ``EXGENTIC_CACHE_DIR`` set)
+            7. Write ``.installed`` marker
         """
         if not force and self.is_installed(slug, kind):
             return self.env_path(slug, kind)
@@ -117,7 +141,11 @@ class EnvironmentInstaller:
                         env=env,
                     )
 
-        # 5  -- run setup.sh (if found)
+        # 5  -- validate system-deps.txt (if found)
+        if module_path is not None:
+            _validate_system_deps(module_path)
+
+        # 6  -- run setup.sh (if found)
         if module_path is not None:
             setup_path = _find_package_file(module_path, "setup.sh")
             if setup_path is not None:
@@ -128,16 +156,135 @@ class EnvironmentInstaller:
                 env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
                 subprocess.run(["bash", str(setup_path)], check=True, env=env)
 
-        # 6  -- write .installed marker
+        # 7  -- write .installed marker
         (env_dir / ".installed").write_text("")
 
         return env_dir
 
-    def uninstall(self, slug: str, kind: str = "benchmark") -> None:
-        """Remove the environment directory entirely."""
+    # ------------------------------------------------------------------
+    # Docker-based install
+    # ------------------------------------------------------------------
+
+    def _install_docker(
+        self,
+        slug: str,
+        kind: str,
+        *,
+        force: bool = False,
+        module_path: str | None = None,
+    ) -> Path:
+        """Build a Docker image for the environment.
+
+        The image tag is derived from a content hash of the package files
+        (``requirements.txt``, ``setup.sh``, ``system-deps.txt``) so that
+        identical inputs produce the same tag and rebuilds are skipped.
+        """
         env_dir = self.env_path(slug, kind)
-        if env_dir.exists():
-            shutil.rmtree(env_dir)
+
+        # Gather package files ------------------------------------------
+        req_path = _find_package_file(module_path, "requirements.txt") if module_path else None
+        setup_path = _find_package_file(module_path, "setup.sh") if module_path else None
+        sysdeps_path = _find_package_file(module_path, "system-deps.txt") if module_path else None
+
+        # Content hash for image tag ------------------------------------
+        hash_parts: list[str] = []
+        if req_path is not None:
+            hash_parts.append(req_path.read_text())
+        if setup_path is not None:
+            hash_parts.append(setup_path.read_text())
+        if sysdeps_path is not None:
+            hash_parts.append(sysdeps_path.read_text())
+        content_hash = hashlib.sha256("".join(hash_parts).encode()).hexdigest()[:12]
+        image_tag = f"exgentic-{kind}-{slug}:{content_hash}"
+
+        # Reuse existing image unless force -----------------------------
+        if not force:
+            result = subprocess.run(
+                ["docker", "image", "inspect", image_tag],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                # Ensure cache dir and marker exist
+                env_dir.mkdir(parents=True, exist_ok=True)
+                (env_dir / ".installed").write_text(json.dumps({"runner": "docker", "image": image_tag}))
+                return env_dir
+
+        # Build Dockerfile ----------------------------------------------
+        tmp_dir = Path(tempfile.mkdtemp(prefix="exgentic-docker-"))
+        try:
+            lines = [
+                "FROM python:3.12-slim",
+            ]
+
+            # System dependencies
+            if sysdeps_path is not None:
+                pkgs = _read_lines(sysdeps_path)
+                if pkgs:
+                    lines.append(
+                        "RUN apt-get update && apt-get install -y " + " ".join(pkgs) + " && rm -rf /var/lib/apt/lists/*"
+                    )
+
+            lines.extend(
+                [
+                    "RUN pip install --no-cache-dir uv",
+                    "ENV UV_SYSTEM_PYTHON=true",
+                ]
+            )
+
+            # Requirements
+            if req_path is not None:
+                shutil.copy2(req_path, tmp_dir / "requirements.txt")
+                lines.append("COPY requirements.txt /tmp/")
+                lines.append("RUN GIT_LFS_SKIP_SMUDGE=1 uv pip install --no-cache -r /tmp/requirements.txt")
+
+            # Setup script
+            if setup_path is not None:
+                shutil.copy2(setup_path, tmp_dir / "setup.sh")
+                lines.append("COPY setup.sh /tmp/")
+                lines.append("RUN bash /tmp/setup.sh")
+
+            dockerfile_content = "\n".join(lines) + "\n"
+            (tmp_dir / "Dockerfile").write_text(dockerfile_content)
+
+            # Build
+            subprocess.run(
+                ["docker", "build", "-t", image_tag, str(tmp_dir)],
+                check=True,
+            )
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        # Write marker --------------------------------------------------
+        env_dir.mkdir(parents=True, exist_ok=True)
+        (env_dir / ".installed").write_text(json.dumps({"runner": "docker", "image": image_tag}))
+        return env_dir
+
+    def uninstall(self, slug: str, kind: str = "benchmark") -> None:
+        """Remove the environment directory entirely.
+
+        For docker-based environments, also removes the Docker image.
+        """
+        env_dir = self.env_path(slug, kind)
+        if not env_dir.exists():
+            return
+
+        marker = env_dir / ".installed"
+        if marker.is_file():
+            try:
+                info = json.loads(marker.read_text())
+                if info.get("runner") == "docker" and info.get("image"):
+                    subprocess.run(
+                        ["docker", "rmi", info["image"]],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+            except (json.JSONDecodeError, KeyError):
+                pass
+
+        shutil.rmtree(env_dir)
 
     def is_installed(self, slug: str, kind: str = "benchmark") -> bool:
         """Check if the ``.installed`` marker exists."""
@@ -206,3 +353,41 @@ def _find_package_file(module_path: str, filename: str) -> Path | None:
         if candidate.is_file():
             return Path(str(candidate))
     return None
+
+
+def _read_lines(path: Path) -> list[str]:
+    """Read non-empty, non-comment lines from *path*."""
+    return [line.strip() for line in path.read_text().splitlines() if line.strip() and not line.strip().startswith("#")]
+
+
+def _validate_system_deps(module_path: str) -> None:
+    """Check that system packages from ``system-deps.txt`` are installed.
+
+    Raises :class:`RuntimeError` with a clear message listing missing
+    packages when any are not found on the host.
+    """
+    sysdeps_path = _find_package_file(module_path, "system-deps.txt")
+    if sysdeps_path is None:
+        return
+    pkgs = _read_lines(sysdeps_path)
+    if not pkgs:
+        return
+    missing = [p for p in pkgs if shutil.which(p) is None and not _dpkg_installed(p)]
+    if missing:
+        raise RuntimeError(
+            f"Missing system packages required for venv install: {', '.join(missing)}. "
+            "Install them with: sudo apt-get install -y " + " ".join(missing)
+        )
+
+
+def _dpkg_installed(package: str) -> bool:
+    """Return *True* if *package* is installed via dpkg."""
+    if shutil.which("dpkg") is None:
+        return False
+    result = subprocess.run(
+        ["dpkg", "-s", package],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
