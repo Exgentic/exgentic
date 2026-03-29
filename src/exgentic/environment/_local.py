@@ -39,3 +39,7 @@ def install(
         run_setup_sh(module_path, env_dir)
 
     return {"python": sys.executable}
+
+
+def uninstall() -> None:
+    """No-op. Cannot remove deps from the current Python environment."""

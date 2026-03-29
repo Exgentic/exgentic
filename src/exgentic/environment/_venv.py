@@ -64,3 +64,10 @@ def install(
         if venv_dir.exists():
             shutil.rmtree(venv_dir, ignore_errors=True)
         raise
+
+
+def uninstall(env_dir: Path) -> None:
+    """Remove the venv directory."""
+    venv_dir = env_dir / "venv"
+    if venv_dir.exists():
+        shutil.rmtree(venv_dir)

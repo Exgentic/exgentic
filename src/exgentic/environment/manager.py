@@ -97,29 +97,33 @@ class EnvironmentManager:
         if not env_dir.exists():
             return
 
+        marker = self._read_marker(name)
+
         if env_type is None:
-            marker = self._read_marker(name)
-            docker_info = marker.get(EnvType.DOCKER, {})
-            if docker_info.get("image"):
-                _docker.remove_image(docker_info["image"])
+            # Remove all env types, then the whole directory.
+            for et in EnvType:
+                if et in marker:
+                    self._uninstall_one(env_dir, et, marker.get(et, {}))
             shutil.rmtree(env_dir)
             return
 
-        if env_type is EnvType.VENV:
-            venv_dir = env_dir / "venv"
-            if venv_dir.exists():
-                shutil.rmtree(venv_dir)
-
-        elif env_type is EnvType.DOCKER:
-            marker = self._read_marker(name)
-            docker_info = marker.get(EnvType.DOCKER, {})
-            if docker_info.get("image"):
-                _docker.remove_image(docker_info["image"])
-
+        # Remove a single env type.
+        self._uninstall_one(env_dir, env_type, marker.get(env_type, {}))
         self._remove_marker_entry(name, env_type)
 
+        # Clean up directory if no env types remain.
         if not self._read_marker(name) and env_dir.exists():
             shutil.rmtree(env_dir)
+
+    @staticmethod
+    def _uninstall_one(env_dir: Path, env_type: EnvType, marker_data: dict) -> None:
+        """Delegate cleanup to the appropriate module."""
+        if env_type is EnvType.VENV:
+            _venv.uninstall(env_dir)
+        elif env_type is EnvType.LOCAL:
+            _local.uninstall()
+        elif env_type is EnvType.DOCKER:
+            _docker.uninstall(marker_data)
 
     # ------------------------------------------------------------------
     # Queries

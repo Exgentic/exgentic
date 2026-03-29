@@ -44,14 +44,16 @@ def install(
     return {"image": image_tag}
 
 
-def remove_image(image_tag: str) -> None:
-    """Remove a Docker image. No-op if it doesn't exist."""
-    subprocess.run(
-        ["docker", "rmi", image_tag],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+def uninstall(marker_data: dict) -> None:
+    """Remove the Docker image referenced in the marker data."""
+    image = marker_data.get("image")
+    if image:
+        subprocess.run(
+            ["docker", "rmi", image],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
 
 
 def _image_tag(name: str, *file_paths: Path | None) -> str:
