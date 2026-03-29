@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timezone
 from importlib import resources
 from pathlib import Path
 
@@ -166,7 +167,9 @@ class EnvironmentInstaller:
                     subprocess.run(["bash", str(setup_path)], check=True, env=setup_env)
 
             # 7  -- write .installed marker
-            (env_dir / ".installed").write_text("")
+            (env_dir / ".installed").write_text(
+                json.dumps({"runner": "venv", "installed_at": datetime.now(timezone.utc).isoformat()})
+            )
         except BaseException:
             shutil.rmtree(env_dir, ignore_errors=True)
             raise
@@ -224,7 +227,12 @@ class EnvironmentInstaller:
             if result.returncode == 0:
                 # Ensure cache dir and marker exist
                 env_dir.mkdir(parents=True, exist_ok=True)
-                (env_dir / ".installed").write_text(json.dumps({"runner": "docker", "image": image_tag}))
+                marker_data = {
+                    "runner": "docker",
+                    "image": image_tag,
+                    "installed_at": datetime.now(timezone.utc).isoformat(),
+                }
+                (env_dir / ".installed").write_text(json.dumps(marker_data))
                 return env_dir
 
         # Build Dockerfile ----------------------------------------------
@@ -274,7 +282,12 @@ class EnvironmentInstaller:
 
         # Write marker --------------------------------------------------
         env_dir.mkdir(parents=True, exist_ok=True)
-        (env_dir / ".installed").write_text(json.dumps({"runner": "docker", "image": image_tag}))
+        marker_data = {
+            "runner": "docker",
+            "image": image_tag,
+            "installed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        (env_dir / ".installed").write_text(json.dumps(marker_data))
         return env_dir
 
     def uninstall(self, slug: str, kind: str = "benchmark") -> None:
@@ -305,6 +318,19 @@ class EnvironmentInstaller:
     def is_installed(self, slug: str, kind: str = "benchmark") -> bool:
         """Check if the ``.installed`` marker exists."""
         return (self.env_path(slug, kind) / ".installed").is_file()
+
+    def get_install_info(self, slug: str, kind: str = "benchmark") -> dict | None:
+        """Return the .installed marker contents, or None if not installed."""
+        marker = self.env_path(slug, kind) / ".installed"
+        if not marker.is_file():
+            return None
+        text = marker.read_text()
+        if not text.strip():
+            return {}
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return {}
 
     def env_path(self, slug: str, kind: str = "benchmark") -> Path:
         """Return the environment directory path."""

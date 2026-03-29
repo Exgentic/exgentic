@@ -12,6 +12,7 @@ import stat
 import subprocess
 import sys
 import textwrap
+from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
@@ -556,7 +557,7 @@ class TestContentCorrectness:
     """Tests for marker content and directory structure."""
 
     def test_installed_marker_contains_metadata(self, tmp_path: Path) -> None:
-        """Docker .installed file has runner type in JSON metadata."""
+        """Docker .installed file has runner type and installed_at in JSON metadata."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
         installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
 
@@ -575,6 +576,60 @@ class TestContentCorrectness:
         info = json.loads(marker.read_text())
         assert info["runner"] == "docker"
         assert "image" in info
+        assert "installed_at" in info
+        # Verify installed_at is a valid ISO timestamp
+        datetime.fromisoformat(info["installed_at"])
+
+    def test_venv_marker_contains_metadata(self, tmp_path: Path) -> None:
+        """Venv .installed file has runner type and installed_at in JSON metadata."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        env_dir = installer.install("bench", "benchmark", module_path=module_path)
+
+        marker = env_dir / ".installed"
+        assert marker.is_file()
+        info = json.loads(marker.read_text())
+        assert info["runner"] == "venv"
+        assert "installed_at" in info
+        # Verify installed_at is a valid ISO timestamp
+        ts = datetime.fromisoformat(info["installed_at"])
+        assert ts.tzinfo is not None  # must be timezone-aware
+
+    def test_get_install_info_returns_metadata(self, tmp_path: Path) -> None:
+        """get_install_info returns marker contents as a dict."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        assert installer.get_install_info("bench", "benchmark") is None
+
+        installer.install("bench", "benchmark", module_path=module_path)
+        info = installer.get_install_info("bench", "benchmark")
+
+        assert info is not None
+        assert info["runner"] == "venv"
+        assert "installed_at" in info
+
+    def test_get_install_info_docker(self, tmp_path: Path) -> None:
+        """get_install_info returns docker marker contents."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        def side_effect(cmd, **kwargs):
+            if cmd[0] == "docker":
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=side_effect):
+            installer.install("bench", "benchmark", runner="docker", module_path=module_path)
+
+        info = installer.get_install_info("bench", "benchmark")
+        assert info is not None
+        assert info["runner"] == "docker"
+        assert "image" in info
+        assert "installed_at" in info
 
     def test_docker_marker_contains_image_tag(self, tmp_path: Path) -> None:
         """Docker .installed marker contains the image tag used for the build."""
