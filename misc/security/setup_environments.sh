@@ -165,13 +165,8 @@ for benchmark in "${BENCHMARKS[@]}"; do
     # (some scripts expect to be run from project root)
     cd "${PROJECT_ROOT}"
     
-    SETUP_EXTRA_ARGS=""
-    if [ "${benchmark}" = "appworld" ]; then
-        SETUP_EXTRA_ARGS="--no-tests"
-    fi
-    
     SETUP_OK=true
-    if bash "${SETUP_SCRIPT}" ${SETUP_EXTRA_ARGS}; then
+    if bash "${SETUP_SCRIPT}"; then
         log_success "${benchmark} setup completed successfully"
         SETUP_PASSED+=("${benchmark}")
     else

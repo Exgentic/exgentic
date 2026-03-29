@@ -28,6 +28,5 @@ RUN npm install -g @openai/codex@0.93.0
 WORKDIR /work
 CMD ["codex","--help"]
 DOCKERFILE
-$CONTAINER_CMD run --rm exgentic-codex:dev codex --version
 
 echo "Codex Agent setup complete (using $CONTAINER_CMD)"

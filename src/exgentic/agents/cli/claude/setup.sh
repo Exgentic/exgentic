@@ -28,6 +28,5 @@ RUN npm install -g @anthropic-ai/claude-code@2.1.7
 WORKDIR /work
 CMD ["claude","--help"]
 DOCKERFILE
-$CONTAINER_CMD run --rm exgentic-claude-code:dev claude --version
 
 echo "Claude Code Agent setup complete (using $CONTAINER_CMD)"

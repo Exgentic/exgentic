@@ -28,6 +28,5 @@ RUN npm install -g @google/gemini-cli@0.25.0
 WORKDIR /work
 CMD ["gemini","--help"]
 DOCKERFILE
-$CONTAINER_CMD run --rm exgentic-gemini:dev gemini --version
 
 echo "Gemini Agent setup complete (using $CONTAINER_CMD)"

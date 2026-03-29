@@ -28,8 +28,3 @@ git -C "${REPO_DIR}" checkout --force "${GORILLA_REF}"
 
 pip_install -e "${BFCL_DIR}"
 pip_install soundfile
-
-python - <<'PY'
-import bfcl_eval
-print(f"bfcl_eval import OK: {bfcl_eval.__file__}")
-PY

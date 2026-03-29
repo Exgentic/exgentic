@@ -209,7 +209,7 @@ class DockerRunner:
                 raise FileNotFoundError(f"Setup script not found: {self._setup_script}")
             rel = script_path.resolve().relative_to(root.resolve())
             lines.append(f"COPY {rel} /tmp/setup.sh")
-            lines.append("RUN EXGENTIC_DOCKER_BUILD=1 bash /tmp/setup.sh --no-tests")
+            lines.append("RUN EXGENTIC_DOCKER_BUILD=1 bash /tmp/setup.sh")
 
         (tmp / "Dockerfile").write_text("\n".join(lines) + "\n")
         result = _docker(
