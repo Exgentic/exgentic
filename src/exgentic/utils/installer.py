@@ -23,10 +23,21 @@ class EnvironmentInstaller:
     Each benchmark/agent gets its own self-contained environment at:
       ``{base_dir}/{kind}s/{slug}/``
 
-    The environment contains:
-      - ``venv/`` -- isolated Python venv with all dependencies
-      - ``data/`` -- benchmark data files (populated by setup.sh)
-      - ``.installed`` -- marker file
+    The lifecycle is split into two stages:
+
+    1. **install()** -- runner-agnostic data setup.  Creates a venv (needed
+       for ``setup.sh``), installs pip deps, runs ``setup.sh``, and writes an
+       ``.installed`` marker.  Directory layout after install::
+
+           venv/          -- Python venv with dependencies
+           data/          -- benchmark data (populated by setup.sh)
+           .installed     -- JSON marker (runner-agnostic)
+
+    2. **build_runner()** -- builds a runner-specific execution environment.
+       For ``runner="venv"`` this is a no-op (the venv from *install* is
+       reused).  For ``runner="docker"`` a Docker image is built.  Layout::
+
+           docker/        -- contains ``image_tag`` file (optional)
     """
 
     def __init__(self, base_dir: Path | None = None) -> None:
@@ -41,16 +52,17 @@ class EnvironmentInstaller:
         slug: str,
         kind: str = "benchmark",
         *,
-        runner: str = "venv",
         force: bool = False,
         module_path: str | None = None,
     ) -> Path:
-        """Create a complete ready-to-run environment.
+        """Download data, install pip deps, run setup.sh.
+
+        This is runner-agnostic.  A venv is always created because
+        ``setup.sh`` may need the installed Python packages.
 
         Args:
             slug: Short identifier for the benchmark / agent.
             kind: ``"benchmark"`` or ``"agent"``.
-            runner: ``"venv"`` (default) or ``"docker"``.
             force: Re-create even if already installed.
             module_path: Dotted module path used to locate package resources
                 (``requirements.txt``, ``setup.sh``, ``system-deps.txt``).
@@ -58,33 +70,6 @@ class EnvironmentInstaller:
 
         Returns:
             The environment directory path.
-        """
-        if runner == "docker":
-            return self._install_docker(slug, kind, force=force, module_path=module_path)
-        return self._install_venv(slug, kind, force=force, module_path=module_path)
-
-    # ------------------------------------------------------------------
-    # Venv-based install
-    # ------------------------------------------------------------------
-
-    def _install_venv(
-        self,
-        slug: str,
-        kind: str,
-        *,
-        force: bool = False,
-        module_path: str | None = None,
-    ) -> Path:
-        """Create a venv-based environment.
-
-        Steps:
-            1. Create dir at ``base_dir/{kind}s/{slug}/``
-            2. Create a Python venv inside it
-            3. Install *exgentic* into the venv
-            4. Find and install ``requirements.txt`` into the venv
-            5. Validate ``system-deps.txt`` packages are installed on host
-            6. Find and run ``setup.sh`` (with ``EXGENTIC_CACHE_DIR`` set)
-            7. Write ``.installed`` marker
         """
         if not force and self.is_installed(slug, kind):
             return self.env_path(slug, kind)
@@ -97,7 +82,7 @@ class EnvironmentInstaller:
         try:
             uv_bin = _require_uv()
 
-            # 1 & 2  -- create venv
+            # 1  -- create venv
             venv_dir = env_dir / "venv"
             subprocess.run(
                 [
@@ -121,7 +106,7 @@ class EnvironmentInstaller:
             env.pop("VIRTUAL_ENV", None)
             env["GIT_LFS_SKIP_SMUDGE"] = "1"
 
-            # 3  -- install exgentic into the venv
+            # 2  -- install exgentic into the venv
             project_root = _find_project_root()
             if project_root is not None:
                 subprocess.run(
@@ -132,7 +117,7 @@ class EnvironmentInstaller:
                     env=env,
                 )
 
-            # 4  -- install requirements.txt (if found)
+            # 3  -- install requirements.txt (if found)
             if module_path is not None:
                 req_path = _find_package_file(module_path, "requirements.txt")
                 if req_path is not None:
@@ -150,12 +135,11 @@ class EnvironmentInstaller:
                             env=env,
                         )
 
-            # 5  -- validate system-deps.txt (if found)
+            # 4  -- validate system-deps.txt (if found)
             if module_path is not None:
                 _validate_system_deps(module_path)
 
-            # 6  -- run setup.sh (if found)
-            # setup.sh intentionally prints to stdout for progress visibility
+            # 5  -- run setup.sh (if found)
             if module_path is not None:
                 setup_path = _find_package_file(module_path, "setup.sh")
                 if setup_path is not None:
@@ -166,21 +150,56 @@ class EnvironmentInstaller:
                     setup_env["PATH"] = venv_bin + os.pathsep + setup_env.get("PATH", "")
                     subprocess.run(["bash", str(setup_path)], check=True, env=setup_env)
 
-            # 7  -- write .installed marker
-            (env_dir / ".installed").write_text(
-                json.dumps({"runner": "venv", "installed_at": datetime.now(timezone.utc).isoformat()})
-            )
+            # 6  -- write .installed marker (runner-agnostic)
+            (env_dir / ".installed").write_text(json.dumps({"installed_at": datetime.now(timezone.utc).isoformat()}))
         except BaseException:
             shutil.rmtree(env_dir, ignore_errors=True)
             raise
 
         return env_dir
 
+    def build_runner(
+        self,
+        slug: str,
+        kind: str = "benchmark",
+        *,
+        runner: str = "venv",
+        force: bool = False,
+        module_path: str | None = None,
+    ) -> Path:
+        """Build a runner-specific execution environment.
+
+        Auto-calls :meth:`install` first if not already installed.
+
+        For ``runner="venv"`` this is a no-op because :meth:`install`
+        already creates the venv.  For ``runner="docker"`` a Docker
+        image is built.
+
+        Args:
+            slug: Short identifier for the benchmark / agent.
+            kind: ``"benchmark"`` or ``"agent"``.
+            runner: ``"venv"`` (default) or ``"docker"``.
+            force: Re-build even if runner environment already exists.
+            module_path: Dotted module path for package resources.
+
+        Returns:
+            The environment directory path.
+        """
+        # Auto-install if needed
+        if not self.is_installed(slug, kind):
+            self.install(slug, kind, module_path=module_path)
+
+        if runner == "docker":
+            return self._build_docker(slug, kind, force=force, module_path=module_path)
+
+        # runner == "venv": the venv already exists from install()
+        return self.env_path(slug, kind)
+
     # ------------------------------------------------------------------
-    # Docker-based install
+    # Docker runner build
     # ------------------------------------------------------------------
 
-    def _install_docker(
+    def _build_docker(
         self,
         slug: str,
         kind: str,
@@ -216,7 +235,14 @@ class EnvironmentInstaller:
         content_hash = h.hexdigest()[:12]
         image_tag = f"exgentic-{kind}-{slug}:{content_hash}"
 
+        docker_dir = env_dir / "docker"
+
         # Reuse existing image unless force -----------------------------
+        if not force and docker_dir.exists():
+            tag_file = docker_dir / "image_tag"
+            if tag_file.is_file() and tag_file.read_text().strip() == image_tag:
+                return env_dir
+
         if not force:
             result = subprocess.run(
                 ["docker", "image", "inspect", image_tag],
@@ -225,14 +251,8 @@ class EnvironmentInstaller:
                 text=True,
             )
             if result.returncode == 0:
-                # Ensure cache dir and marker exist
-                env_dir.mkdir(parents=True, exist_ok=True)
-                marker_data = {
-                    "runner": "docker",
-                    "image": image_tag,
-                    "installed_at": datetime.now(timezone.utc).isoformat(),
-                }
-                (env_dir / ".installed").write_text(json.dumps(marker_data))
+                docker_dir.mkdir(parents=True, exist_ok=True)
+                (docker_dir / "image_tag").write_text(image_tag)
                 return env_dir
 
         # Build Dockerfile ----------------------------------------------
@@ -280,44 +300,44 @@ class EnvironmentInstaller:
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
-        # Write marker --------------------------------------------------
-        env_dir.mkdir(parents=True, exist_ok=True)
-        marker_data = {
-            "runner": "docker",
-            "image": image_tag,
-            "installed_at": datetime.now(timezone.utc).isoformat(),
-        }
-        (env_dir / ".installed").write_text(json.dumps(marker_data))
+        # Write docker info ---------------------------------------------
+        docker_dir.mkdir(parents=True, exist_ok=True)
+        (docker_dir / "image_tag").write_text(image_tag)
         return env_dir
 
     def uninstall(self, slug: str, kind: str = "benchmark") -> None:
-        """Remove the environment directory entirely.
-
-        For docker-based environments, also removes the Docker image.
-        """
+        """Remove everything -- data, all runner environments, and docker images."""
         env_dir = self.env_path(slug, kind)
         if not env_dir.exists():
             return
 
-        marker = env_dir / ".installed"
-        if marker.is_file():
-            try:
-                info = json.loads(marker.read_text())
-                if info.get("runner") == "docker" and info.get("image"):
-                    subprocess.run(
-                        ["docker", "rmi", info["image"]],
-                        check=False,
-                        capture_output=True,
-                        text=True,
-                    )
-            except (json.JSONDecodeError, KeyError):
-                pass
+        # Remove docker image if present
+        docker_tag_file = env_dir / "docker" / "image_tag"
+        if docker_tag_file.is_file():
+            image_tag = docker_tag_file.read_text().strip()
+            if image_tag:
+                subprocess.run(
+                    ["docker", "rmi", image_tag],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
 
         shutil.rmtree(env_dir)
 
     def is_installed(self, slug: str, kind: str = "benchmark") -> bool:
-        """Check if the ``.installed`` marker exists."""
+        """Check if the ``.installed`` marker exists (data is set up)."""
         return (self.env_path(slug, kind) / ".installed").is_file()
+
+    def has_runner(self, slug: str, kind: str = "benchmark", runner: str = "venv") -> bool:
+        """Check if a specific runner environment exists."""
+        env_dir = self.env_path(slug, kind)
+        if runner == "venv":
+            return (env_dir / "venv" / "bin" / "python").exists()
+        if runner == "docker":
+            tag_file = env_dir / "docker" / "image_tag"
+            return tag_file.is_file() and bool(tag_file.read_text().strip())
+        return False
 
     def get_install_info(self, slug: str, kind: str = "benchmark") -> dict | None:
         """Return the .installed marker contents, or None if not installed."""
@@ -417,7 +437,7 @@ def _validate_system_deps(module_path: str) -> None:
     missing = [p for p in pkgs if shutil.which(p) is None and not _dpkg_installed(p)]
     if missing:
         raise RuntimeError(
-            f"Missing system packages required for venv install: {', '.join(missing)}. "
+            f"Missing system packages required for install: {', '.join(missing)}. "
             "Install them with: sudo apt-get install -y " + " ".join(missing)
         )
 
