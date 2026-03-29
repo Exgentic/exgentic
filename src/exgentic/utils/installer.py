@@ -21,7 +21,7 @@ class EnvironmentInstaller:
     """Manages isolated environments for benchmarks and agents.
 
     Each benchmark/agent gets its own self-contained environment at:
-      ``{base_dir}/{kind}s/{slug}/``
+      ``{base_dir}/{subdir}/{slug}/``
 
     The lifecycle is split into two stages:
 
@@ -53,7 +53,7 @@ class EnvironmentInstaller:
     def install(
         self,
         slug: str,
-        kind: str = "benchmark",
+        subdir: str = "benchmarks",
         *,
         force: bool = False,
         module_path: str | None = None,
@@ -65,7 +65,8 @@ class EnvironmentInstaller:
 
         Args:
             slug: Short identifier for the benchmark / agent.
-            kind: ``"benchmark"`` or ``"agent"``.
+            subdir: Directory name under ``base_dir`` (e.g. ``"benchmarks"``
+                or ``"agents"``).
             force: Re-create even if already installed.
             module_path: Dotted module path used to locate package resources
                 (``requirements.txt``, ``setup.sh``, ``system-deps.txt``).
@@ -74,10 +75,10 @@ class EnvironmentInstaller:
         Returns:
             The environment directory path.
         """
-        if not force and self.is_installed(slug, kind):
-            return self.env_path(slug, kind)
+        if not force and self.is_installed(slug, subdir):
+            return self.env_path(slug, subdir)
 
-        env_dir = self.env_path(slug, kind)
+        env_dir = self.env_path(slug, subdir)
         if env_dir.exists():
             shutil.rmtree(env_dir)
         env_dir.mkdir(parents=True, exist_ok=True)
@@ -164,7 +165,7 @@ class EnvironmentInstaller:
     def build_env(
         self,
         slug: str,
-        kind: str = "benchmark",
+        subdir: str = "benchmarks",
         *,
         env_type: str = "local",
         force: bool = False,
@@ -181,7 +182,8 @@ class EnvironmentInstaller:
 
         Args:
             slug: Short identifier for the benchmark / agent.
-            kind: ``"benchmark"`` or ``"agent"``.
+            subdir: Directory name under ``base_dir`` (e.g. ``"benchmarks"``
+                or ``"agents"``).
             env_type: ``"local"`` (default), ``"venv"``, or ``"docker"``.
             force: Re-build even if environment already exists.
             module_path: Dotted module path for package resources.
@@ -190,17 +192,17 @@ class EnvironmentInstaller:
             The environment directory path.
         """
         # Auto-install if needed
-        if not self.is_installed(slug, kind):
-            self.install(slug, kind, module_path=module_path)
+        if not self.is_installed(slug, subdir):
+            self.install(slug, subdir, module_path=module_path)
 
         if env_type == "docker":
-            return self._build_docker(slug, kind, force=force, module_path=module_path)
+            return self._build_docker(slug, subdir, force=force, module_path=module_path)
 
         if env_type == "local":
-            return self._build_local(slug, kind, force=force, module_path=module_path)
+            return self._build_local(slug, subdir, force=force, module_path=module_path)
 
         # env_type == "venv": the venv already exists from install()
-        return self.env_path(slug, kind)
+        return self.env_path(slug, subdir)
 
     # ------------------------------------------------------------------
     # Local env build
@@ -209,7 +211,7 @@ class EnvironmentInstaller:
     def _build_local(
         self,
         slug: str,
-        kind: str,
+        subdir: str,
         *,
         force: bool = False,
         module_path: str | None = None,
@@ -220,7 +222,7 @@ class EnvironmentInstaller:
         into the active interpreter using ``uv pip install`` and writes a
         ``local/.installed`` marker so :meth:`has_env` can detect it.
         """
-        env_dir = self.env_path(slug, kind)
+        env_dir = self.env_path(slug, subdir)
         local_dir = env_dir / "local"
         marker = local_dir / ".installed"
 
@@ -260,7 +262,7 @@ class EnvironmentInstaller:
     def _build_docker(
         self,
         slug: str,
-        kind: str,
+        subdir: str,
         *,
         force: bool = False,
         module_path: str | None = None,
@@ -271,7 +273,7 @@ class EnvironmentInstaller:
         (``requirements.txt``, ``setup.sh``, ``system-deps.txt``) so that
         identical inputs produce the same tag and rebuilds are skipped.
         """
-        env_dir = self.env_path(slug, kind)
+        env_dir = self.env_path(slug, subdir)
 
         # Gather package files ------------------------------------------
         req_path = _find_package_file(module_path, "requirements.txt") if module_path else None
@@ -291,7 +293,7 @@ class EnvironmentInstaller:
             h.update(part.encode())
             h.update(b"\x00")
         content_hash = h.hexdigest()[:12]
-        image_tag = f"exgentic-{kind}-{slug}:{content_hash}"
+        image_tag = f"exgentic-{subdir}-{slug}:{content_hash}"
 
         docker_dir = env_dir / "docker"
 
@@ -363,9 +365,9 @@ class EnvironmentInstaller:
         (docker_dir / "image_tag").write_text(image_tag)
         return env_dir
 
-    def uninstall(self, slug: str, kind: str = "benchmark") -> None:
+    def uninstall(self, slug: str, subdir: str = "benchmarks") -> None:
         """Remove everything -- data, all execution environments, and docker images."""
-        env_dir = self.env_path(slug, kind)
+        env_dir = self.env_path(slug, subdir)
         if not env_dir.exists():
             return
 
@@ -383,13 +385,13 @@ class EnvironmentInstaller:
 
         shutil.rmtree(env_dir)
 
-    def is_installed(self, slug: str, kind: str = "benchmark") -> bool:
+    def is_installed(self, slug: str, subdir: str = "benchmarks") -> bool:
         """Check if the ``.installed`` marker exists (data is set up)."""
-        return (self.env_path(slug, kind) / ".installed").is_file()
+        return (self.env_path(slug, subdir) / ".installed").is_file()
 
-    def has_env(self, slug: str, kind: str = "benchmark", env_type: str = "local") -> bool:
+    def has_env(self, slug: str, subdir: str = "benchmarks", env_type: str = "local") -> bool:
         """Check if a specific execution environment exists."""
-        env_dir = self.env_path(slug, kind)
+        env_dir = self.env_path(slug, subdir)
         if env_type == "venv":
             return (env_dir / "venv" / "bin" / "python").exists()
         if env_type == "docker":
@@ -399,9 +401,9 @@ class EnvironmentInstaller:
             return (env_dir / "local" / ".installed").is_file()
         return False
 
-    def get_install_info(self, slug: str, kind: str = "benchmark") -> dict | None:
+    def get_install_info(self, slug: str, subdir: str = "benchmarks") -> dict | None:
         """Return the .installed marker contents, or None if not installed."""
-        marker = self.env_path(slug, kind) / ".installed"
+        marker = self.env_path(slug, subdir) / ".installed"
         if not marker.is_file():
             return None
         text = marker.read_text()
@@ -412,23 +414,23 @@ class EnvironmentInstaller:
         except json.JSONDecodeError:
             return {}
 
-    def env_path(self, slug: str, kind: str = "benchmark") -> Path:
+    def env_path(self, slug: str, subdir: str = "benchmarks") -> Path:
         """Return the environment directory path."""
-        return self.base_dir / f"{kind}s" / slug
+        return self.base_dir / subdir / slug
 
-    def list_installed(self, kind: str | None = None) -> list[str]:
+    def list_installed(self, subdir: str | None = None) -> list[str]:
         """List all installed environment slugs.
 
         Args:
-            kind: ``"benchmark"``, ``"agent"``, or *None* for both.
+            subdir: ``"benchmarks"``, ``"agents"``, or *None* for both.
         """
-        kinds = [kind] if kind else ["benchmark", "agent"]
+        subdirs = [subdir] if subdir else ["benchmarks", "agents"]
         slugs: list[str] = []
-        for k in kinds:
-            kind_dir = self.base_dir / f"{k}s"
-            if not kind_dir.is_dir():
+        for sd in subdirs:
+            sd_dir = self.base_dir / sd
+            if not sd_dir.is_dir():
                 continue
-            for child in sorted(kind_dir.iterdir()):
+            for child in sorted(sd_dir.iterdir()):
                 if child.is_dir() and (child / ".installed").is_file():
                     slugs.append(child.name)
         return slugs
