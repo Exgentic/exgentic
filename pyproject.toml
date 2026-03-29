@@ -74,8 +74,10 @@ packages = ["src/exgentic"]
 include = [
     "src/exgentic/benchmarks/**/requirements.txt",
     "src/exgentic/benchmarks/**/setup.sh",
+    "src/exgentic/benchmarks/**/system-deps.txt",
     "src/exgentic/agents/**/requirements.txt",
     "src/exgentic/agents/**/setup.sh",
+    "src/exgentic/agents/**/system-deps.txt",
 ]
 
 [tool.hatch.build.targets.sdist]
