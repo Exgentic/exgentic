@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .docker import DockerBackend
 from .local import LocalBackend
-from .protocol import EnvBackend
+from .protocol import EnvironmentBackend
 from .venv import VenvBackend
 
 
@@ -38,7 +38,7 @@ class EnvironmentManager:
 
     def __init__(self, base_dir: Path | None = None) -> None:
         self.base_dir = base_dir or Path.home() / ".exgentic"
-        self._backends: dict[EnvType, EnvBackend] = {
+        self._backends: dict[EnvType, EnvironmentBackend] = {
             EnvType.VENV: VenvBackend(),
             EnvType.LOCAL: LocalBackend(),
             EnvType.DOCKER: DockerBackend(),

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Protocol
 
 
-class EnvBackend(Protocol):
+class EnvironmentBackend(Protocol):
     """Uniform interface every environment backend must satisfy."""
 
     def install(self, env_dir: Path, *, module_path: str | None = None, **kwargs: object) -> dict:
