@@ -22,7 +22,7 @@ from unittest import mock
 
 import pytest
 from exgentic.environment import EnvironmentManager, EnvType
-from exgentic.environment._helpers import find_package_file, require_uv
+from exgentic.environment.helpers import find_package_file, require_uv
 
 _pkg_counter = 0
 
@@ -792,8 +792,8 @@ class TestFailureModes:
                 return None
             return original_which(name)
 
-        with mock.patch("exgentic.environment._helpers.shutil.which", side_effect=which_no_fake):
-            with mock.patch("exgentic.environment._helpers._dpkg_installed", return_value=False):
+        with mock.patch("exgentic.environment.helpers.shutil.which", side_effect=which_no_fake):
+            with mock.patch("exgentic.environment.helpers._dpkg_installed", return_value=False):
                 with pytest.raises(RuntimeError, match="nonexistent_tool_xyz"):
                     mgr.install("mybench", module_path=module_path)
 

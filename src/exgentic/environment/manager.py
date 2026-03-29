@@ -11,7 +11,10 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
 
-from . import _docker, _local, _venv
+from .docker import DockerBackend
+from .local import LocalBackend
+from .protocol import EnvBackend
+from .venv import VenvBackend
 
 
 class EnvType(StrEnum):
@@ -35,6 +38,11 @@ class EnvironmentManager:
 
     def __init__(self, base_dir: Path | None = None) -> None:
         self.base_dir = base_dir or Path.home() / ".exgentic"
+        self._backends: dict[EnvType, EnvBackend] = {
+            EnvType.VENV: VenvBackend(),
+            EnvType.LOCAL: LocalBackend(),
+            EnvType.DOCKER: DockerBackend(),
+        }
 
     # ------------------------------------------------------------------
     # Core operations
@@ -69,17 +77,18 @@ class EnvironmentManager:
         env_dir.mkdir(parents=True, exist_ok=True)
         self._remove_marker_entry(name, env_type)
 
-        if env_type is EnvType.VENV:
-            _venv.install(env_dir, module_path=module_path, venv_packages=venv_packages)
-            self._add_marker_entry(name, env_type, {"installed_at": _now_iso()})
+        backend = self._backends[env_type]
 
-        elif env_type is EnvType.LOCAL:
-            extra = _local.install(env_dir, module_path=module_path)
-            self._add_marker_entry(name, env_type, {"installed_at": _now_iso(), **extra})
+        # Build kwargs for the backend.
+        kwargs: dict[str, object] = {}
+        if venv_packages is not None:
+            kwargs["venv_packages"] = venv_packages
+        if env_type is EnvType.DOCKER:
+            kwargs["name"] = name
+            kwargs["force"] = force
 
-        elif env_type is EnvType.DOCKER:
-            extra = _docker.install(name, module_path=module_path, force=force)
-            self._add_marker_entry(name, env_type, {"installed_at": _now_iso(), **extra})
+        extra = backend.install(env_dir, module_path=module_path, **kwargs)
+        self._add_marker_entry(name, env_type, {"installed_at": _now_iso(), **extra})
 
         return env_dir
 
@@ -103,27 +112,17 @@ class EnvironmentManager:
             # Remove all env types, then the whole directory.
             for et in EnvType:
                 if et in marker:
-                    self._uninstall_one(env_dir, et, marker.get(et, {}))
+                    self._backends[et].uninstall(env_dir, marker.get(et, {}))
             shutil.rmtree(env_dir)
             return
 
         # Remove a single env type.
-        self._uninstall_one(env_dir, env_type, marker.get(env_type, {}))
+        self._backends[env_type].uninstall(env_dir, marker.get(env_type, {}))
         self._remove_marker_entry(name, env_type)
 
         # Clean up directory if no env types remain.
         if not self._read_marker(name) and env_dir.exists():
             shutil.rmtree(env_dir)
-
-    @staticmethod
-    def _uninstall_one(env_dir: Path, env_type: EnvType, marker_data: dict) -> None:
-        """Delegate cleanup to the appropriate module."""
-        if env_type is EnvType.VENV:
-            _venv.uninstall(env_dir)
-        elif env_type is EnvType.LOCAL:
-            _local.uninstall()
-        elif env_type is EnvType.DOCKER:
-            _docker.uninstall(marker_data)
 
     # ------------------------------------------------------------------
     # Queries
