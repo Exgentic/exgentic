@@ -25,7 +25,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.skipif(not _uv_available, reason="uv CLI not available")
-@pytest.mark.parametrize("benchmark", ["tau2"])
+@pytest.mark.parametrize("benchmark", ["tau2", "gsm8k"])
 def test_setup_in_tool_install_venv(benchmark: str, tmp_path: Path) -> None:
     """Install exgentic into a fresh venv, then run ``exgentic setup``."""
     venv_dir = tmp_path / "venv"
@@ -65,4 +65,25 @@ def test_setup_in_tool_install_venv(benchmark: str, tmp_path: Path) -> None:
     assert result.returncode == 0, (
         f"exgentic setup --benchmark {benchmark} failed "
         f"(rc={result.returncode}).\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+    )
+
+    # 5. Verify the installation marker was written.
+    venv_python = str(venv_dir / "bin" / "python")
+    check = subprocess.run(
+        [
+            venv_python,
+            "-c",
+            (
+                "from exgentic.utils.installation_tracker import is_installed; "
+                f"assert is_installed({benchmark!r}, 'benchmark'), "
+                f"'installation marker not found for {benchmark}'"
+            ),
+        ],
+        cwd=str(work_dir),
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert check.returncode == 0, (
+        f"Installation marker check failed for {benchmark}.\n" f"stdout:\n{check.stdout}\nstderr:\n{check.stderr}"
     )
