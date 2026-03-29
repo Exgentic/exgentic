@@ -10,16 +10,9 @@ for arg in "$@"; do
     esac
 done
 
-if ! git lfs version >/dev/null 2>&1; then
-  echo "Git LFS not found — attempting to install..."
-  if command -v apt-get >/dev/null 2>&1; then
-    apt-get update && apt-get install -y --no-install-recommends git-lfs && rm -rf /var/lib/apt/lists/*
-  elif command -v brew >/dev/null 2>&1; then
-    brew install git-lfs
-  else
-    echo "Error: Git LFS not found and no supported package manager. Install Git LFS and re-run." >&2
+if ! command -v git-lfs >/dev/null 2>&1; then
+    echo "Error: git-lfs is required but not installed. Install it first: brew install git-lfs (macOS) or apt-get install git-lfs (Linux)" >&2
     exit 1
-  fi
 fi
 
 APPWORLD_ROOT="${EXGENTIC_CACHE_DIR:-.exgentic}/appworld"
