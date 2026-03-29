@@ -73,7 +73,12 @@ def _ensure_installed(
 
     mgr = get_manager()
     runner = _get_runner_from_set(set_values) or get_settings().default_runner
-    env_type = EnvType.DOCKER if runner == "docker" else EnvType.VENV
+    if runner == "docker":
+        env_type = EnvType.DOCKER
+    elif runner == "venv":
+        env_type = EnvType.VENV
+    else:
+        env_type = EnvType.LOCAL
 
     to_install: list[tuple[str, str, str]] = []
     bench_name = f"benchmarks/{benchmark}"
@@ -94,7 +99,10 @@ def _ensure_installed(
 
     for install_type, slug, name in to_install:
         entry = _get_registry_entry(slug, install_type)
-        mgr.install(name, env_type=env_type, module_path=entry.module, venv_packages=["exgentic"])
+        kwargs: dict = {"env_type": env_type, "module_path": entry.module}
+        if env_type is EnvType.VENV:
+            kwargs["venv_packages"] = ["exgentic"]
+        mgr.install(name, **kwargs)
 
 
 def _load_config_file(path: str) -> dict:
