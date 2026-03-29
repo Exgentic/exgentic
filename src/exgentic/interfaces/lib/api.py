@@ -701,8 +701,9 @@ def setup_benchmark(benchmark: str, force: bool = False, runner: str | None = No
             from ...adapters.runners._utils import find_project_root
 
             root = find_project_root()
+            install_target = str(root) if (root / "pyproject.toml").exists() else "exgentic"
             subprocess.run(
-                [uv_bin, "pip", "install", "--python", str(venv_path / "bin" / "python"), "--no-cache", str(root)],
+                [uv_bin, "pip", "install", "--python", str(venv_path / "bin" / "python"), "--no-cache", install_target],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -776,8 +777,9 @@ def setup_agent(agent: str, force: bool = False, runner: str | None = None) -> N
             from ...adapters.runners._utils import find_project_root
 
             root = find_project_root()
+            install_target = str(root) if (root / "pyproject.toml").exists() else "exgentic"
             subprocess.run(
-                [uv_bin, "pip", "install", "--python", str(venv_path / "bin" / "python"), "--no-cache", str(root)],
+                [uv_bin, "pip", "install", "--python", str(venv_path / "bin" / "python"), "--no-cache", install_target],
                 check=True,
                 capture_output=True,
                 text=True,
