@@ -14,7 +14,7 @@ from .commands.evaluate import evaluate_cmd
 from .commands.listing import list_cmd
 from .commands.run_info import preview_cmd, results_cmd, status_cmd
 from .commands.serve import serve_cmd
-from .commands.setup import setup_cmd
+from .commands.setup import install_cmd, setup_cmd, uninstall_cmd
 from .options import apply_debug_mode
 from .render import print_banner, should_print_banner
 
@@ -46,7 +46,7 @@ click.rich_click.COMMAND_GROUPS = {
         },
         {
             "name": "Discover",
-            "commands": ["list", "setup"],
+            "commands": ["list", "install", "uninstall", "setup"],
         },
         {
             "name": "Explore",
@@ -97,6 +97,8 @@ cli.add_command(compare_cmd)
 cli.add_command(list_cmd)
 cli.add_command(dashboard_cmd)
 cli.add_command(setup_cmd)
+cli.add_command(install_cmd)
+cli.add_command(uninstall_cmd)
 cli.add_command(serve_cmd)
 
 
@@ -112,6 +114,7 @@ __all__ = [
     "compare_cmd",
     "dashboard_cmd",
     "evaluate_cmd",
+    "install_cmd",
     "list_cmd",
     "main",
     "preview_cmd",
@@ -119,4 +122,5 @@ __all__ = [
     "serve_cmd",
     "setup_cmd",
     "status_cmd",
+    "uninstall_cmd",
 ]

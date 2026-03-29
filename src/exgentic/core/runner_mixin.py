@@ -48,10 +48,11 @@ class RunnerMixin:
         runner = self.resolve_runner()
 
         if runner == "venv":
-            from ..utils.cache import benchmark_cache_dir
+            from ..environment.instance import get_manager
 
+            kind = "agents" if self._is_agent() else "benchmarks"
             kw: dict[str, Any] = {}
-            kw["venv_dir"] = str(benchmark_cache_dir(self.slug_name) / "venv")
+            kw["venv_dir"] = str(get_manager().env_path(f"{kind}/{self.slug_name}") / "venv")
             if self.setup_script:
                 kw["setup_script"] = self.setup_script
             if self.requirements_txt:
@@ -73,6 +74,12 @@ class RunnerMixin:
         output_dir = str(Path(output_dir).resolve())
         kw["volumes"] = {output_dir: output_dir}
         return kw
+
+    def _is_agent(self) -> bool:
+        """Return True if this instance is an Agent (not a Benchmark)."""
+        from .agent import Agent
+
+        return isinstance(self, Agent)
 
     def close(self) -> None:
         """Optional cleanup hook."""

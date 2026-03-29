@@ -14,12 +14,15 @@ import pytest
 
 def test_resolve_tau2_data_dir_prefers_cache(tmp_path: Path) -> None:
     """When the cache directory contains data, it should be preferred."""
-    cache_data = tmp_path / "tau2" / "data"
+    cache_data = tmp_path / "benchmarks" / "tau2" / "data"
     cache_data.mkdir(parents=True)
 
+    fake_mgr = mock.MagicMock()
+    fake_mgr.env_path.return_value = tmp_path / "benchmarks" / "tau2"
+
     with mock.patch(
-        "exgentic.utils.cache.benchmark_cache_dir",
-        return_value=tmp_path / "tau2",
+        "exgentic.environment.instance.get_manager",
+        return_value=fake_mgr,
     ):
         from exgentic.benchmarks.tau2 import _resolve_tau2_data_dir
 
@@ -30,13 +33,16 @@ def test_resolve_tau2_data_dir_prefers_cache(tmp_path: Path) -> None:
 
 def test_resolve_tau2_data_dir_falls_back_to_legacy(tmp_path: Path) -> None:
     """When cache data is missing, fall back to the legacy installation path."""
-    empty_cache = tmp_path / "tau2"
+    empty_cache = tmp_path / "benchmarks" / "tau2"
     empty_cache.mkdir(parents=True)
     # No data/ subdirectory created — cache dir exists but data/ does not
 
+    fake_mgr = mock.MagicMock()
+    fake_mgr.env_path.return_value = empty_cache
+
     with mock.patch(
-        "exgentic.utils.cache.benchmark_cache_dir",
-        return_value=empty_cache,
+        "exgentic.environment.instance.get_manager",
+        return_value=fake_mgr,
     ):
         from exgentic.benchmarks.tau2 import _resolve_tau2_data_dir
 

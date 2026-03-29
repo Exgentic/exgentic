@@ -17,7 +17,7 @@ else
   echo "[WARNING] Java not found. BM25 searcher will not be available."
 fi
 
-BENCH_ROOT="${EXGENTIC_CACHE_DIR:-.exgentic}/browsecompplus"
+BENCH_ROOT="browsecompplus"
 mkdir -p "$BENCH_ROOT"
 
 ###############################################################################

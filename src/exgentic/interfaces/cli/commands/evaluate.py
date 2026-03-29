@@ -8,14 +8,11 @@ import json
 import rich_click as click
 
 from ....core.types import RunConfig, SessionConfig
-from ....utils.installation_tracker import is_installed
 from ....utils.settings import get_settings
 from ...lib.api import (
     aggregate,
     evaluate,
     execute,
-    setup_agent,
-    setup_benchmark,
 )
 from ..options import add_run_options, has_run_options, run_with
 
@@ -50,6 +47,17 @@ def _needs_setup(name: str, install_type: str) -> bool:
     return needs_setup(name, install_type)
 
 
+def _get_registry_entry(slug: str, kind: str):
+    """Look up a RegistryEntry for the given slug and kind ('benchmark' or 'agent')."""
+    from ...registry import AGENTS, BENCHMARKS
+
+    registry = BENCHMARKS if kind == "benchmark" else AGENTS
+    entry = registry.get(slug)
+    if entry is None:
+        raise click.ClickException(f"Unknown {kind} slug '{slug}'")
+    return entry
+
+
 def _ensure_installed(
     benchmark: str,
     agent: str,
@@ -60,27 +68,33 @@ def _ensure_installed(
     For isolated runners (docker/venv), setup runs automatically without prompting.
     For other runners, the user is prompted to confirm.
     """
-    to_setup: list[tuple[str, str]] = []
-    if not is_installed(benchmark, "benchmark") and _needs_setup(benchmark, "benchmark"):
-        to_setup.append(("benchmark", benchmark))
-    if not is_installed(agent, "agent") and _needs_setup(agent, "agent"):
-        to_setup.append(("agent", agent))
+    from ....environment import EnvType
+    from ....environment.instance import get_manager
 
-    if not to_setup:
+    mgr = get_manager()
+    runner = _get_runner_from_set(set_values) or get_settings().default_runner
+    env_type = EnvType.DOCKER if runner == "docker" else EnvType.VENV
+
+    to_install: list[tuple[str, str, str]] = []
+    bench_name = f"benchmarks/{benchmark}"
+    agent_name = f"agents/{agent}"
+
+    if not mgr.is_installed(bench_name, env_type=env_type) and _needs_setup(benchmark, "benchmark"):
+        to_install.append(("benchmark", benchmark, bench_name))
+    if not mgr.is_installed(agent_name, env_type=env_type) and _needs_setup(agent, "agent"):
+        to_install.append(("agent", agent, agent_name))
+
+    if not to_install:
         return
 
-    # Isolated runners (docker/venv): auto-setup silently.  Others: prompt user.
     if not _is_isolated_runner(set_values):
-        names = ", ".join(f"{t} '{n}'" for t, n in to_setup)
+        names = ", ".join(f"{t} '{n}'" for t, n, _ in to_install)
         if not click.confirm(f"{names} not set up. Install now?", default=True):
             raise click.Abort()
 
-    runner = _get_runner_from_set(set_values) or get_settings().default_runner
-    for install_type, name in to_setup:
-        if install_type == "benchmark":
-            setup_benchmark(name, runner=runner)
-        else:
-            setup_agent(name, runner=runner)
+    for install_type, slug, name in to_install:
+        entry = _get_registry_entry(slug, install_type)
+        mgr.install(name, env_type=env_type, module_path=entry.module, venv_packages=["exgentic"])
 
 
 def _load_config_file(path: str) -> dict:

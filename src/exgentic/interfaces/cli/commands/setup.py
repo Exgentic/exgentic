@@ -5,8 +5,100 @@ from __future__ import annotations
 
 import rich_click as click
 
-from ...lib.api import setup_agent, setup_benchmark
 from ..options import apply_debug_mode
+
+
+def _get_registry_entry(slug: str, kind: str):
+    """Look up a RegistryEntry for the given slug and kind ('benchmark' or 'agent')."""
+    from ...registry import AGENTS, BENCHMARKS
+
+    registry = BENCHMARKS if kind == "benchmark" else AGENTS
+    entry = registry.get(slug)
+    if entry is None:
+        raise click.ClickException(f"Unknown {kind} slug '{slug}'")
+    return entry
+
+
+@click.command("install")
+@click.option("--benchmark", "benchmark", default=None, help="Benchmark slug name to install.")
+@click.option("--agent", "agent", default=None, help="Agent slug name to install.")
+@click.option("--force", is_flag=True, help="Force reinstall even if already installed.")
+@click.option("--docker", is_flag=True, help="Install for Docker runner.")
+@click.option("--local", is_flag=True, help="Install for local (bare) runner.")
+def install_cmd(benchmark: str | None, agent: str | None, force: bool, docker: bool, local: bool) -> None:
+    """Install a benchmark or agent environment."""
+    from ....environment import EnvType
+    from ....environment.instance import get_manager
+
+    if benchmark is not None and agent is not None:
+        raise click.UsageError("Specify either --benchmark or --agent, not both.")
+    if benchmark is None and agent is None:
+        raise click.UsageError("Specify either --benchmark or --agent.")
+
+    if docker and local:
+        raise click.UsageError("Specify either --docker or --local, not both.")
+
+    if docker:
+        env_type = EnvType.DOCKER
+    elif local:
+        env_type = EnvType.LOCAL
+    else:
+        env_type = EnvType.VENV
+
+    mgr = get_manager()
+
+    try:
+        if benchmark is not None:
+            entry = _get_registry_entry(benchmark, "benchmark")
+            name = f"benchmarks/{benchmark}"
+            mgr.install(name, env_type=env_type, module_path=entry.module, force=force, venv_packages=["exgentic"])
+        else:
+            entry = _get_registry_entry(agent, "agent")
+            name = f"agents/{agent}"
+            mgr.install(name, env_type=env_type, module_path=entry.module, force=force, venv_packages=["exgentic"])
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
+@click.command("uninstall")
+@click.option("--benchmark", "benchmark", default=None, help="Benchmark slug name to uninstall.")
+@click.option("--agent", "agent", default=None, help="Agent slug name to uninstall.")
+@click.option("--docker", is_flag=True, help="Uninstall Docker environment only.")
+@click.option("--local", is_flag=True, help="Uninstall local environment only.")
+def uninstall_cmd(benchmark: str | None, agent: str | None, docker: bool, local: bool) -> None:
+    """Uninstall a benchmark or agent environment."""
+    from ....environment import EnvType
+    from ....environment.instance import get_manager
+
+    if benchmark is not None and agent is not None:
+        raise click.UsageError("Specify either --benchmark or --agent, not both.")
+    if benchmark is None and agent is None:
+        raise click.UsageError("Specify either --benchmark or --agent.")
+
+    if docker and local:
+        raise click.UsageError("Specify either --docker or --local, not both.")
+
+    if docker:
+        env_type = EnvType.DOCKER
+    elif local:
+        env_type = EnvType.LOCAL
+    else:
+        env_type = None
+
+    mgr = get_manager()
+
+    try:
+        if benchmark is not None:
+            name = f"benchmarks/{benchmark}"
+        else:
+            name = f"agents/{agent}"
+
+        if env_type is not None:
+            mgr.uninstall(name, env_type=env_type)
+        else:
+            mgr.uninstall(name)
+    except Exception as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 @click.command("setup")
@@ -23,19 +115,36 @@ from ..options import apply_debug_mode
     help="Force reinstall even if already installed.",
 )
 def setup_cmd(debug: bool, benchmark: str | None, agent: str | None, force: bool) -> None:
-    """Run a benchmark's or agent's setup.sh script."""
+    """[Deprecated] Use 'exgentic install' instead."""
     apply_debug_mode(debug)
+    click.echo(
+        "WARNING: 'exgentic setup' is deprecated. Use 'exgentic install' instead.",
+        err=True,
+    )
+
+    # Delegate to install logic
+    from ....environment import EnvType
+    from ....environment.instance import get_manager
+
     if benchmark is not None and agent is not None:
         raise click.UsageError("Specify either --benchmark or --agent, not both.")
     if benchmark is None and agent is None:
         raise click.UsageError("Specify either --benchmark or --agent.")
+
+    env_type = EnvType.VENV
+    mgr = get_manager()
+
     try:
         if benchmark is not None:
-            setup_benchmark(benchmark, force=force)
+            entry = _get_registry_entry(benchmark, "benchmark")
+            name = f"benchmarks/{benchmark}"
+            mgr.install(name, env_type=env_type, module_path=entry.module, force=force, venv_packages=["exgentic"])
         else:
-            setup_agent(agent, force=force)
+            entry = _get_registry_entry(agent, "agent")
+            name = f"agents/{agent}"
+            mgr.install(name, env_type=env_type, module_path=entry.module, force=force, venv_packages=["exgentic"])
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
 
 
-__all__ = ["setup_cmd"]
+__all__ = ["install_cmd", "setup_cmd", "uninstall_cmd"]

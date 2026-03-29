@@ -5,7 +5,7 @@ set -euo pipefail
 
 TAU2_REPO="https://github.com/sierra-research/tau2-bench.git"
 TAU2_REF="v0.1.3"
-DATA_ROOT="${EXGENTIC_CACHE_DIR:-.exgentic}/tau2/data"
+DATA_ROOT="data"
 
 if [ -d "$DATA_ROOT/tau2/domains" ]; then
     echo "tau2 data already present at $DATA_ROOT — skipping download."

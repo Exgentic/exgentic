@@ -65,14 +65,6 @@ class Benchmark(BaseModel, RunnerMixin, ABC):
         """
         raise NotImplementedError
 
-    @classmethod
-    def setup(cls) -> None:
-        """Override to download data or perform non-pip setup.
-
-        Called by ``exgentic setup --benchmark <slug>`` after deps are installed.
-        Use ``settings.resolve_cache_path() / "<slug>"`` for data storage.
-        """
-
     def get_evaluator_kwargs(self) -> dict[str, Any]:
         """Return kwargs for constructing the Evaluator.
 

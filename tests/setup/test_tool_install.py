@@ -88,8 +88,8 @@ def test_setup_in_tool_install_venv(benchmark: str, tmp_path: Path) -> None:
             venv_python,
             "-c",
             (
-                "from exgentic.utils.installation_tracker import is_installed; "
-                f"assert is_installed({benchmark!r}, 'benchmark'), "
+                "from exgentic.environment.instance import get_manager; "
+                f"assert get_manager().is_installed('benchmarks/{benchmark}'), "
                 f"'installation marker not found for {benchmark}'"
             ),
         ],

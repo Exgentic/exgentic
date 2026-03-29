@@ -6,7 +6,7 @@ if ! command -v git-lfs >/dev/null 2>&1; then
     exit 1
 fi
 
-APPWORLD_ROOT="${EXGENTIC_CACHE_DIR:-.exgentic}/appworld"
+APPWORLD_ROOT="appworld"
 mkdir -p "$APPWORLD_ROOT"
 export APPWORLD_ROOT
 

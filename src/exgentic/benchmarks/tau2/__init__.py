@@ -11,9 +11,9 @@ def _resolve_tau2_data_dir() -> str:
     Checks the cache directory first (populated by ``setup.sh``), then falls
     back to the legacy ``installation/`` path for backwards compatibility.
     """
-    from ...utils.cache import benchmark_cache_dir
+    from ...environment.instance import get_manager
 
-    cache_data = benchmark_cache_dir("tau2") / "data"
+    cache_data = get_manager().env_path("benchmarks/tau2") / "data"
     if cache_data.is_dir():
         return str(cache_data)
 

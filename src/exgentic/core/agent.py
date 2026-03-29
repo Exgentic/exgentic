@@ -67,13 +67,6 @@ class Agent(BaseModel, RunnerMixin, ABC):
         """
         ...
 
-    @classmethod
-    def setup(cls) -> None:
-        """Override to perform non-pip setup (e.g. Docker build, npm install).
-
-        Called by ``exgentic setup --agent <slug>`` after deps are installed.
-        """
-
     # Optional metadata property for dashboard/leaderboards
     @property
     def model_name(self) -> str:

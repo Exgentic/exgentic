@@ -5,9 +5,6 @@ from __future__ import annotations
 
 import inspect
 import json
-import os
-import subprocess
-import sys
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -20,10 +17,6 @@ from ...core.orchestrator.run import (
     core_execute,
 )
 from ...core.types import RunConfig, RunPlan, RunResults, RunStatus, SessionConfig
-from ...utils.installation_tracker import (
-    get_all_installations,
-    record_installation,
-)
 from ..registry import (
     apply_subset_kwargs,
     get_agent_entries,
@@ -35,31 +28,55 @@ from ..registry import (
 
 
 def list_benchmarks() -> list[dict[str, Any]]:
+    from ...environment.instance import get_manager
+
+    mgr = get_manager()
     entries = get_benchmark_entries()
-    installations = get_all_installations("benchmark")
-    return [
-        {
-            "slug_name": slug,
-            "display_name": entry.display_name,
-            "installed": slug in installations,
-            "installed_at": installations.get(slug, {}).get("installed_at"),
-        }
-        for slug, entry in sorted(entries.items())
-    ]
+    result = []
+    for slug_name, entry in entries.items():
+        name = f"benchmarks/{slug_name}"
+        info = mgr.get_info(name)
+        installed = info is not None
+        installed_at = None
+        if info:
+            envs = info["environments"]
+            timestamps = [e["installed_at"] for e in envs.values() if "installed_at" in e]
+            installed_at = min(timestamps) if timestamps else None
+        result.append(
+            {
+                "slug_name": slug_name,
+                "display_name": entry.display_name,
+                "installed": installed,
+                "installed_at": installed_at,
+            }
+        )
+    return result
 
 
 def list_agents() -> list[dict[str, Any]]:
+    from ...environment.instance import get_manager
+
+    mgr = get_manager()
     entries = get_agent_entries()
-    installations = get_all_installations("agent")
-    return [
-        {
-            "slug_name": slug,
-            "display_name": entry.display_name,
-            "installed": slug in installations,
-            "installed_at": installations.get(slug, {}).get("installed_at"),
-        }
-        for slug, entry in sorted(entries.items())
-    ]
+    result = []
+    for slug_name, entry in entries.items():
+        name = f"agents/{slug_name}"
+        info = mgr.get_info(name)
+        installed = info is not None
+        installed_at = None
+        if info:
+            envs = info["environments"]
+            timestamps = [e["installed_at"] for e in envs.values() if "installed_at" in e]
+            installed_at = min(timestamps) if timestamps else None
+        result.append(
+            {
+                "slug_name": slug_name,
+                "display_name": entry.display_name,
+                "installed": installed,
+                "installed_at": installed_at,
+            }
+        )
+    return result
 
 
 def load_benchmark_class(benchmark: str) -> type[Benchmark]:
@@ -573,63 +590,6 @@ def _find_package_file(module_path: str, filename: str) -> Path | None:
     return None
 
 
-def _install_requirements(slug: str, kind: str, *, venv_python: str | None = None) -> None:
-    """Install dependencies from the requirements.txt in the benchmark/agent folder.
-
-    Args:
-        slug: The slug name of the benchmark or agent.
-        kind: Either "benchmark" or "agent".
-        venv_python: If provided, install into this Python interpreter's env
-                     instead of the host Python.
-    """
-    entries = get_benchmark_entries() if kind == "benchmark" else get_agent_entries()
-    entry = entries.get(slug)
-    if entry is None:
-        return
-    req_path = _find_package_file(entry.module, "requirements.txt")
-    if req_path is None:
-        return
-    # Skip if requirements.txt is empty or only has comments
-    lines = [
-        line.strip() for line in req_path.read_text().splitlines() if line.strip() and not line.strip().startswith("#")
-    ]
-    if not lines:
-        return
-
-    env = os.environ.copy()
-    env.pop("VIRTUAL_ENV", None)
-    # Skip Git LFS smudge filters during install — pip only needs the
-    # Python source, not large data files tracked by LFS.  Benchmarks
-    # that need LFS data should fetch it in their setup.sh instead.
-    env["GIT_LFS_SKIP_SMUDGE"] = "1"
-
-    python_target = venv_python or sys.executable
-    subprocess.run(
-        ["uv", "pip", "install", "--python", python_target, "-r", str(req_path)],
-        check=True,
-        env=env,
-    )
-
-    # Only refresh host import paths when installing into the host env.
-    if venv_python is None:
-        import importlib
-        import site
-
-        importlib.invalidate_caches()
-        for site_dir in site.getsitepackages():
-            if site_dir not in sys.path:
-                sys.path.insert(0, site_dir)
-
-
-def _setup_env() -> dict[str, str]:
-    """Build environment for setup subprocesses with cache dir."""
-    from ...utils.settings import get_settings
-
-    env = os.environ.copy()
-    env["EXGENTIC_CACHE_DIR"] = str(Path(get_settings().cache_dir).resolve())
-    return env
-
-
 def needs_setup(name: str, kind: str) -> bool:
     """Return True if a benchmark/agent has a setup.sh or requirements.txt."""
     entries = get_benchmark_entries() if kind == "benchmark" else get_agent_entries()
@@ -642,179 +602,26 @@ def needs_setup(name: str, kind: str) -> bool:
     )
 
 
-def get_setup_script_path(benchmark: str) -> str:
-    entries = get_benchmark_entries()
-    entry = entries.get(benchmark)
-    if entry is None:
-        raise ValueError(f"Unknown benchmark slug '{benchmark}'. Available: {', '.join(sorted(entries.keys()))}")
-    path = _find_package_file(entry.module, "setup.sh")
-    if path is None:
-        raise ValueError(f"setup.sh not found for benchmark '{benchmark}'.")
-    return str(path)
-
-
 def setup_benchmark(benchmark: str, force: bool = False, runner: str | None = None) -> None:
-    """Install requirements, call Benchmark.setup(), run setup.sh if present.
+    from ...environment import EnvType
+    from ...environment.instance import get_manager
 
-    Args:
-        benchmark: Benchmark slug name
-        force: Force reinstall even if already installed
-        runner: Runner type. When ``"venv"``, creates an isolated venv and
-                installs requirements there instead of the host Python.
-    """
-    from ...utils.installation_tracker import get_installations_dir, is_installed
-
-    # Check if already installed
-    if not force and is_installed(benchmark, "benchmark"):
-        print(f"Benchmark '{benchmark}' is already installed. Use --force to reinstall.")
-        return
-
-    # Remove installation marker before starting
-    if is_installed(benchmark, "benchmark"):
-        install_file = get_installations_dir() / "benchmark" / f"{benchmark}.json"
-        install_file.unlink(missing_ok=True)
-
-    venv_python: str | None = None
-    venv_dir: str | None = None
-
-    if runner == "venv":
-        import shutil
-
-        from ...utils.cache import benchmark_cache_dir
-
-        venv_path = benchmark_cache_dir(benchmark) / "venv"
-        venv_dir = str(venv_path)
-
-        uv_bin = shutil.which("uv")
-        if uv_bin is None:
-            raise RuntimeError("uv CLI not found on PATH — required for venv runner")
-
-        if not (venv_path / "bin" / "python").exists():
-            venv_path.mkdir(parents=True, exist_ok=True)
-            subprocess.run(
-                [uv_bin, "venv", str(venv_path), "--python", f"{sys.version_info.major}.{sys.version_info.minor}"],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            # Install exgentic into the venv.
-            from ...adapters.runners._utils import find_project_root
-
-            root = find_project_root()
-            install_target = str(root) if (root / "pyproject.toml").exists() else "exgentic"
-            subprocess.run(
-                [uv_bin, "pip", "install", "--python", str(venv_path / "bin" / "python"), "--no-cache", install_target],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-
-        venv_python = str(venv_path / "bin" / "python")
-
-    _install_requirements(benchmark, "benchmark", venv_python=venv_python)
-    bench_cls = load_benchmark_class(benchmark)
-    bench_cls.setup()
-    _run_setup_script_if_exists(benchmark, "benchmark", venv_dir=venv_dir)
-    record_installation(benchmark, "benchmark")
-
-
-def get_agent_setup_script_path(agent: str) -> str:
-    entries = get_agent_entries()
-    entry = entries.get(agent)
-    if entry is None:
-        raise ValueError(f"Unknown agent slug '{agent}'. Available: {', '.join(sorted(entries.keys()))}")
-    path = _find_package_file(entry.module, "setup.sh")
-    if path is None:
-        raise ValueError(f"setup.sh not found for agent '{agent}'.")
-    return str(path)
+    mgr = get_manager()
+    name = f"benchmarks/{benchmark}"
+    entry = get_benchmark_entries()[benchmark]
+    env_type = EnvType.DOCKER if runner == "docker" else EnvType.VENV
+    mgr.install(name, env_type=env_type, force=force, module_path=entry.module, venv_packages=["exgentic"])
 
 
 def setup_agent(agent: str, force: bool = False, runner: str | None = None) -> None:
-    """Install requirements, call Agent.setup(), run setup.sh if present.
+    from ...environment import EnvType
+    from ...environment.instance import get_manager
 
-    Args:
-        agent: Agent slug name
-        force: Force reinstall even if already installed
-        runner: Runner type. When ``"venv"``, creates an isolated venv and
-                installs requirements there instead of the host Python.
-    """
-    from ...utils.installation_tracker import get_installations_dir, is_installed
-
-    # Check if already installed
-    if not force and is_installed(agent, "agent"):
-        print(f"Agent '{agent}' is already installed. Use --force to reinstall.")
-        return
-
-    # Remove installation marker before starting
-    if is_installed(agent, "agent"):
-        install_file = get_installations_dir() / "agent" / f"{agent}.json"
-        install_file.unlink(missing_ok=True)
-
-    venv_python: str | None = None
-    venv_dir: str | None = None
-
-    if runner == "venv":
-        import shutil
-
-        from ...utils.cache import benchmark_cache_dir
-
-        venv_path = benchmark_cache_dir(agent) / "venv"
-        venv_dir = str(venv_path)
-
-        uv_bin = shutil.which("uv")
-        if uv_bin is None:
-            raise RuntimeError("uv CLI not found on PATH — required for venv runner")
-
-        if not (venv_path / "bin" / "python").exists():
-            venv_path.mkdir(parents=True, exist_ok=True)
-            subprocess.run(
-                [uv_bin, "venv", str(venv_path), "--python", f"{sys.version_info.major}.{sys.version_info.minor}"],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            # Install exgentic into the venv.
-            from ...adapters.runners._utils import find_project_root
-
-            root = find_project_root()
-            install_target = str(root) if (root / "pyproject.toml").exists() else "exgentic"
-            subprocess.run(
-                [uv_bin, "pip", "install", "--python", str(venv_path / "bin" / "python"), "--no-cache", install_target],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-
-        venv_python = str(venv_path / "bin" / "python")
-
-    _install_requirements(agent, "agent", venv_python=venv_python)
-    agent_cls = load_agent_class(agent)
-    agent_cls.setup()
-    _run_setup_script_if_exists(agent, "agent", venv_dir=venv_dir)
-    record_installation(agent, "agent")
-
-
-def _run_setup_script_if_exists(slug: str, kind: str, *, venv_dir: str | None = None) -> None:
-    """Run setup.sh for a benchmark or agent if it exists.
-
-    Args:
-        slug: The slug name.
-        kind: Either "benchmark" or "agent".
-        venv_dir: If provided, run setup.sh with this venv activated.
-    """
-    try:
-        if kind == "benchmark":
-            setup_path = get_setup_script_path(slug)
-        else:
-            setup_path = get_agent_setup_script_path(slug)
-        env = _setup_env()
-        if venv_dir is not None:
-            env["VIRTUAL_ENV"] = venv_dir
-            venv_bin = str(Path(venv_dir) / "bin")
-            env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
-        subprocess.run(["bash", setup_path], check=True, env=env)
-    except ValueError:
-        pass  # No setup.sh — fine
+    mgr = get_manager()
+    name = f"agents/{agent}"
+    entry = get_agent_entries()[agent]
+    env_type = EnvType.DOCKER if runner == "docker" else EnvType.VENV
+    mgr.install(name, env_type=env_type, force=force, module_path=entry.module, venv_packages=["exgentic"])
 
 
 def _describe_init_args(cls: type) -> list[str]:
@@ -845,8 +652,6 @@ __all__ = [
     "aggregate",
     "evaluate",
     "execute",
-    "get_agent_setup_script_path",
-    "get_setup_script_path",
     "list_agents",
     "list_benchmarks",
     "list_subsets",
