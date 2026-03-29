@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import shutil
 import stat
 import subprocess
 import sys
@@ -358,3 +359,234 @@ class TestRequireUv:
         with mock.patch("shutil.which", return_value=None):
             with pytest.raises(RuntimeError, match="Could not find 'uv'"):
                 _require_uv()
+
+
+# ---------------------------------------------------------------------------
+# Edge-case & failure-mode tests
+# ---------------------------------------------------------------------------
+
+
+class TestStateMachine:
+    """Tests for install/uninstall state transitions."""
+
+    def test_install_twice_without_force_skips(self, tmp_path: Path) -> None:
+        """Second install without force is a no-op and returns the same path."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        path1 = installer.install("bench", "benchmark", module_path=module_path)
+        mtime1 = (path1 / ".installed").stat().st_mtime
+
+        path2 = installer.install("bench", "benchmark", module_path=module_path)
+
+        assert path1 == path2
+        assert (path2 / ".installed").stat().st_mtime == mtime1
+
+    def test_install_uninstall_install_cycle(self, tmp_path: Path) -> None:
+        """Full install -> uninstall -> install cycle works cleanly."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        env1 = installer.install("bench", "benchmark", module_path=module_path)
+        assert installer.is_installed("bench", "benchmark")
+        assert (env1 / "venv" / "bin" / "python").exists()
+
+        installer.uninstall("bench", "benchmark")
+        assert not installer.is_installed("bench", "benchmark")
+        assert not env1.exists()
+
+        env2 = installer.install("bench", "benchmark", module_path=module_path)
+        assert installer.is_installed("bench", "benchmark")
+        assert (env2 / "venv" / "bin" / "python").exists()
+        assert env2 == env1  # same canonical path
+
+    def test_uninstall_when_not_installed(self, tmp_path: Path) -> None:
+        """Uninstalling something never installed is a no-op, no crash."""
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        # Should not raise
+        installer.uninstall("nonexistent", "benchmark")
+        assert not installer.is_installed("nonexistent", "benchmark")
+
+    def test_uninstall_twice(self, tmp_path: Path) -> None:
+        """Double uninstall is a no-op on the second call."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        installer.install("bench", "benchmark", module_path=module_path)
+        installer.uninstall("bench", "benchmark")
+        assert not installer.is_installed("bench", "benchmark")
+
+        # Second uninstall should be a safe no-op
+        installer.uninstall("bench", "benchmark")
+        assert not installer.is_installed("bench", "benchmark")
+
+
+class TestFailureModes:
+    """Tests for failure scenarios and error clarity."""
+
+    def test_install_broken_setup_sh(self, tmp_path: Path) -> None:
+        """setup.sh that exits non-zero -> install fails, no .installed marker, partial dir cleaned on next attempt."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        # Write a broken setup.sh
+        parts = module_path.split(".")
+        pkg_dir = tmp_path
+        for part in parts[:-1]:
+            pkg_dir = pkg_dir / part
+        broken_setup = pkg_dir / "setup.sh"
+        broken_setup.write_text("#!/usr/bin/env bash\nexit 1\n")
+        broken_setup.chmod(broken_setup.stat().st_mode | stat.S_IEXEC)
+        importlib.invalidate_caches()
+
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        with pytest.raises(subprocess.CalledProcessError):
+            installer.install("bench", "benchmark", module_path=module_path)
+
+        env_dir = installer.env_path("bench", "benchmark")
+        # .installed marker must NOT exist after a failed install
+        assert not (env_dir / ".installed").exists()
+
+    def test_install_missing_uv_clear_error(self, tmp_path: Path) -> None:
+        """Uv not on PATH -> RuntimeError with helpful install message."""
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        with mock.patch("shutil.which", return_value=None):
+            with pytest.raises(RuntimeError, match="Could not find 'uv'") as exc_info:
+                installer.install("bench", "benchmark")
+            # Error message should contain install instructions
+            assert "install" in str(exc_info.value).lower()
+
+    def test_install_docker_missing_docker(self, tmp_path: Path) -> None:
+        """Docker not available -> clear error on docker install."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        def fail_docker(cmd, **kwargs):
+            if cmd[0] == "docker":
+                raise FileNotFoundError("docker not found")
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=fail_docker):
+            with pytest.raises(FileNotFoundError):
+                installer.install("bench", "benchmark", runner="docker", module_path=module_path)
+
+    def test_install_venv_missing_system_dep(self, tmp_path: Path) -> None:
+        """system-deps.txt lists a tool not installed -> RuntimeError listing what's missing."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False, with_system_deps=True)
+        # Override system-deps.txt with a definitely-missing tool
+        parts = module_path.split(".")
+        pkg_dir = tmp_path
+        for part in parts[:-1]:
+            pkg_dir = pkg_dir / part
+        (pkg_dir / "system-deps.txt").write_text("nonexistent_tool_xyz_12345\n")
+        importlib.invalidate_caches()
+
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        # Mock both which and dpkg to ensure the tool appears missing
+        original_which = shutil.which
+
+        def which_no_fake(name):
+            if name == "nonexistent_tool_xyz_12345":
+                return None
+            return original_which(name)
+
+        with mock.patch("exgentic.utils.installer.shutil.which", side_effect=which_no_fake):
+            with mock.patch("exgentic.utils.installer._dpkg_installed", return_value=False):
+                with pytest.raises(RuntimeError, match="nonexistent_tool_xyz_12345"):
+                    installer.install("bench", "benchmark", module_path=module_path)
+
+
+class TestContentCorrectness:
+    """Tests for marker content and directory structure."""
+
+    def test_installed_marker_contains_metadata(self, tmp_path: Path) -> None:
+        """Docker .installed file has runner type in JSON metadata."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        def side_effect(cmd, **kwargs):
+            if cmd[0] == "docker":
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=side_effect):
+            env_dir = installer.install("bench", "benchmark", runner="docker", module_path=module_path)
+
+        marker = env_dir / ".installed"
+        assert marker.is_file()
+        info = json.loads(marker.read_text())
+        assert info["runner"] == "docker"
+        assert "image" in info
+
+    def test_docker_marker_contains_image_tag(self, tmp_path: Path) -> None:
+        """Docker .installed marker contains the image tag used for the build."""
+        module_path = _create_fake_package(tmp_path, with_requirements=True, with_setup=False)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        captured_tag = []
+
+        def side_effect(cmd, **kwargs):
+            if cmd[0] == "docker":
+                if cmd[1] == "build":
+                    idx = list(cmd).index("-t")
+                    captured_tag.append(cmd[idx + 1])
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=side_effect):
+            env_dir = installer.install("bench", "benchmark", runner="docker", module_path=module_path)
+
+        info = json.loads((env_dir / ".installed").read_text())
+        assert info["image"] == captured_tag[0]
+        assert info["image"].startswith("exgentic-benchmark-bench:")
+
+    def test_env_path_correct_structure(self, tmp_path: Path) -> None:
+        """Verify the directory layout after a venv install: venv/, .installed present."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=True)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        env_dir = installer.install("bench", "benchmark", module_path=module_path)
+
+        assert (env_dir / "venv").is_dir()
+        assert (env_dir / "venv" / "bin" / "python").exists()
+        assert (env_dir / ".installed").is_file()
+        # setup.sh creates data/ directory
+        assert (env_dir / "data").is_dir()
+        assert (env_dir / "data" / "setup_ran.txt").is_file()
+
+    def test_install_without_requirements(self, tmp_path: Path) -> None:
+        """Benchmark with no requirements.txt still installs successfully."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        env_dir = installer.install("bench", "benchmark", module_path=module_path)
+
+        assert installer.is_installed("bench", "benchmark")
+        assert (env_dir / "venv" / "bin" / "python").exists()
+
+    def test_install_without_setup_sh(self, tmp_path: Path) -> None:
+        """Benchmark with no setup.sh still installs successfully."""
+        module_path = _create_fake_package(tmp_path, with_requirements=True, with_setup=False)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        env_dir = installer.install("bench", "benchmark", module_path=module_path)
+
+        assert installer.is_installed("bench", "benchmark")
+        assert (env_dir / "venv" / "bin" / "python").exists()
+
+    def test_install_without_both(self, tmp_path: Path) -> None:
+        """Bare benchmark with just __init__.py (no requirements, no setup) installs."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        env_dir = installer.install("bench", "benchmark", module_path=module_path)
+
+        assert installer.is_installed("bench", "benchmark")
+        assert (env_dir / "venv").is_dir()
+        assert (env_dir / ".installed").is_file()
