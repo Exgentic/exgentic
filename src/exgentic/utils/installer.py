@@ -93,71 +93,83 @@ class EnvironmentInstaller:
             shutil.rmtree(env_dir)
         env_dir.mkdir(parents=True, exist_ok=True)
 
-        uv_bin = _require_uv()
+        try:
+            uv_bin = _require_uv()
 
-        # 1 & 2  -- create venv
-        venv_dir = env_dir / "venv"
-        subprocess.run(
-            [
-                uv_bin,
-                "venv",
-                str(venv_dir),
-                "--python",
-                f"{sys.version_info.major}.{sys.version_info.minor}",
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-        venv_python = str(venv_dir / "bin" / "python")
-
-        # 3  -- install exgentic into the venv
-        project_root = _find_project_root()
-        if project_root is not None:
+            # 1 & 2  -- create venv
+            venv_dir = env_dir / "venv"
             subprocess.run(
-                [uv_bin, "pip", "install", "--python", venv_python, "--no-cache", str(project_root)],
+                [
+                    uv_bin,
+                    "venv",
+                    str(venv_dir),
+                    "--python",
+                    f"{sys.version_info.major}.{sys.version_info.minor}",
+                ],
                 check=True,
                 capture_output=True,
                 text=True,
             )
 
-        # 4  -- install requirements.txt (if found)
-        if module_path is not None:
-            req_path = _find_package_file(module_path, "requirements.txt")
-            if req_path is not None:
-                lines = [
-                    line.strip()
-                    for line in req_path.read_text().splitlines()
-                    if line.strip() and not line.strip().startswith("#")
-                ]
-                if lines:
-                    env = os.environ.copy()
-                    env.pop("VIRTUAL_ENV", None)
-                    env["GIT_LFS_SKIP_SMUDGE"] = "1"
-                    subprocess.run(
-                        [uv_bin, "pip", "install", "--python", venv_python, "-r", str(req_path)],
-                        check=True,
-                        env=env,
-                    )
+            venv_python = str(venv_dir / "bin" / "python")
 
-        # 5  -- validate system-deps.txt (if found)
-        if module_path is not None:
-            _validate_system_deps(module_path)
+            # Build a consistent env dict for subprocess calls:
+            # - remove VIRTUAL_ENV so uv targets the right venv
+            # - skip LFS smudge to speed up git-based installs
+            env = os.environ.copy()
+            env.pop("VIRTUAL_ENV", None)
+            env["GIT_LFS_SKIP_SMUDGE"] = "1"
 
-        # 6  -- run setup.sh (if found)
-        if module_path is not None:
-            setup_path = _find_package_file(module_path, "setup.sh")
-            if setup_path is not None:
-                env = os.environ.copy()
-                env["EXGENTIC_CACHE_DIR"] = str(env_dir)
-                env["VIRTUAL_ENV"] = str(venv_dir)
-                venv_bin = str(venv_dir / "bin")
-                env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
-                subprocess.run(["bash", str(setup_path)], check=True, env=env)
+            # 3  -- install exgentic into the venv
+            project_root = _find_project_root()
+            if project_root is not None:
+                subprocess.run(
+                    [uv_bin, "pip", "install", "--python", venv_python, "--no-cache", str(project_root)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                )
 
-        # 7  -- write .installed marker
-        (env_dir / ".installed").write_text("")
+            # 4  -- install requirements.txt (if found)
+            if module_path is not None:
+                req_path = _find_package_file(module_path, "requirements.txt")
+                if req_path is not None:
+                    lines = [
+                        line.strip()
+                        for line in req_path.read_text().splitlines()
+                        if line.strip() and not line.strip().startswith("#")
+                    ]
+                    if lines:
+                        subprocess.run(
+                            [uv_bin, "pip", "install", "--python", venv_python, "-r", str(req_path)],
+                            check=True,
+                            capture_output=True,
+                            text=True,
+                            env=env,
+                        )
+
+            # 5  -- validate system-deps.txt (if found)
+            if module_path is not None:
+                _validate_system_deps(module_path)
+
+            # 6  -- run setup.sh (if found)
+            # setup.sh intentionally prints to stdout for progress visibility
+            if module_path is not None:
+                setup_path = _find_package_file(module_path, "setup.sh")
+                if setup_path is not None:
+                    setup_env = env.copy()
+                    setup_env["EXGENTIC_CACHE_DIR"] = str(env_dir)
+                    setup_env["VIRTUAL_ENV"] = str(venv_dir)
+                    venv_bin = str(venv_dir / "bin")
+                    setup_env["PATH"] = venv_bin + os.pathsep + setup_env.get("PATH", "")
+                    subprocess.run(["bash", str(setup_path)], check=True, env=setup_env)
+
+            # 7  -- write .installed marker
+            (env_dir / ".installed").write_text("")
+        except BaseException:
+            shutil.rmtree(env_dir, ignore_errors=True)
+            raise
 
         return env_dir
 
@@ -194,7 +206,11 @@ class EnvironmentInstaller:
             hash_parts.append(setup_path.read_text())
         if sysdeps_path is not None:
             hash_parts.append(sysdeps_path.read_text())
-        content_hash = hashlib.sha256("".join(hash_parts).encode()).hexdigest()[:12]
+        h = hashlib.sha256()
+        for part in hash_parts:
+            h.update(part.encode())
+            h.update(b"\x00")
+        content_hash = h.hexdigest()[:12]
         image_tag = f"exgentic-{kind}-{slug}:{content_hash}"
 
         # Reuse existing image unless force -----------------------------

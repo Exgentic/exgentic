@@ -498,6 +498,60 @@ class TestFailureModes:
                     installer.install("bench", "benchmark", module_path=module_path)
 
 
+class TestDockerForceReinstall:
+    """Tests for docker force-reinstall behaviour."""
+
+    def test_force_reinstall_docker(self, tmp_path: Path) -> None:
+        """force=True rebuilds the docker image even when it already exists."""
+        module_path = _create_fake_package(tmp_path, with_requirements=True, with_setup=False)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+
+        build_calls: list[list[str]] = []
+
+        def side_effect(cmd, **kwargs):
+            if cmd[0] == "docker":
+                if cmd[1] == "build":
+                    build_calls.append(list(cmd))
+                if cmd[1:3] == ["image", "inspect"]:
+                    # Pretend the image already exists
+                    return _docker_mock_result(returncode=0)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=side_effect):
+            installer.install("my-bench", "benchmark", runner="docker", force=True, module_path=module_path)
+
+        assert len(build_calls) == 1, "docker build should be called when force=True even if image exists"
+
+
+class TestCleanupOnFailedInstall:
+    """Tests that partial state is cleaned up when venv install fails."""
+
+    def test_cleanup_on_failed_install(self, tmp_path: Path) -> None:
+        """Verify env dir is removed when install fails partway through."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        installer = EnvironmentInstaller(base_dir=tmp_path / "envs")
+        env_dir = installer.env_path("bench", "benchmark")
+
+        # Make _find_project_root return a path so the exgentic install
+        # step runs, then have that subprocess.run call fail.
+        original_run = subprocess.run
+
+        def fail_exgentic_install(cmd, **kwargs):
+            # Let venv creation succeed but fail the pip install step
+            if isinstance(cmd, list) and "pip" in cmd and "install" in cmd:
+                raise subprocess.CalledProcessError(1, cmd)
+            return original_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=fail_exgentic_install):
+            with mock.patch("exgentic.utils.installer._find_project_root", return_value=Path("/fake/root")):
+                with pytest.raises(subprocess.CalledProcessError):
+                    installer.install("bench", "benchmark", module_path=module_path)
+
+        # The env directory must be cleaned up after failure
+        assert not env_dir.exists(), "env_dir should be removed after a failed install"
+
+
 class TestContentCorrectness:
     """Tests for marker content and directory structure."""
 
