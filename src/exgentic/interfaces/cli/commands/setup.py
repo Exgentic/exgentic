@@ -51,11 +51,14 @@ def install_cmd(benchmark: str | None, agent: str | None, force: bool, docker: b
         if benchmark is not None:
             entry = _get_registry_entry(benchmark, "benchmark")
             name = f"benchmarks/{benchmark}"
-            mgr.install(name, env_type=env_type, module_path=entry.module, force=force, venv_packages=["exgentic"])
         else:
             entry = _get_registry_entry(agent, "agent")
             name = f"agents/{agent}"
-            mgr.install(name, env_type=env_type, module_path=entry.module, force=force, venv_packages=["exgentic"])
+
+        kwargs: dict = {"env_type": env_type, "module_path": entry.module, "force": force}
+        if env_type is EnvType.VENV:
+            kwargs["venv_packages"] = ["exgentic"]
+        mgr.install(name, **kwargs)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -131,18 +134,17 @@ def setup_cmd(debug: bool, benchmark: str | None, agent: str | None, force: bool
     if benchmark is None and agent is None:
         raise click.UsageError("Specify either --benchmark or --agent.")
 
-    env_type = EnvType.VENV
     mgr = get_manager()
 
     try:
         if benchmark is not None:
             entry = _get_registry_entry(benchmark, "benchmark")
             name = f"benchmarks/{benchmark}"
-            mgr.install(name, env_type=env_type, module_path=entry.module, force=force, venv_packages=["exgentic"])
         else:
             entry = _get_registry_entry(agent, "agent")
             name = f"agents/{agent}"
-            mgr.install(name, env_type=env_type, module_path=entry.module, force=force, venv_packages=["exgentic"])
+
+        mgr.install(name, env_type=EnvType.LOCAL, module_path=entry.module, force=force)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
 
