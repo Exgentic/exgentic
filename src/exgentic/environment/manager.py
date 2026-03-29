@@ -48,6 +48,7 @@ class EnvironmentManager:
         force: bool = False,
         module_path: str | None = None,
         venv_packages: list[str] | None = None,
+        setup_env: dict[str, str] | None = None,
     ) -> Path:
         """Install an environment.
 
@@ -57,6 +58,7 @@ class EnvironmentManager:
             force: Re-create even if already installed.
             module_path: Dotted module path for locating package resources.
             venv_packages: Extra packages to install (venv only).
+            setup_env: Extra environment variables passed to setup.sh.
 
         Returns:
             The environment directory path.
@@ -70,11 +72,11 @@ class EnvironmentManager:
         self._remove_marker_entry(name, env_type)
 
         if env_type is EnvType.VENV:
-            _venv.install(env_dir, module_path=module_path, venv_packages=venv_packages)
+            _venv.install(env_dir, module_path=module_path, venv_packages=venv_packages, setup_env=setup_env)
             self._add_marker_entry(name, env_type, {"installed_at": _now_iso()})
 
         elif env_type is EnvType.LOCAL:
-            extra = _local.install(env_dir, module_path=module_path)
+            extra = _local.install(env_dir, module_path=module_path, setup_env=setup_env)
             self._add_marker_entry(name, env_type, {"installed_at": _now_iso(), **extra})
 
         elif env_type is EnvType.DOCKER:

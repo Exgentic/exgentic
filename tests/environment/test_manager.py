@@ -64,8 +64,8 @@ def _create_fake_package(
         script = textwrap.dedent(
             """\
             #!/usr/bin/env bash
-            mkdir -p "$EXGENTIC_CACHE_DIR/data"
-            touch "$EXGENTIC_CACHE_DIR/data/setup_ran.txt"
+            mkdir -p "data"
+            touch "data/setup_ran.txt"
         """
         )
         setup_sh = pkg_dir / "setup.sh"
@@ -229,7 +229,7 @@ class TestLocalInstall:
         assert new_marker["local"]["installed_at"] >= old_marker["local"]["installed_at"]
 
     def test_runs_setup_sh_without_virtual_env(self, tmp_path: Path) -> None:
-        """setup.sh must get EXGENTIC_CACHE_DIR but NOT VIRTUAL_ENV."""
+        """setup.sh runs with cwd=env_dir but NOT VIRTUAL_ENV."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=True)
         mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
@@ -509,7 +509,7 @@ class TestUninstall:
         env_dir = mgr.env_path("mybench")
         env_dir.mkdir(parents=True)
 
-        image_tag = "exgentic-mybench:abc123"
+        image_tag = "mybench:abc123"
         (env_dir / ".installed").write_text(
             json.dumps({"docker": {"installed_at": "2026-01-01T00:00:00Z", "image": image_tag}})
         )
@@ -577,7 +577,7 @@ class TestUninstall:
         env_dir = mgr.env_path("mybench")
         env_dir.mkdir(parents=True)
 
-        image_tag = "exgentic-mybench:abc123"
+        image_tag = "mybench:abc123"
         (env_dir / ".installed").write_text(
             json.dumps(
                 {
@@ -883,10 +883,10 @@ class TestConvenienceAccessors:
         env_dir = mgr.env_path("mybench")
         env_dir.mkdir(parents=True)
         (env_dir / ".installed").write_text(
-            json.dumps({"docker": {"installed_at": "2026-01-01T00:00:00Z", "image": "exgentic-mybench:abc123"}})
+            json.dumps({"docker": {"installed_at": "2026-01-01T00:00:00Z", "image": "mybench:abc123"}})
         )
 
-        assert mgr.docker_image("mybench") == "exgentic-mybench:abc123"
+        assert mgr.docker_image("mybench") == "mybench:abc123"
 
     def test_docker_image_returns_none_when_not_installed(self, tmp_path: Path) -> None:
         mgr = EnvironmentManager(base_dir=tmp_path / "envs")

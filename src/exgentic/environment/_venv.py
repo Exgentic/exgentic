@@ -25,6 +25,7 @@ def install(
     *,
     module_path: str | None = None,
     venv_packages: list[str] | None = None,
+    setup_env: dict[str, str] | None = None,
 ) -> None:
     """Create a venv-based environment.
 
@@ -32,6 +33,7 @@ def install(
         env_dir: Root directory for this environment.
         module_path: Dotted module path for locating package resources.
         venv_packages: Extra packages to install into the venv.
+        setup_env: Extra environment variables passed to setup.sh.
 
     On failure, the ``venv/`` directory is cleaned up but the parent
     ``env_dir`` is left intact (other env types may coexist).
@@ -59,7 +61,7 @@ def install(
         if module_path is not None:
             install_requirements(uv, venv_py, module_path, env)
             validate_system_deps(module_path)
-            run_setup_sh(module_path, env_dir, venv_dir=venv_dir)
+            run_setup_sh(module_path, env_dir, venv_dir=venv_dir, extra_env=setup_env)
     except BaseException:
         if venv_dir.exists():
             shutil.rmtree(venv_dir, ignore_errors=True)

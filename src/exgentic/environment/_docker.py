@@ -63,7 +63,7 @@ def _image_tag(name: str, *file_paths: Path | None) -> str:
         h.update(b"\x00")
     # Sanitize name for Docker tag (replace / with -)
     safe_name = name.replace("/", "-")
-    return f"exgentic-{safe_name}:{h.hexdigest()[:12]}"
+    return f"{safe_name}:{h.hexdigest()[:12]}"
 
 
 def _image_exists(tag: str) -> bool:

@@ -60,17 +60,31 @@ def install_requirements(uv: str, python_target: str, module_path: str, env: dic
     )
 
 
-def run_setup_sh(module_path: str, env_dir: Path, *, venv_dir: Path | None = None) -> None:
-    """Run setup.sh with the appropriate environment variables."""
+def run_setup_sh(
+    module_path: str,
+    env_dir: Path,
+    *,
+    venv_dir: Path | None = None,
+    extra_env: dict[str, str] | None = None,
+) -> None:
+    """Run setup.sh with the appropriate environment variables.
+
+    Args:
+        module_path: Dotted module path for locating setup.sh.
+        env_dir: Working directory for setup.sh execution.
+        venv_dir: If set, activates the venv in the subprocess.
+        extra_env: Additional environment variables for setup.sh.
+    """
     setup_path = find_package_file(module_path, "setup.sh")
     if setup_path is None:
         return
     env = os.environ.copy()
-    env["EXGENTIC_CACHE_DIR"] = str(env_dir)
+    if extra_env:
+        env.update(extra_env)
     if venv_dir is not None:
         env["VIRTUAL_ENV"] = str(venv_dir)
         env["PATH"] = str(venv_dir / "bin") + os.pathsep + env.get("PATH", "")
-    subprocess.run(["bash", str(setup_path)], check=True, env=env)
+    subprocess.run(["bash", str(setup_path)], check=True, cwd=str(env_dir), env=env)
 
 
 def find_package_file(module_path: str, filename: str) -> Path | None:

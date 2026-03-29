@@ -21,12 +21,14 @@ def install(
     env_dir: Path,
     *,
     module_path: str | None = None,
+    setup_env: dict[str, str] | None = None,
 ) -> dict:
     """Install dependencies into the current Python environment.
 
     Args:
         env_dir: Root directory for data/markers.
         module_path: Dotted module path for locating package resources.
+        setup_env: Extra environment variables passed to setup.sh.
 
     Returns:
         Extra marker data (``python`` path).
@@ -36,6 +38,6 @@ def install(
         env = build_subprocess_env()
         install_requirements(uv, sys.executable, module_path, env)
         validate_system_deps(module_path)
-        run_setup_sh(module_path, env_dir)
+        run_setup_sh(module_path, env_dir, extra_env=setup_env)
 
     return {"python": sys.executable}
