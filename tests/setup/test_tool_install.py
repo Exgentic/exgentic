@@ -19,15 +19,51 @@ from pathlib import Path
 import pytest
 
 _uv_available = shutil.which("uv") is not None
+_docker_available = shutil.which("docker") is not None
+_git_lfs_available = shutil.which("git-lfs") is not None
 
 # Root of the exgentic source tree (two levels up from this file).
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
+# Benchmarks that need docker at setup time.
+_NEEDS_DOCKER = {"swebench"}
+# Benchmarks that need git-lfs at setup time.
+_NEEDS_GIT_LFS = {"appworld"}
+# Benchmarks whose setup is heavier (clone repos, download data).
+_HEAVY_BENCHMARKS = {"appworld", "swebench", "browsecompplus"}
+
+# Per-benchmark setup timeout in seconds (5 minutes for heavy, 5 minutes default).
+_SETUP_TIMEOUT = 300
+
+
+def _skip_reason(benchmark: str) -> str | None:
+    """Return a skip reason if the benchmark cannot run, else ``None``."""
+    if benchmark in _NEEDS_DOCKER and not _docker_available:
+        return "docker CLI not available"
+    if benchmark in _NEEDS_GIT_LFS and not _git_lfs_available:
+        return "git-lfs not available"
+    return None
+
+
+_ALL_BENCHMARKS = [
+    "tau2",
+    "gsm8k",
+    "appworld",
+    "bfcl",
+    "browsecompplus",
+    "hotpotqa",
+    "swebench",
+]
+
 
 @pytest.mark.skipif(not _uv_available, reason="uv CLI not available")
-@pytest.mark.parametrize("benchmark", ["tau2", "gsm8k"])
+@pytest.mark.parametrize("benchmark", _ALL_BENCHMARKS)
 def test_setup_in_tool_install_venv(benchmark: str, tmp_path: Path) -> None:
     """Install exgentic into a fresh venv, then run ``exgentic setup``."""
+    reason = _skip_reason(benchmark)
+    if reason:
+        pytest.skip(reason)
+
     venv_dir = tmp_path / "venv"
     work_dir = tmp_path / "workdir"
     work_dir.mkdir()
@@ -59,7 +95,7 @@ def test_setup_in_tool_install_venv(benchmark: str, tmp_path: Path) -> None:
         cwd=str(work_dir),
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=_SETUP_TIMEOUT,
     )
 
     assert result.returncode == 0, (
