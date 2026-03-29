@@ -22,5 +22,8 @@ def _resolve_tau2_data_dir() -> str:
     return str(legacy)
 
 
-if "TAU2_DATA_DIR" not in os.environ:
-    os.environ["TAU2_DATA_DIR"] = _resolve_tau2_data_dir()
+def get_tau2_data_dir() -> str:
+    """Return the tau2 data directory, resolving lazily on first call."""
+    if "TAU2_DATA_DIR" not in os.environ:
+        os.environ["TAU2_DATA_DIR"] = _resolve_tau2_data_dir()
+    return os.environ["TAU2_DATA_DIR"]

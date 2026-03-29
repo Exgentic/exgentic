@@ -176,7 +176,9 @@ class TAU2Session(PairableProxySession):
             payload = self.context  # pydantic RunConfig
             json.dump(payload, f, ensure_ascii=False, indent=2)
 
-        base = Path(os.environ.get("TAU2_DATA_DIR", ".")) / "simulations"
+        from . import get_tau2_data_dir
+
+        base = Path(get_tau2_data_dir()) / "simulations"
         base.mkdir(parents=True, exist_ok=True)
         self.file_path = str((base / f"{self._cfg.save_to}.json").resolve())
         self.results_file = self.paths.benchmark_results
