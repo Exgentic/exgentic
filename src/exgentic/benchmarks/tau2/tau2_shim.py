@@ -32,7 +32,13 @@ try:
 except Exception:
     _loguru = None  # type: ignore
 
-# 3) Re-export Tau2 modules used by Exgentic
+# 3) Resolve TAU2_DATA_DIR *before* importing tau2 so that
+#    tau2.utils.utils.DATA_DIR picks up the correct path at import time.
+from . import get_tau2_data_dir  # noqa: E402
+
+get_tau2_data_dir()
+
+# 4) Re-export Tau2 modules used by Exgentic
 from rich.console import Console  # noqa: E402
 from tau2.agent.llm_agent import LLMAgent  # noqa: E402
 from tau2.data_model.message import (  # noqa: E402
