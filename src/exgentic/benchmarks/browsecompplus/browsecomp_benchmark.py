@@ -428,7 +428,7 @@ class BrowseCompPlusEvaluator(Evaluator):
 
         data_path = self.assets_dir / "data" / "browsecomp_plus_decrypted_docids.jsonl"
         if not data_path.exists():
-            raise Exception(f"{data_path} does not exist. Run 'exgentic setup --benchmark browsecompplus' first.")
+            raise Exception(f"{data_path} does not exist. Run 'exgentic install --benchmark browsecompplus' first.")
         instances = pd.read_json(path_or_buf=data_path, lines=True).to_dict(orient="records")
 
         def proces_instance(instance):

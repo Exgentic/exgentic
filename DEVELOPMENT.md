@@ -17,25 +17,27 @@ Benchmarks and agents declare their dependencies through two mechanisms:
 - **`requirements.txt`** — pip packages installed automatically via `uv pip install`
 - **`setup.sh`** — shell script for non-pip setup (apt packages, git clones, data downloads)
 
-Both are auto-discovered next to the benchmark/agent module directory. The `exgentic setup` command runs both:
+Both are auto-discovered next to the benchmark/agent module directory. The `exgentic install` command runs both:
 
 ```bash
 # Benchmarks
-uv run exgentic setup --benchmark tau2
-uv run exgentic setup --benchmark appworld
-uv run exgentic setup --benchmark gsm8k
-uv run exgentic setup --benchmark hotpotqa
-uv run exgentic setup --benchmark swebench
-uv run exgentic setup --benchmark browsecompplus
+uv run exgentic install --benchmark tau2
+uv run exgentic install --benchmark appworld
+uv run exgentic install --benchmark gsm8k
+uv run exgentic install --benchmark hotpotqa
+uv run exgentic install --benchmark swebench
+uv run exgentic install --benchmark browsecompplus
 
 # Agents
-uv run exgentic setup --agent litellm_tool_calling
-uv run exgentic setup --agent smolagents
-uv run exgentic setup --agent openai
-uv run exgentic setup --agent claude
-uv run exgentic setup --agent codex
-uv run exgentic setup --agent gemini
+uv run exgentic install --agent litellm_tool_calling
+uv run exgentic install --agent smolagents
+uv run exgentic install --agent openai
+uv run exgentic install --agent claude
+uv run exgentic install --agent codex
+uv run exgentic install --agent gemini
 ```
+
+> **Note:** `exgentic setup` still works but is deprecated. Use `install`/`uninstall` instead.
 
 ### Isolated Runners (venv / docker)
 

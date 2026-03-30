@@ -62,8 +62,8 @@ export EXGENTIC_OTEL_RECORD_CONTENT=true
 ## Step 4 — Set up and run an evaluation
 
 ```bash
-exgentic setup --agent tool_calling
-exgentic setup --benchmark tau2
+exgentic install --agent tool_calling
+exgentic install --benchmark tau2
 
 exgentic evaluate \
   --benchmark tau2 \

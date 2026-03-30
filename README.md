@@ -48,12 +48,16 @@ exgentic evaluate --benchmark tau2 --agent tool_calling --subset retail --num-ta
   --set benchmark.user_simulator_model="gpt-4o"
 ```
 
-Benchmarks are automatically set up in an isolated virtual environment on first run — no manual installation needed. You can also set them up explicitly:
+Benchmarks are automatically installed on first run — no manual installation needed. You can also install them explicitly:
 
 ```bash
-exgentic setup --benchmark tau2
-exgentic setup --agent litellm_tool_calling
+exgentic install --benchmark tau2
+exgentic install --agent litellm_tool_calling
+exgentic install --benchmark tau2 --docker    # install into a Docker image
+exgentic uninstall --benchmark tau2           # remove installed environment
 ```
+
+> **Note:** `exgentic setup` still works but is deprecated in favor of `install`/`uninstall`.
 
 For full container isolation, use the Docker runner (`--set benchmark.runner=docker`). You only need Docker installed and running:
 
@@ -162,7 +166,9 @@ exgentic list benchmarks
 exgentic list subsets --benchmark tau2
 exgentic list tasks --benchmark tau2 --subset retail --limit 5
 exgentic list agents
-exgentic setup --benchmark tau2
+exgentic install --benchmark tau2
+exgentic install --benchmark tau2 --docker
+exgentic uninstall --benchmark tau2
 
 # Run
 exgentic evaluate --benchmark tau2 --agent tool_calling --subset airline --num-tasks 10

@@ -95,7 +95,7 @@ When a venv runner starts, it:
 To trigger a fresh install (e.g. after updating `requirements.txt`):
 
 ```bash
-exgentic setup --benchmark tau2 --runner venv --force
+exgentic install --benchmark tau2 --force
 ```
 
 ### Configuration

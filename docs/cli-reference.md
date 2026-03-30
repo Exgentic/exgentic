@@ -59,15 +59,16 @@ exgentic list tasks --benchmark tau2 --subset retail --limit 20
 
 ---
 
-## Setup
+## install
 
 Install a benchmark's or agent's dependencies into the default runner environment.
 
 ```bash
-exgentic setup --benchmark tau2
-exgentic setup --agent tool_calling
-exgentic setup --benchmark tau2 --force         # reinstall even if already set up
-exgentic setup --benchmark tau2 --runner venv   # install into an isolated venv
+exgentic install --benchmark tau2
+exgentic install --agent tool_calling
+exgentic install --benchmark tau2 --force       # reinstall even if already set up
+exgentic install --benchmark tau2 --local       # install into the local environment
+exgentic install --benchmark tau2 --docker      # install into a Docker image
 ```
 
 | Flag | Description |
@@ -75,9 +76,32 @@ exgentic setup --benchmark tau2 --runner venv   # install into an isolated venv
 | `--benchmark` | Benchmark slug |
 | `--agent` | Agent slug |
 | `--force` | Force reinstall |
-| `--runner` | Runner type: `direct`, `venv`, `docker` |
+| `--local` | Install into the local environment instead of the default runner |
+| `--docker` | Install into a Docker image |
 
 See [Runners](./runners.md) for details on runner types.
+
+---
+
+## uninstall
+
+Remove an installed benchmark's or agent's environment.
+
+```bash
+exgentic uninstall --benchmark tau2
+exgentic uninstall --agent tool_calling
+```
+
+| Flag | Description |
+|------|-------------|
+| `--benchmark` | Benchmark slug |
+| `--agent` | Agent slug |
+
+---
+
+## setup (deprecated)
+
+> **Deprecated:** `exgentic setup` is an alias for `exgentic install` and will be removed in a future release. Use `install`/`uninstall` instead.
 
 ---
 

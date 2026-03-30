@@ -220,7 +220,7 @@ Returns: `list[str]`.
 
 ### setup_benchmark()
 
-Install a benchmark's dependencies and run its `setup.sh`. Equivalent to `exgentic setup --benchmark <name>`.
+Install a benchmark's dependencies and run its `setup.sh`. Equivalent to `exgentic install --benchmark <name>`.
 
 ```python
 from exgentic.interfaces.lib.api import setup_benchmark
