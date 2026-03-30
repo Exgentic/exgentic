@@ -90,6 +90,33 @@ def _docker_mock_result(**overrides):
     return result
 
 
+def _create_fake_project(tmp_path: Path, *, name: str = "myproject") -> Path:
+    """Create a minimal Python project with pyproject.toml and src layout."""
+    project = tmp_path / f"project_{name}"
+    project.mkdir(parents=True)
+    pkg_name = name.replace("-", "_")
+    src_dir = project / "src" / pkg_name
+    src_dir.mkdir(parents=True)
+    (src_dir / "__init__.py").write_text('__version__ = "0.1.0"\n')
+    (project / "README.md").write_text(f"# {name}\n")
+    (project / "pyproject.toml").write_text(
+        textwrap.dedent(
+            f"""\
+        [project]
+        name = "{name}"
+        version = "0.1.0"
+        requires-python = ">=3.10"
+        dependencies = []
+
+        [build-system]
+        requires = ["hatchling"]
+        build-backend = "hatchling.build"
+        """
+        )
+    )
+    return project
+
+
 # ---------------------------------------------------------------------------
 # Venv install
 # ---------------------------------------------------------------------------
@@ -157,7 +184,7 @@ class TestVenvInstall:
 
         with mock.patch("subprocess.run", side_effect=fail_pip):
             with pytest.raises(subprocess.CalledProcessError):
-                mgr.install("mybench", venv_packages=["some-pkg"], module_path=module_path)
+                mgr.install("mybench", packages=["some-pkg"], module_path=module_path)
 
         venv_dir = mgr.env_path("mybench") / "venv"
         assert not venv_dir.exists()
@@ -934,6 +961,280 @@ class TestRequireUv:
 
 
 # ---------------------------------------------------------------------------
+# Project root & packages
+# ---------------------------------------------------------------------------
+
+
+class TestVenvProjectRoot:
+    """Venv backend installs a Python project from project_root."""
+
+    def test_project_root_installs_project(self, tmp_path: Path) -> None:
+        project = _create_fake_project(tmp_path)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        pip_calls: list[list[str]] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and "pip" in cmd and "install" in cmd:
+                pip_calls.append(list(cmd))
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", project_root=project)
+
+        # First pip call should install the project root.
+        assert len(pip_calls) >= 1
+        assert str(project) in pip_calls[0]
+
+    def test_packages_installed_into_venv(self, tmp_path: Path) -> None:
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        pip_calls: list[list[str]] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and "pip" in cmd and "install" in cmd:
+                pip_calls.append(list(cmd))
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", packages=["numpy", "pandas"])
+
+        assert len(pip_calls) == 1
+        assert "numpy" in pip_calls[0]
+        assert "pandas" in pip_calls[0]
+
+    def test_project_root_and_packages_combined(self, tmp_path: Path) -> None:
+        project = _create_fake_project(tmp_path)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        pip_calls: list[list[str]] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and "pip" in cmd and "install" in cmd:
+                pip_calls.append(list(cmd))
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", project_root=project, packages=["numpy"])
+
+        # Two separate pip calls: project root, then packages.
+        assert len(pip_calls) == 2
+        assert str(project) in pip_calls[0]
+        assert "numpy" in pip_calls[1]
+
+    def test_without_project_root_still_works(self, tmp_path: Path) -> None:
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        env_dir = mgr.install("mybench", module_path=module_path)
+
+        assert (env_dir / "venv" / "bin" / "python").exists()
+        assert mgr.is_installed("mybench", env_type=EnvType.VENV)
+
+
+class TestLocalProjectRoot:
+    """Local backend installs project_root and packages into host Python."""
+
+    def test_project_root_installs_into_host_python(self, tmp_path: Path) -> None:
+        project = _create_fake_project(tmp_path)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        pip_calls: list[list[str]] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and "pip" in cmd and "install" in cmd:
+                pip_calls.append(list(cmd))
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", env_type=EnvType.LOCAL, project_root=project)
+
+        assert len(pip_calls) == 1
+        assert str(project) in pip_calls[0]
+        python_idx = pip_calls[0].index("--python") + 1
+        assert pip_calls[0][python_idx] == sys.executable
+
+    def test_packages_installs_into_host_python(self, tmp_path: Path) -> None:
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        pip_calls: list[list[str]] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and "pip" in cmd and "install" in cmd:
+                pip_calls.append(list(cmd))
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", env_type=EnvType.LOCAL, packages=["numpy"])
+
+        assert len(pip_calls) == 1
+        assert "numpy" in pip_calls[0]
+
+
+class TestDockerProjectRoot:
+    """Docker backend uses two-layer build when project_root is provided."""
+
+    def test_project_root_triggers_two_layer_build(self, tmp_path: Path) -> None:
+        project = _create_fake_project(tmp_path)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        dockerfiles: list[str] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if cmd[1] == "build":
+                    # Read dockerfile from -f argument.
+                    if "-f" in cmd:
+                        df_idx = list(cmd).index("-f") + 1
+                        df_path = Path(cmd[df_idx])
+                        if df_path.exists():
+                            dockerfiles.append(df_path.read_text())
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", env_type=EnvType.DOCKER, project_root=project)
+
+        assert len(dockerfiles) == 1
+        df = dockerfiles[0]
+        assert "COPY pyproject.toml" in df
+        assert "COPY src/ src/" in df
+        assert "uv pip install --no-cache ." in df
+        assert "uv pip install --no-cache --no-deps ." in df
+
+    def test_docker_build_context_is_project_root(self, tmp_path: Path) -> None:
+        project = _create_fake_project(tmp_path)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        build_contexts: list[str] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if cmd[1] == "build":
+                    build_contexts.append(cmd[-1])
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", env_type=EnvType.DOCKER, project_root=project)
+
+        assert len(build_contexts) == 1
+        assert build_contexts[0] == str(project)
+
+    def test_docker_without_project_root_uses_tmp_dir(self, tmp_path: Path) -> None:
+        module_path = _create_fake_package(tmp_path, with_requirements=True, with_setup=False)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        build_contexts: list[str] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if cmd[1] == "build":
+                    build_contexts.append(cmd[-1])
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", env_type=EnvType.DOCKER, module_path=module_path)
+
+        assert len(build_contexts) == 1
+        assert "exgentic-docker-" in build_contexts[0]
+
+    def test_docker_packages_in_dockerfile(self, tmp_path: Path) -> None:
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        dockerfiles: list[str] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if cmd[1] == "build":
+                    df = Path(cmd[-1]) / "Dockerfile"
+                    if df.exists():
+                        dockerfiles.append(df.read_text())
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", env_type=EnvType.DOCKER, packages=["numpy", "pandas"])
+
+        assert len(dockerfiles) == 1
+        assert "uv pip install --no-cache numpy pandas" in dockerfiles[0]
+
+    def test_content_hash_includes_project_root(self, tmp_path: Path) -> None:
+        project = _create_fake_project(tmp_path, name="proj-a")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        tags: list[str] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if cmd[1] == "build":
+                    idx = list(cmd).index("-t")
+                    tags.append(cmd[idx + 1])
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("a", env_type=EnvType.DOCKER, project_root=project)
+            mgr.install("b", env_type=EnvType.DOCKER)
+
+        assert len(tags) == 2
+        assert tags[0].split(":")[-1] != tags[1].split(":")[-1]
+
+    def test_project_root_with_force_includes(self, tmp_path: Path) -> None:
+        project = _create_fake_project(tmp_path, name="withfi")
+        # Add force-include to pyproject.toml.
+        pyproject = project / "pyproject.toml"
+        pyproject.write_text(
+            pyproject.read_text()
+            + textwrap.dedent(
+                """\
+
+            [tool.hatch.build.targets.wheel.force-include]
+            "configs/" = "withfi/configs/"
+            """
+            )
+        )
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        dockerfiles: list[str] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if cmd[1] == "build":
+                    if "-f" in cmd:
+                        df_idx = list(cmd).index("-f") + 1
+                        df_path = Path(cmd[df_idx])
+                        if df_path.exists():
+                            dockerfiles.append(df_path.read_text())
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", env_type=EnvType.DOCKER, project_root=project)
+
+        assert len(dockerfiles) == 1
+        assert "mkdir -p 'configs/'" in dockerfiles[0]
+
+
+# ---------------------------------------------------------------------------
 # Docker integration (requires Docker/Podman running)
 # ---------------------------------------------------------------------------
 
@@ -1009,3 +1310,43 @@ class TestDockerIntegration:
         assert not mgr.is_installed("inttest4", env_type=EnvType.DOCKER)
 
         mgr.uninstall("inttest4")
+
+    def test_docker_project_root_installs_package(self, tmp_path: Path) -> None:
+        """Build Docker image with project_root and verify the package is importable inside."""
+        project = _create_fake_project(tmp_path, name="mypkg")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        mgr.install("inttest5", env_type=EnvType.DOCKER, project_root=project)
+
+        image_tag = mgr.docker_image("inttest5")
+        assert image_tag is not None
+
+        result = subprocess.run(
+            ["docker", "run", "--rm", image_tag, "python", "-c", "import mypkg; print(mypkg.__version__)"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "0.1.0"
+
+        mgr.uninstall("inttest5")
+
+    def test_venv_project_root_installs_package(self, tmp_path: Path) -> None:
+        """Create venv with project_root and verify the package is importable inside."""
+        project = _create_fake_project(tmp_path, name="mypkg2")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        mgr.install("inttest6", env_type=EnvType.VENV, project_root=project)
+
+        venv_py = mgr.venv_python("inttest6")
+        result = subprocess.run(
+            [venv_py, "-c", "import mypkg2; print(mypkg2.__version__)"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "0.1.0"
+
+        mgr.uninstall("inttest6")

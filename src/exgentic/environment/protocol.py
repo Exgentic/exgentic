@@ -18,7 +18,11 @@ class EnvironmentBackend(Protocol):
         Args:
             env_dir: Root directory for this environment.
             module_path: Dotted module path for locating package resources.
-            **kwargs: Backend-specific options (e.g. ``venv_packages``).
+            **kwargs: Common options forwarded by the manager:
+                ``project_root`` (Path | None) - root of a Python project to install.
+                ``packages`` (list[str] | None) - extra pip packages to install.
+                Backends may also receive backend-specific options (e.g. ``name``,
+                ``force`` for Docker).
 
         Returns:
             Extra marker data to persist (may be empty).

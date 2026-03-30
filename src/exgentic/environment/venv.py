@@ -13,6 +13,7 @@ from pathlib import Path
 from .helpers import (
     build_subprocess_env,
     install_packages,
+    install_project,
     install_requirements,
     require_uv,
     run_setup_sh,
@@ -35,12 +36,13 @@ class VenvBackend:
         Args:
             env_dir: Root directory for this environment.
             module_path: Dotted module path for locating package resources.
-            **kwargs: Accepts ``venv_packages`` (list of extra packages).
+            **kwargs: Accepts ``project_root`` (Path) and ``packages`` (list).
 
         Returns:
             Empty dict (no extra marker data).
         """
-        venv_packages: list[str] | None = kwargs.get("venv_packages")  # type: ignore[assignment]
+        project_root: Path | None = kwargs.get("project_root")  # type: ignore[assignment]
+        packages: list[str] | None = kwargs.get("packages")  # type: ignore[assignment]
 
         venv_dir = env_dir / "venv"
         if venv_dir.exists():
@@ -59,8 +61,11 @@ class VenvBackend:
             venv_py = str(venv_dir / "bin" / "python")
             env = build_subprocess_env()
 
-            if venv_packages:
-                install_packages(uv, venv_py, venv_packages, env)
+            if project_root is not None:
+                install_project(uv, venv_py, project_root, env)
+
+            if packages:
+                install_packages(uv, venv_py, packages, env)
 
             if module_path is not None:
                 install_requirements(uv, venv_py, module_path, env)

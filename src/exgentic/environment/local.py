@@ -10,6 +10,8 @@ from pathlib import Path
 
 from .helpers import (
     build_subprocess_env,
+    install_packages,
+    install_project,
     install_requirements,
     require_uv,
     run_setup_sh,
@@ -32,17 +34,28 @@ class LocalBackend:
         Args:
             env_dir: Root directory for data/markers.
             module_path: Dotted module path for locating package resources.
-            **kwargs: Additional keyword arguments (ignored).
+            **kwargs: Accepts ``project_root`` (Path) and ``packages`` (list).
 
         Returns:
             Extra marker data (``python`` path).
         """
-        if module_path is not None:
+        project_root: Path | None = kwargs.get("project_root")  # type: ignore[assignment]
+        packages: list[str] | None = kwargs.get("packages")  # type: ignore[assignment]
+
+        if project_root is not None or packages or module_path is not None:
             uv = require_uv()
             env = build_subprocess_env()
-            install_requirements(uv, sys.executable, module_path, env)
-            validate_system_deps(module_path)
-            run_setup_sh(module_path, env_dir)
+
+            if project_root is not None:
+                install_project(uv, sys.executable, project_root, env)
+
+            if packages:
+                install_packages(uv, sys.executable, packages, env)
+
+            if module_path is not None:
+                install_requirements(uv, sys.executable, module_path, env)
+                validate_system_deps(module_path)
+                run_setup_sh(module_path, env_dir)
 
         return {"python": sys.executable}
 

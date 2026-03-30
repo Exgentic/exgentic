@@ -30,6 +30,17 @@ def build_subprocess_env() -> dict:
     return env
 
 
+def install_project(uv: str, python_target: str, project_root: Path, env: dict) -> None:
+    """Install a Python project from *project_root* into the target Python."""
+    subprocess.run(
+        [uv, "pip", "install", "--python", python_target, "--no-cache", str(project_root)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+
 def install_packages(uv: str, python_target: str, packages: list[str], env: dict) -> None:
     """Install packages into the target Python environment."""
     subprocess.run(

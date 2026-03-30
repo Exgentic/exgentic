@@ -55,7 +55,8 @@ class EnvironmentManager:
         env_type: EnvType = EnvType.VENV,
         force: bool = False,
         module_path: str | None = None,
-        venv_packages: list[str] | None = None,
+        project_root: Path | None = None,
+        packages: list[str] | None = None,
     ) -> Path:
         """Install an environment.
 
@@ -64,7 +65,8 @@ class EnvironmentManager:
             env_type: Type of environment to create.
             force: Re-create even if already installed.
             module_path: Dotted module path for locating package resources.
-            venv_packages: Extra packages to install (venv only).
+            project_root: Root of a Python project to install into the env.
+            packages: Extra pip packages to install.
 
         Returns:
             The environment directory path.
@@ -81,8 +83,10 @@ class EnvironmentManager:
 
         # Build kwargs for the backend.
         kwargs: dict[str, object] = {}
-        if venv_packages is not None:
-            kwargs["venv_packages"] = venv_packages
+        if project_root is not None:
+            kwargs["project_root"] = project_root
+        if packages is not None:
+            kwargs["packages"] = packages
         if env_type is EnvType.DOCKER:
             kwargs["name"] = name
             kwargs["force"] = force
