@@ -108,19 +108,22 @@ class DockerBackend:
         return {"image": image_tag}
 
     def uninstall(self, env_dir: Path, marker_data: dict) -> None:
-        """Remove the Docker image referenced in the marker data.
+        """Remove the Docker images referenced in the marker data.
 
-        The shared base image is intentionally left in place — it may be
-        referenced by other environments.
+        The bench image is always removed.  The base image (if present) is
+        attempted too — ``docker rmi`` will silently fail if another bench
+        image still depends on it, so the last environment using a base tag
+        will clean it up automatically.
         """
-        image = marker_data.get("image")
-        if image:
-            subprocess.run(
-                ["docker", "rmi", image],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
+        for key in ("image", "base_image"):
+            tag = marker_data.get(key)
+            if tag:
+                subprocess.run(
+                    ["docker", "rmi", tag],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
 
     # ------------------------------------------------------------------
     # Two-image path (project_root provided)
@@ -164,7 +167,7 @@ class DockerBackend:
             packages=packages,
             docker_socket=docker_socket,
         )
-        return {"image": bench_tag}
+        return {"image": bench_tag, "base_image": base_tag}
 
     @classmethod
     def _base_image_tag(cls, project_root: Path) -> str:

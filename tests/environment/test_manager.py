@@ -1355,6 +1355,56 @@ class TestDockerProjectRoot:
         assert len(bench_dockerfiles) == 1
         assert bench_dockerfiles[0].startswith("FROM exgentic-base:")
 
+    def test_base_image_tag_stored_in_marker(self, tmp_path: Path) -> None:
+        """Marker must record base_image so uninstall can clean it up."""
+        project = _create_fake_project(tmp_path)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", env_type=EnvType.DOCKER, project_root=project)
+
+        marker = json.loads((mgr.env_path("mybench") / ".installed").read_text())
+        assert "base_image" in marker["docker"]
+        assert marker["docker"]["base_image"].startswith("exgentic-base:")
+
+    def test_uninstall_attempts_base_image_removal(self, tmp_path: Path) -> None:
+        """uninstall() attempts to remove the base image (rmi silently fails if still in use)."""
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+        env_dir = mgr.env_path("mybench")
+        env_dir.mkdir(parents=True)
+        (env_dir / ".installed").write_text(
+            json.dumps(
+                {
+                    "docker": {
+                        "installed_at": "2026-01-01T00:00:00Z",
+                        "image": "mybench:abc123",
+                        "base_image": "exgentic-base:def456",
+                    }
+                }
+            )
+        )
+
+        rmi_calls: list[str] = []
+
+        def side_effect(cmd, **kwargs):
+            if cmd[0] == "docker" and cmd[1] == "rmi":
+                rmi_calls.append(cmd[2])
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=side_effect):
+            mgr.uninstall("mybench", env_type=EnvType.DOCKER)
+
+        assert "mybench:abc123" in rmi_calls
+        assert "exgentic-base:def456" in rmi_calls
+
     def test_base_image_reused_on_second_install(self, tmp_path: Path) -> None:
         """Base image is only built once; second bench reuses it."""
         project = _create_fake_project(tmp_path)
