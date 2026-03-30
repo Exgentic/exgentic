@@ -40,13 +40,6 @@ def _get_runner_from_set(set_values: tuple[str, ...]) -> str | None:
     return None
 
 
-def _needs_setup(name: str, install_type: str) -> bool:
-    """Check if a benchmark/agent has a setup.sh or requirements.txt."""
-    from ...lib.api import needs_setup
-
-    return needs_setup(name, install_type)
-
-
 def _get_registry_entry(slug: str, kind: str):
     """Look up a RegistryEntry for the given slug and kind ('benchmark' or 'agent')."""
     from ...registry import AGENTS, BENCHMARKS
@@ -58,6 +51,26 @@ def _get_registry_entry(slug: str, kind: str):
     return entry
 
 
+def _get_benchmark_default_runner(slug: str) -> str | None:
+    """Load the benchmark class and return its default ``runner`` value, if set."""
+    try:
+        entry = _get_registry_entry(slug, "benchmark")
+        cls = entry.load()
+        field = cls.model_fields.get("runner")
+        if field is not None and field.default is not None:
+            return str(field.default)
+    except Exception:
+        pass
+    return None
+
+
+def _needs_setup(name: str, install_type: str) -> bool:
+    """Check if a benchmark/agent has a setup.sh or requirements.txt."""
+    from ...lib.api import needs_setup
+
+    return needs_setup(name, install_type)
+
+
 def _ensure_installed(
     benchmark: str,
     agent: str,
@@ -65,9 +78,10 @@ def _ensure_installed(
 ) -> None:
     """Ensure benchmark/agent dependencies and data are installed.
 
-    Uses VENV by default for isolation.  Falls back to LOCAL for
-    benchmarks/agents that use the direct runner (they need deps
-    importable in the host Python).
+    Env type is determined by the runner from --set flags or settings:
+    - docker -> DOCKER
+    - venv (default) -> VENV
+    - anything else (direct, thread, etc.) -> LOCAL
 
     For isolated runners (docker/venv), setup runs automatically without prompting.
     For other runners, the user is prompted to confirm.
@@ -76,13 +90,15 @@ def _ensure_installed(
     from ....environment.instance import get_manager
 
     mgr = get_manager()
-    runner = _get_runner_from_set(set_values) or get_settings().default_runner
+    runner = (
+        _get_runner_from_set(set_values) or _get_benchmark_default_runner(benchmark) or get_settings().default_runner
+    )
     if runner == "docker":
         env_type = EnvType.DOCKER
-    elif runner in ("direct", "thread", "process", "service"):
-        env_type = EnvType.LOCAL
-    else:
+    elif runner == "venv":
         env_type = EnvType.VENV
+    else:
+        env_type = EnvType.LOCAL
 
     to_install: list[tuple[str, str, str]] = []
     bench_name = f"benchmarks/{benchmark}"
@@ -205,7 +221,7 @@ def evaluate_cmd(
             max_workers=max_workers,
         ):
             raise click.ClickException(
-                "Pass options after the subcommand, e.g. " "'exgentic evaluate execute --benchmark ...'."
+                "Pass options after the subcommand, e.g. 'exgentic evaluate execute --benchmark ...'."
             )
         return
     if not benchmark or not agent:

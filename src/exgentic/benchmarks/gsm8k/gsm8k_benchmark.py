@@ -342,7 +342,7 @@ class GSM8kBenchmark(Benchmark, BaseModel):
 
     subset: Literal["main"] = "main"
     include_calculator_tool: bool = True
-    runner: RunnerName | None = "direct"  # Code is threadsafe
+    runner: RunnerName | None = None  # Threadsafe; uses global default runner
 
     def get_evaluator_kwargs(self) -> dict[str, Any]:
         return {
