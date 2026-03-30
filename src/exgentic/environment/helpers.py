@@ -16,17 +16,44 @@ def get_exgentic_install_target() -> tuple[Path | None, list[str] | None]:
     """Return ``(project_root, packages)`` for installing exgentic itself.
 
     If running from a source checkout, returns ``(project_root, None)``
-    so backends install from source. Otherwise returns
+    so backends install from source.  Otherwise returns
     ``(None, ["exgentic==X.Y.Z"])`` matching the running version.
+
+    When installed from a local path (e.g. ``uv pip install /path/to/repo``),
+    uses PEP 610 ``direct_url.json`` to locate the original source tree.
+    Falls back to an unpinned ``exgentic`` spec for dev versions that
+    don't exist on PyPI.
     """
     from ..adapters.runners._utils import find_project_root
 
     root = find_project_root()
     if (root / "pyproject.toml").exists() and (root / "src" / "exgentic").is_dir():
         return root, None
+
+    # Try PEP 610 direct_url.json — when installed from a local path,
+    # pip/uv record the source URL so we can find the original source tree.
+    try:
+        import json as _json
+        from importlib.metadata import distribution
+
+        direct_url_text = distribution("exgentic").read_text("direct_url.json")
+        if direct_url_text:
+            url = _json.loads(direct_url_text).get("url", "")
+            if url.startswith("file://"):
+                source_path = Path(url.removeprefix("file://"))
+                if (source_path / "pyproject.toml").exists() and (source_path / "src" / "exgentic").is_dir():
+                    return source_path, None
+    except Exception:
+        pass
+
     from importlib.metadata import version
 
-    return None, [f"exgentic=={version('exgentic')}"]
+    ver = version("exgentic")
+    # Dev versions (e.g. 0.3.3.dev32+ga685f27) don't exist on PyPI.
+    # Fall back to unpinned install so the latest release is used.
+    if ".dev" in ver or "+" in ver:
+        return None, ["exgentic"]
+    return None, [f"exgentic=={ver}"]
 
 
 def require_uv() -> str:

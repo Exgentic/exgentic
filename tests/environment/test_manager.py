@@ -1635,8 +1635,8 @@ class TestDockerBackendDockerfile:
     - extra dependencies are installed
     """
 
-    def _capture_dockerfile(self, tmp_path, **install_kwargs):
-        """Run DockerBackend.install() with mocked docker, return Dockerfile content."""
+    def _capture_dockerfiles(self, tmp_path, **install_kwargs):
+        """Run DockerBackend.install() with mocked docker, return list of Dockerfile contents."""
         from exgentic.environment.docker import DockerBackend
 
         dockerfiles: list[str] = []
@@ -1663,11 +1663,16 @@ class TestDockerBackendDockerfile:
         with mock.patch("subprocess.run", side_effect=side_effect):
             backend.install(env_dir, **install_kwargs)
 
+        return dockerfiles
+
+    def _capture_dockerfile(self, tmp_path, **install_kwargs):
+        """Run DockerBackend.install() with mocked docker, return single Dockerfile content."""
+        dockerfiles = self._capture_dockerfiles(tmp_path, **install_kwargs)
         assert len(dockerfiles) == 1, f"Expected 1 docker build, got {len(dockerfiles)}"
         return dockerfiles[0]
 
     def test_source_install_copies_source(self, tmp_path: Path) -> None:
-        """When project_root is given, COPY src/ and pip install."""
+        """When project_root is given, build a base + bench image pair."""
         # Create a fake project root.
         proj = tmp_path / "project"
         proj.mkdir()
@@ -1677,17 +1682,24 @@ class TestDockerBackendDockerfile:
         src.mkdir(parents=True)
         (src / "__init__.py").write_text("")
 
-        df = self._capture_dockerfile(
+        dockerfiles = self._capture_dockerfiles(
             tmp_path,
             name="benchmarks/test",
             module_path=None,
             project_root=proj,
         )
 
-        assert "COPY pyproject.toml" in df
-        assert "COPY src/ src/" in df
-        assert "uv pip install --no-cache ." in df
-        assert "uv pip install --no-cache --no-deps ." in df
+        assert len(dockerfiles) == 2, f"Expected 2 docker builds (base + bench), got {len(dockerfiles)}"
+        base_df, bench_df = dockerfiles
+
+        # Base image installs exgentic from source.
+        assert "COPY pyproject.toml" in base_df
+        assert "COPY src/ src/" in base_df
+        assert "uv pip install --no-cache ." in base_df
+        assert "uv pip install --no-cache --no-deps ." in base_df
+
+        # Bench image is layered on top.
+        assert "FROM exgentic-base:" in bench_df
 
     def test_pypi_install(self, tmp_path: Path) -> None:
         """When packages are given, RUN uv pip install."""
@@ -1742,12 +1754,12 @@ class TestDockerBackendDockerfile:
         assert "/usr/local/bin docker/docker" in df
 
     def test_extra_dependencies(self, tmp_path: Path) -> None:
-        """Extra dependencies are pip-installed."""
+        """Extra packages are pip-installed."""
         df = self._capture_dockerfile(
             tmp_path,
             name="benchmarks/test",
             module_path=None,
-            dependencies=["numpy", "pandas"],
+            packages=["numpy", "pandas"],
         )
 
         assert "uv pip install --no-cache numpy pandas" in df

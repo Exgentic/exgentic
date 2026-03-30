@@ -68,7 +68,7 @@ _SYSTEM_ENV_BLOCKLIST = frozenset(
         "CONDA_PREFIX",
     }
 )
-_PREFIX_BLOCKLIST = ("LC_", "VSCODE_", "UV_", "PIP_")
+_PREFIX_BLOCKLIST = ("VSCODE_", "UV_", "PIP_")
 
 
 def prepare_subprocess_env() -> dict[str, str]:
