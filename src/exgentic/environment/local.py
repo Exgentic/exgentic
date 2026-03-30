@@ -45,6 +45,11 @@ class LocalBackend:
         if project_root is not None or packages or module_path is not None:
             uv = require_uv()
             env = build_subprocess_env()
+            # Ensure VIRTUAL_ENV is set so uv installs into the correct
+            # environment when the current Python lives inside a venv
+            # (e.g. when exgentic is installed as a uv tool).
+            if sys.prefix != sys.base_prefix:
+                env["VIRTUAL_ENV"] = sys.prefix
 
             if project_root is not None:
                 install_project(uv, sys.executable, project_root, env)
