@@ -14,7 +14,7 @@ import threading
 import traceback
 from pathlib import Path
 from shutil import move
-from typing import Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -47,25 +47,30 @@ from ...observers.logging import (
 from ...utils.cost import CostReport, LiteLLMCostReport, UpdatableCostReport
 from ...utils.paths import get_run_id
 from ...utils.settings import get_settings
-from .tau2_shim import (
-    AssistantMessage,
-    Console,
-    ConsoleDisplay,
-    LLMAgent,
-    MultiToolMessage,
-    Results,
-    RunConfig,
-    TerminationReason,
-    Tool,
-    ToolCall,
-    ToolMessage,
-    UserMessage,
-    compute_metrics,
-    is_successful,
-    load_tasks,
-    registry,
-    run_domain,
-)
+
+if TYPE_CHECKING:
+    from .tau2_shim import (
+        AssistantMessage,
+        Console,
+        ConsoleDisplay,
+        LLMAgent,
+        Results,
+        RunConfig,
+        TerminationReason,
+        Tool,
+        ToolCall,
+        compute_metrics,
+        is_successful,
+        load_tasks,
+    )
+
+
+def _import_tau2():
+    """Lazy import of tau2 shim — only called at runtime when actually needed."""
+    from . import tau2_shim
+
+    return tau2_shim
+
 
 # Resolve settings once per module
 settings = get_settings()
@@ -92,25 +97,27 @@ def _echo_action(action: SingleAction) -> SingleAction:
 
 def tau_message_to_user_tool_message(message: Any) -> dict[str, Any]:
     """Convert Tau2 message objects into a generic chat-style payload."""
-    if isinstance(message, UserMessage):
+    tau2 = _import_tau2()
+    if isinstance(message, tau2.UserMessage):
         return {"role": "user", "content": message.content}
-    if isinstance(message, ToolMessage):
+    if isinstance(message, tau2.ToolMessage):
         return {
             "role": "tool",
             "tool_call_id": str(message.id),
             "content": message.content,
         }
-    if isinstance(message, MultiToolMessage):
+    if isinstance(message, tau2.MultiToolMessage):
         return [{"role": "tool", "tool_call_id": str(m.id), "content": m.content} for m in message.tool_messages]
     return {"content": str(message)}
 
 
 def assistant_message_to_tau_message(msg_dict: dict[str, Any]) -> AssistantMessage:
     """Convert a generic assistant message dict into a Tau2 AssistantMessage."""
+    tau2 = _import_tau2()
     tool_calls: list[ToolCall] | None = None
     if "tool_calls" in msg_dict:
-        tool_calls = [ToolCall(**p) for p in msg_dict["tool_calls"]]
-    return AssistantMessage(role="assistant", content=msg_dict.get("content"), tool_calls=tool_calls)
+        tool_calls = [tau2.ToolCall(**p) for p in msg_dict["tool_calls"]]
+    return tau2.AssistantMessage(role="assistant", content=msg_dict.get("content"), tool_calls=tool_calls)
 
 
 class TAU2Session(PairableProxySession):
@@ -156,7 +163,8 @@ class TAU2Session(PairableProxySession):
         )
 
         # Load TAU2 environment tools to expose actions
-        environment_constructor = registry.get_env_constructor(self._cfg.domain)
+        tau2 = _import_tau2()
+        environment_constructor = tau2.registry.get_env_constructor(self._cfg.domain)
         environment = environment_constructor()
         self.domain_policy = environment.get_policy()
         tools = environment.get_tools()
@@ -192,13 +200,14 @@ class TAU2Session(PairableProxySession):
         self.logger.debug("Staged OK")
 
         def _runner():
+            tau2 = _import_tau2()
             self.logger.debug(f"Runner started PID:{os.getpid()}")
             agent_name = self._cfg.agent
-            if agent_name not in registry.get_agents():
-                registry.register_agent(TAU2ProxyAgent, agent_name)
+            if agent_name not in tau2.registry.get_agents():
+                tau2.registry.register_agent(TAU2ProxyAgent, agent_name)
             # Prepare session log path and redirect Tau2 console + prints
             log_fh = open(self.paths.benchmark_dir / "tau2_session.log", "a", encoding="utf-8")
-            prev_console = ConsoleDisplay.console
+            prev_console = tau2.ConsoleDisplay.console
             prev_print = builtins.print
             prev_input = builtins.input
             tau2_logger_state = None
@@ -206,7 +215,7 @@ class TAU2Session(PairableProxySession):
 
             for handler in self.logger.handlers:
                 if isinstance(handler, logging.FileHandler):
-                    ConsoleDisplay.console = Console(
+                    tau2.ConsoleDisplay.console = tau2.Console(
                         file=log_fh,
                         force_terminal=False,
                         color_system=None,
@@ -237,7 +246,7 @@ class TAU2Session(PairableProxySession):
                     )
                     Path(self.file_path).unlink()
                 self.logger.info("Starting TAU2 run domain")
-                run_domain(self._cfg)
+                tau2.run_domain(self._cfg)
                 self.logger.info("TAU2 run completed")
             except Exception as e:
                 self.logger.error(f"TAU2 run FAILED with Exception: {e}")
@@ -247,7 +256,7 @@ class TAU2Session(PairableProxySession):
             finally:
                 builtins.print = prev_print
                 builtins.input = prev_input
-                ConsoleDisplay.console = prev_console
+                tau2.ConsoleDisplay.console = prev_console
                 # Restore tau2 logger handlers
                 if tau2_logger_state is not None:
                     (
@@ -279,7 +288,8 @@ class TAU2Session(PairableProxySession):
 
     # Proxy -> Exgentic observation mapping
     def update_message(self, message: Any) -> None:
-        if isinstance(message, UserMessage):
+        tau2 = _import_tau2()
+        if isinstance(message, tau2.UserMessage):
             usage = message.usage or {}
             self._user_input_tokens += usage.get("prompt_tokens", 0)
             self._user_output_tokens += usage.get("completion_tokens", 0)
@@ -396,7 +406,7 @@ class TAU2Session(PairableProxySession):
             if not results_path.exists():
                 return None
             try:
-                return Results.load(path)
+                return _import_tau2().Results.load(path)
             except Exception:
                 return None
 

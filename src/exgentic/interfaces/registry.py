@@ -111,6 +111,7 @@ BENCHMARKS: dict[str, RegistryEntry] = {
         subsets=("distractor",),
         subset_arg="subset",
         task_id_type="int",
+        runner="direct",
     ),
     "browsecompplus": RegistryEntry(
         slug_name="browsecompplus",
@@ -121,6 +122,7 @@ BENCHMARKS: dict[str, RegistryEntry] = {
         subsets=("main",),
         subset_arg="subset",
         task_id_type="int",
+        runner="direct",
     ),
     "swebench": RegistryEntry(
         slug_name="swebench",
