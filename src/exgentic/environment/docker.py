@@ -248,9 +248,15 @@ class DockerBackend:
             ]
         )
 
-        dockerfile = Path(tempfile.mktemp(prefix="exgentic-base-", suffix=".Dockerfile"))
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            prefix="exgentic-base-",
+            suffix=".Dockerfile",
+            delete=False,
+        ) as fh:
+            fh.write("\n".join(lines) + "\n")
+            dockerfile = Path(fh.name)
         try:
-            dockerfile.write_text("\n".join(lines) + "\n")
             subprocess.run(
                 ["docker", "build", "-f", str(dockerfile), "-t", tag, str(project_root)],
                 check=True,
