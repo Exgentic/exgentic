@@ -48,11 +48,9 @@ class RunnerMixin:
         runner = self.resolve_runner()
 
         if runner == "venv":
-            from ..environment.instance import get_manager
-
             kind = "agents" if self._is_agent() else "benchmarks"
             kw: dict[str, Any] = {}
-            kw["venv_dir"] = str(get_manager().env_path(f"{kind}/{self.slug_name}") / "venv")
+            kw["venv_dir"] = str(Path.home() / ".cache" / "exgentic" / "venvs" / kind / self.slug_name)
             if self.setup_script:
                 kw["setup_script"] = self.setup_script
             if self.requirements_txt:
