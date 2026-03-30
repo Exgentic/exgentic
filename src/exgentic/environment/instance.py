@@ -13,8 +13,7 @@ from .manager import EnvironmentManager
 def get_manager() -> EnvironmentManager:
     """Return the shared EnvironmentManager instance.
 
-    Uses the exgentic settings cache_dir as the base directory.
+    Environments live at ``~/.exgentic/`` — a fixed absolute path,
+    independent of the working directory or cache settings.
     """
-    from ..utils.settings import get_settings
-
-    return EnvironmentManager(base_dir=Path(get_settings().cache_dir).expanduser())
+    return EnvironmentManager(base_dir=Path.home() / ".exgentic")
