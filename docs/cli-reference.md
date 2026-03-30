@@ -61,14 +61,14 @@ exgentic list tasks --benchmark tau2 --subset retail --limit 20
 
 ## install
 
-Install a benchmark's or agent's dependencies (default: local environment).
+Install a benchmark's or agent's dependencies (default: isolated venv).
 
 ```bash
-exgentic install --benchmark tau2              # install deps + data (default)
+exgentic install --benchmark tau2              # install deps + data (default: venv)
 exgentic install --agent tool_calling
 exgentic install --benchmark tau2 --force       # reinstall even if already set up
 exgentic install --benchmark tau2 --docker      # build Docker image
-exgentic install --benchmark tau2 --venv        # install into isolated venv
+exgentic install --benchmark tau2 --local       # install into local environment
 ```
 
 | Flag | Description |
@@ -77,7 +77,7 @@ exgentic install --benchmark tau2 --venv        # install into isolated venv
 | `--agent` | Agent slug |
 | `--force` | Force reinstall |
 | `--docker` | Build a Docker image |
-| `--venv` | Install into an isolated venv instead of the local environment |
+| `--local` | Install into the local environment instead of an isolated venv |
 
 See [Runners](./runners.md) for details on runner types.
 
@@ -276,13 +276,13 @@ Exgentic reads the following environment variables.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EXGENTIC_LOG_LEVEL` | `WARNING` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+| `EXGENTIC_LOG_LEVEL` | `INFO` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
 | `EXGENTIC_CACHE_DIR` | `.exgentic` | Cache directory for venvs and setup state |
 | `EXGENTIC_DOTENV_PATH` | `.env` | Path to `.env` file loaded automatically |
 | `EXGENTIC_OTEL_ENABLED` | `false` | Enable OpenTelemetry tracing |
 | `EXGENTIC_OTEL_RECORD_CONTENT` | `false` | Include prompts/responses in traces (opt-in) |
 | `EXGENTIC_LITELLM_CACHING` | `true` | Enable LiteLLM response caching |
-| `EXGENTIC_LITELLM_CACHE_DIR` | `.litellm_cache` | LiteLLM cache directory |
+| `EXGENTIC_LITELLM_CACHE_DIR` | `~/.cache/exgentic/litellm` | LiteLLM cache directory |
 | `EXGENTIC_LITELLM_LOG_LEVEL` | `WARNING` | LiteLLM internal log level |
 
 ### LLM provider credentials

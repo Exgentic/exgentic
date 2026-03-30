@@ -48,7 +48,7 @@ evaluate(
 )
 ```
 
-The default runner is `direct`. For production evaluations, `venv` is recommended.
+The default runner is `venv`. For production evaluations, `venv` is recommended.
 
 ---
 

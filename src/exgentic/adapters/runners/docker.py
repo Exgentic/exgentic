@@ -111,14 +111,14 @@ class DockerRunner:
         from ...environment.helpers import get_exgentic_install_target
 
         project_root, packages = get_exgentic_install_target()
+        all_packages = (packages or []) + list(self._dependencies)
         mgr.install(
             self._env_name,
             env_type=EnvType.DOCKER,
             module_path=self._module_path,
             docker_socket=self._docker_socket,
-            dependencies=self._dependencies,
             project_root=project_root,
-            packages=packages,
+            packages=all_packages or None,
         )
         image = mgr.docker_image(self._env_name)
         if not image:

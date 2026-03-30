@@ -52,9 +52,9 @@ Benchmarks are automatically installed on first run — no manual installation n
 
 ```bash
 exgentic install --benchmark tau2              # install deps + data (default)
-exgentic install --agent litellm_tool_calling
+exgentic install --agent tool_calling
 exgentic install --benchmark tau2 --docker     # build Docker image
-exgentic install --benchmark tau2 --venv       # install into isolated venv
+exgentic install --benchmark tau2 --local      # install into local environment
 exgentic uninstall --benchmark tau2            # remove installed environment
 ```
 
@@ -102,12 +102,13 @@ exgentic list benchmarks
 
 | Benchmark | Description |
 |-----------|-------------|
-| **tau2** | Simulated customer support tasks across multiple domains (retail, airline, banking) |
+| **tau2** | Simulated customer support tasks across multiple domains (mock, retail, airline, telecom) |
 | **appworld** | Multi-app API environment testing agents' ability to interact with application interfaces |
 | **browsecompplus** | Web search and browsing benchmark for information retrieval and navigation |
 | **swebench** | Software engineering benchmark for resolving real-world GitHub issues |
 | **hotpotqa** | Multi-hop question answering over Wikipedia |
 | **gsm8k** | Grade school math word problems with optional calculator tool |
+| **bfcl** | Berkeley Function Calling Leaderboard for evaluating tool-use capabilities |
 
 ## Available Agents
 
@@ -169,7 +170,7 @@ exgentic list tasks --benchmark tau2 --subset retail --limit 5
 exgentic list agents
 exgentic install --benchmark tau2
 exgentic install --benchmark tau2 --docker
-exgentic install --benchmark tau2 --venv
+exgentic install --benchmark tau2 --local
 exgentic uninstall --benchmark tau2
 
 # Run

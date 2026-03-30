@@ -46,7 +46,7 @@ _ENV_BLOCKLIST: frozenset[str] = frozenset(
         "CONDA_PREFIX",
     }
 )
-_ENV_PREFIX_BLOCKLIST: tuple[str, ...] = ("UV_", "PIP_", "VSCODE_", "LC_")
+_ENV_PREFIX_BLOCKLIST: tuple[str, ...] = ("UV_", "PIP_", "VSCODE_")
 
 
 def build_subprocess_env() -> dict:

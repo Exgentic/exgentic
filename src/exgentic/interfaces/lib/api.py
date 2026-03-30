@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import inspect
 import json
-from importlib import resources
-from pathlib import Path
 from typing import Any
 
 from ...core.agent import Agent
@@ -570,77 +568,17 @@ def list_tasks(
         benchmark_obj.close()
 
 
-def _find_package_file(module_path: str, filename: str) -> Path | None:
-    """Locate *filename* in the package directory for *module_path*.
-
-    Walks up from the deepest package (e.g. ``exgentic.agents.cli.claude``)
-    toward the root until it finds the file.  This lets CLI sub-agents
-    share a single ``requirements.txt`` at ``agents/cli/``.
-    """
-    parts = module_path.split(".")
-    # Start from the deepest package directory, walk up to top-level package.
-    for depth in range(len(parts) - 1, 1, -1):
-        package = ".".join(parts[:depth])
-        try:
-            candidate = resources.files(package) / filename
-        except Exception:
-            continue
-        if candidate.is_file():
-            return Path(str(candidate))
-    return None
-
-
 def needs_setup(name: str, kind: str) -> bool:
     """Return True if a benchmark/agent has a setup.sh or requirements.txt."""
+    from ...environment.helpers import find_package_file
+
     entries = get_benchmark_entries() if kind == "benchmark" else get_agent_entries()
     entry = entries.get(name)
     if entry is None:
         return False
     return (
-        _find_package_file(entry.module, "setup.sh") is not None
-        or _find_package_file(entry.module, "requirements.txt") is not None
-    )
-
-
-def setup_benchmark(benchmark: str, force: bool = False, runner: str | None = None) -> None:
-    from ...environment import EnvType
-    from ...environment.instance import get_manager
-
-    mgr = get_manager()
-    name = f"benchmarks/{benchmark}"
-    entry = get_benchmark_entries()[benchmark]
-    env_type = EnvType.DOCKER if runner == "docker" else EnvType.VENV
-    from ...environment.helpers import get_exgentic_install_target
-
-    project_root, packages = get_exgentic_install_target()
-    mgr.install(
-        name,
-        env_type=env_type,
-        force=force,
-        module_path=entry.module,
-        project_root=project_root,
-        packages=packages,
-    )
-
-
-def setup_agent(agent: str, force: bool = False, runner: str | None = None) -> None:
-    from ...environment import EnvType
-    from ...environment.instance import get_manager
-
-    mgr = get_manager()
-    name = f"agents/{agent}"
-    entry = get_agent_entries()[agent]
-    env_type = EnvType.DOCKER if runner == "docker" else EnvType.VENV
-    from ...environment.helpers import get_exgentic_install_target
-
-    project_root, packages = get_exgentic_install_target()
-    mgr.install(
-        name,
-        env_type=env_type,
-        force=force,
-        module_path=entry.module,
-        project_root=project_root,
-        packages=packages,
+        find_package_file(entry.module, "setup.sh") is not None
+        or find_package_file(entry.module, "requirements.txt") is not None
     )
 
 
@@ -678,7 +616,5 @@ __all__ = [
     "list_tasks",
     "preview",
     "results",
-    "setup_agent",
-    "setup_benchmark",
     "status",
 ]
