@@ -26,7 +26,6 @@ class RegistryEntry:
     subset_arg: str | None = None
     task_ids_arg: str | None = None
     task_id_type: str | None = None
-    runner: str | None = None
 
     def is_available(self) -> bool:
         return importlib.util.find_spec(self.module) is not None
@@ -80,7 +79,6 @@ BENCHMARKS: dict[str, RegistryEntry] = {
         subsets=("mock", "retail", "airline", "telecom"),
         subset_arg="subset",
         task_id_type="int",
-        runner="direct",
     ),
     "appworld": RegistryEntry(
         slug_name="appworld",
@@ -111,7 +109,6 @@ BENCHMARKS: dict[str, RegistryEntry] = {
         subsets=("distractor",),
         subset_arg="subset",
         task_id_type="int",
-        runner="direct",
     ),
     "browsecompplus": RegistryEntry(
         slug_name="browsecompplus",
@@ -122,7 +119,6 @@ BENCHMARKS: dict[str, RegistryEntry] = {
         subsets=("main",),
         subset_arg="subset",
         task_id_type="int",
-        runner="direct",
     ),
     "swebench": RegistryEntry(
         slug_name="swebench",

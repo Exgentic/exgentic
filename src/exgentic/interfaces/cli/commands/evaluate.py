@@ -51,12 +51,6 @@ def _get_registry_entry(slug: str, kind: str):
     return entry
 
 
-def _get_benchmark_default_runner(slug: str) -> str | None:
-    """Return the benchmark's default runner from the registry, if set."""
-    entry = _get_registry_entry(slug, "benchmark")
-    return entry.runner
-
-
 def _needs_setup(name: str, install_type: str) -> bool:
     """Check if a benchmark/agent has a setup.sh or requirements.txt."""
     from ...lib.api import needs_setup
@@ -83,9 +77,7 @@ def _ensure_installed(
     from ....environment.instance import get_manager
 
     mgr = get_manager()
-    runner = (
-        _get_runner_from_set(set_values) or _get_benchmark_default_runner(benchmark) or get_settings().default_runner
-    )
+    runner = _get_runner_from_set(set_values) or get_settings().default_runner
     if runner == "docker":
         env_type = EnvType.DOCKER
     elif runner == "venv":
