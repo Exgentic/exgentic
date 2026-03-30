@@ -105,8 +105,14 @@ def _ensure_installed(
     for install_type, slug, name in to_install:
         entry = _get_registry_entry(slug, install_type)
         kwargs: dict = {"env_type": env_type, "module_path": entry.module}
-        if env_type is EnvType.VENV:
-            kwargs["venv_packages"] = ["exgentic"]
+        if env_type in (EnvType.VENV, EnvType.DOCKER):
+            from ....environment.helpers import get_exgentic_install_target
+
+            project_root, packages = get_exgentic_install_target()
+            if project_root is not None:
+                kwargs["project_root"] = project_root
+            if packages:
+                kwargs["packages"] = packages
         mgr.install(name, **kwargs)
 
 

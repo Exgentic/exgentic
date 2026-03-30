@@ -617,7 +617,7 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
         return str(get_manager().env_path("benchmarks/browsecompplus"))
 
     def _retriever_runner_kwargs(self) -> dict[str, Any]:
-        """Runner kwargs for the retriever container (setup script + volumes).
+        """Runner kwargs for the retriever container (volumes).
 
         Only returns Docker-specific kwargs when the retriever actually runs
         in Docker; for 'service' or 'direct' these would leak into the
@@ -625,9 +625,10 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
         """
         if self.retriever_runner != "docker":
             return {}
-        kw: dict[str, Any] = {}
-        if self.setup_script:
-            kw["setup_script"] = self.setup_script
+        kw: dict[str, Any] = {
+            "env_name": f"benchmarks/{self.slug_name}",
+            "module_path": type(self).__module__,
+        }
         kw["volumes"] = {self._assets_dir: self._assets_dir}
         return kw
 
@@ -660,6 +661,7 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
 
     def runner_kwargs(self) -> dict[str, Any]:
         kw = super().runner_kwargs()
+        kw["health_timeout"] = 120.0
         if self.resolve_runner() == "docker":
             # Mount host assets (indexes, data) into the container so they
             # are not re-downloaded for every image build.

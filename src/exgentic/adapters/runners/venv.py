@@ -6,6 +6,10 @@
 Uses the same HTTPTransport as ServiceRunner and DockerRunner, but the
 uvicorn server runs in a subprocess with its own isolated venv instead
 of the host Python or a Docker container.
+
+The venv is created and managed by the EnvironmentManager — VenvRunner
+only starts the subprocess and optionally installs extra runtime
+dependencies.
 """
 
 from __future__ import annotations
@@ -20,7 +24,6 @@ from typing import Any
 
 from ._utils import (
     find_free_port,
-    find_project_root,
     inject_exgentic_env,
     make_close,
     prepare_subprocess_env,
@@ -51,23 +54,22 @@ class VenvRunner:
     Parameters
     ----------
     target_cls:       Class to instantiate inside the venv subprocess.
-    venv_dir:         Directory to create the virtual environment in.
-                      If None, uses ``{cache_dir}/venv/``.
+    env_name:         Environment name for EnvironmentManager (e.g. "benchmarks/bfcl").
+    module_path:      Dotted module path for locating package resources.
     port:             Host port to bind (auto-selected if None).
-    dependencies:     Extra pip packages to install in the venv.
-    setup_script:     Path to a shell script to run after venv creation.
-    requirements_txt: Path to a requirements.txt to install in the venv.
+    dependencies:     Extra pip packages to install in the venv at runtime.
+    health_timeout:   Seconds to wait for the health endpoint.
     """
 
     def __init__(
         self,
         target_cls: type | str,
         *args: Any,
-        venv_dir: str | None = None,
+        env_name: str,
+        module_path: str,
         port: int | None = None,
         dependencies: list[str] | None = None,
-        setup_script: str | None = None,
-        requirements_txt: str | None = None,
+        health_timeout: float | None = None,
         **kwargs: Any,
     ) -> None:
         if args:
@@ -77,25 +79,20 @@ class VenvRunner:
             )
         self._target_cls = target_cls
         self._kwargs = kwargs
-        self._venv_dir = Path(venv_dir) if venv_dir else None
+        self._env_name = env_name
+        self._module_path = module_path
         self._port = port or find_free_port()
         self._dependencies = dependencies or []
-        self._setup_script = setup_script
-        self._requirements_txt = requirements_txt
+        self._health_timeout = health_timeout or _HEALTH_TIMEOUT
         self._process: subprocess.Popen | None = None
 
     # ── venv handling ─────────────────────────────────────────────────
 
     def _get_venv_dir(self) -> Path:
-        """Return the venv directory, defaulting to cache_dir/venv/.
+        """Return the venv directory managed by EnvironmentManager."""
+        from ...environment.instance import get_manager
 
-        Always returns an absolute path so subprocess commands work
-        regardless of the current working directory.
-        """
-        if self._venv_dir is not None:
-            return Path(self._venv_dir).resolve()
-        pyver = f"{sys.version_info.major}.{sys.version_info.minor}"
-        return Path.home() / ".cache" / "exgentic" / "venvs" / f"py{pyver}"
+        return get_manager().env_path(self._env_name) / "venv"
 
     def _venv_python(self) -> Path:
         """Return the path to the Python binary inside the venv."""
@@ -105,90 +102,43 @@ class VenvRunner:
         return venv / "bin" / "python"
 
     def _ensure_venv(self) -> Path:
-        """Create the venv if it doesn't exist, install exgentic into it."""
-        venv = self._get_venv_dir()
+        """Ensure the venv exists via EnvironmentManager."""
+        from ...environment import EnvType
+        from ...environment.helpers import get_exgentic_install_target
+        from ...environment.instance import get_manager
+
+        mgr = get_manager()
+        project_root, packages = get_exgentic_install_target()
+        mgr.install(
+            self._env_name,
+            env_type=EnvType.VENV,
+            module_path=self._module_path,
+            project_root=project_root,
+            packages=packages,
+        )
+        return self._get_venv_dir()
+
+    def _install_deps(self) -> None:
+        """Install extra runtime dependencies into the venv."""
+        if not self._dependencies:
+            return
         python = self._venv_python()
-
-        if python.exists():
-            return venv
-
-        venv.mkdir(parents=True, exist_ok=True)
-
         _uv(
-            "venv",
-            str(venv),
+            "pip",
+            "install",
             "--python",
-            f"{sys.version_info.major}.{sys.version_info.minor}",
+            str(python),
+            "--no-cache",
+            *self._dependencies,
             capture_output=True,
             text=True,
         )
-
-        root = find_project_root()
-        install_target = str(root) if (root / "pyproject.toml").exists() else "exgentic"
-        _uv("pip", "install", "--python", str(python), "--no-cache", install_target, capture_output=True, text=True)
-
-        return venv
-
-    def _install_deps(self) -> None:
-        """Install requirements.txt and extra dependencies into the venv."""
-        python = self._venv_python()
-
-        if self._requirements_txt:
-            req_path = Path(self._requirements_txt)
-            if req_path.exists():
-                env = os.environ.copy()
-                env["GIT_LFS_SKIP_SMUDGE"] = "1"
-                _uv(
-                    "pip",
-                    "install",
-                    "--python",
-                    str(python),
-                    "--no-cache",
-                    "-r",
-                    str(req_path),
-                    capture_output=True,
-                    text=True,
-                    env=env,
-                )
-
-        if self._dependencies:
-            _uv(
-                "pip",
-                "install",
-                "--python",
-                str(python),
-                "--no-cache",
-                *self._dependencies,
-                capture_output=True,
-                text=True,
-            )
-
-    def _run_setup_script(self) -> None:
-        """Run setup.sh with the venv activated."""
-        if not self._setup_script:
-            return
-        script_path = Path(self._setup_script)
-        if not script_path.exists():
-            raise FileNotFoundError(f"Setup script not found: {self._setup_script}")
-
-        venv = self._get_venv_dir()
-        env = os.environ.copy()
-        env["VIRTUAL_ENV"] = str(venv)
-        venv_bin = str(venv / "bin")
-        env["PATH"] = venv_bin + os.pathsep + env.get("PATH", "")
-
-        from ...utils.settings import get_settings
-
-        env["EXGENTIC_CACHE_DIR"] = str(Path(get_settings().cache_dir).resolve())
-
-        subprocess.run(["bash", str(script_path)], check=True, env=env)
 
     # ── subprocess lifecycle ──────────────────────────────────────────
 
     def start(self) -> ObjectProxy:
         venv = self._ensure_venv()
         self._install_deps()
-        self._run_setup_script()
 
         if isinstance(self._target_cls, str):
             cls_ref = self._target_cls
@@ -230,7 +180,7 @@ class VenvRunner:
 
         url = f"http://127.0.0.1:{self._port}"
         try:
-            _wait_for_health(url, timeout=_HEALTH_TIMEOUT)
+            _wait_for_health(url, timeout=self._health_timeout)
         except TimeoutError:
             proc = self._process
             if proc is not None:
@@ -240,7 +190,7 @@ class VenvRunner:
                 stdout, stderr = b"", b""
             self._stop_process()
             raise TimeoutError(
-                f"Venv service did not become healthy within {_HEALTH_TIMEOUT}s.\n"
+                f"Venv service did not become healthy within {self._health_timeout}s.\n"
                 f"stdout:\n{stdout.decode(errors='replace')}\n"
                 f"stderr:\n{stderr.decode(errors='replace')}"
             ) from None

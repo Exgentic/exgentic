@@ -61,8 +61,14 @@ def install_cmd(benchmark: str | None, agent: str | None, force: bool, docker: b
             name = f"agents/{agent}"
 
         kwargs: dict = {"env_type": env_type, "module_path": entry.module, "force": force}
-        if env_type is EnvType.VENV:
-            kwargs["venv_packages"] = ["exgentic"]
+        if env_type in (EnvType.VENV, EnvType.DOCKER):
+            from ....environment.helpers import get_exgentic_install_target
+
+            project_root, packages = get_exgentic_install_target()
+            if project_root is not None:
+                kwargs["project_root"] = project_root
+            if packages:
+                kwargs["packages"] = packages
         mgr.install(name, **kwargs)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc

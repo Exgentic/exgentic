@@ -29,7 +29,13 @@ pytestmark = [
 @pytest.fixture(scope="module")
 def docker_calc():
     """Shared docker-backed Calculator (building is slow)."""
-    proxy = with_runner(Calculator, runner="docker", value=10)
+    proxy = with_runner(
+        Calculator,
+        runner="docker",
+        env_name="tests/calculator",
+        module_path="exgentic.testing.calculator",
+        value=10,
+    )
     yield proxy
     try:
         proxy.close()

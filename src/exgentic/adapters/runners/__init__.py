@@ -83,15 +83,15 @@ def with_runner(cls: type | str, *args: Any, runner: RunnerName = "direct", **kw
 
         docker_kw = {}
         for key in (
+            "env_name",
+            "module_path",
             "image",
             "dockerfile",
             "port",
             "docker_args",
             "dependencies",
-            "setup_script",
             "docker_socket",
             "volumes",
-            "requirements_txt",
         ):
             if key in kwargs:
                 docker_kw[key] = kwargs.pop(key)
@@ -102,11 +102,11 @@ def with_runner(cls: type | str, *args: Any, runner: RunnerName = "direct", **kw
 
         venv_kw = {}
         for key in (
-            "venv_dir",
+            "env_name",
+            "module_path",
             "port",
             "dependencies",
-            "setup_script",
-            "requirements_txt",
+            "health_timeout",
         ):
             if key in kwargs:
                 venv_kw[key] = kwargs.pop(key)

@@ -6,20 +6,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field
-
-from ...core.types import SessionScore as BaseSessionScore
 from ...utils.paths import SessionPaths
-
-
-class SessionScore(BaseSessionScore):
-    instance_id: str = ""
-    agent: dict[str, Any] = Field(default_factory=dict)
-    patch: dict[str, Any] = Field(default_factory=dict)
-    container: dict[str, Any] = Field(default_factory=dict)
-    evaluation: dict[str, Any] = Field(default_factory=dict)
-    summary: dict[str, Any] = Field(default_factory=dict)
-
+from .swebench_benchmark import SessionScore
 
 FILE_OPS_RE = re.compile(r"\b(cp|mv|rm|mkdir|touch|tee|patch)\b")
 BUILD_PHASES = {"base": "build_base", "env": "build_env", "instances": "build_instance"}

@@ -143,22 +143,17 @@ def test_venv_and_local_coexist(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 6. Runner venv path is NOT under manager space
+# 6. Runner venv path is under EnvironmentManager space
 # ---------------------------------------------------------------------------
 
 
-def test_runner_venv_not_in_manager_space() -> None:
-    """VenvRunner's transient venvs should be under ~/.cache/, not ~/.exgentic/."""
-    # The venv_dir is constructed in runner_kwargs() as:
-    #   Path.home() / ".cache" / "exgentic" / "venvs" / kind / slug_name
-    # Verify by inspecting the path template directly.
-    cache_prefix = str(Path.home() / ".cache" / "exgentic" / "venvs")
+def test_runner_venv_in_manager_space() -> None:
+    """VenvRunner venvs should be under ~/.exgentic/{kind}/{slug}/venv/."""
     manager_prefix = str(Path.home() / ".exgentic")
 
     # Build the path the same way RunnerMixin does.
     for kind in ("benchmarks", "agents"):
-        venv_dir = str(Path.home() / ".cache" / "exgentic" / "venvs" / kind / "test-slug")
-        assert venv_dir.startswith(cache_prefix), "venv_dir should be under ~/.cache/exgentic/venvs"
-        assert not venv_dir.startswith(
-            manager_prefix + "/benchmarks"
-        ), "venv_dir must NOT be under ~/.exgentic/benchmarks"
+        venv_dir = str(Path.home() / ".exgentic" / kind / "test-slug" / "venv")
+        assert venv_dir.startswith(manager_prefix), "venv_dir should be under ~/.exgentic/"
+        assert kind in venv_dir, f"venv_dir should contain {kind}"
+        assert venv_dir.endswith("/venv"), "venv_dir should end with /venv"

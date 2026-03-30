@@ -610,7 +610,17 @@ def setup_benchmark(benchmark: str, force: bool = False, runner: str | None = No
     name = f"benchmarks/{benchmark}"
     entry = get_benchmark_entries()[benchmark]
     env_type = EnvType.DOCKER if runner == "docker" else EnvType.VENV
-    mgr.install(name, env_type=env_type, force=force, module_path=entry.module, venv_packages=["exgentic"])
+    from ...environment.helpers import get_exgentic_install_target
+
+    project_root, packages = get_exgentic_install_target()
+    mgr.install(
+        name,
+        env_type=env_type,
+        force=force,
+        module_path=entry.module,
+        project_root=project_root,
+        packages=packages,
+    )
 
 
 def setup_agent(agent: str, force: bool = False, runner: str | None = None) -> None:
@@ -621,7 +631,17 @@ def setup_agent(agent: str, force: bool = False, runner: str | None = None) -> N
     name = f"agents/{agent}"
     entry = get_agent_entries()[agent]
     env_type = EnvType.DOCKER if runner == "docker" else EnvType.VENV
-    mgr.install(name, env_type=env_type, force=force, module_path=entry.module, venv_packages=["exgentic"])
+    from ...environment.helpers import get_exgentic_install_target
+
+    project_root, packages = get_exgentic_install_target()
+    mgr.install(
+        name,
+        env_type=env_type,
+        force=force,
+        module_path=entry.module,
+        project_root=project_root,
+        packages=packages,
+    )
 
 
 def _describe_init_args(cls: type) -> list[str]:

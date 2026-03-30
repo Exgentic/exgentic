@@ -24,7 +24,13 @@ pytestmark = [
 @pytest.fixture(scope="module")
 def venv_calc():
     """Shared venv-backed Calculator (venv creation is slow)."""
-    proxy = with_runner(Calculator, runner="venv", value=10)
+    proxy = with_runner(
+        Calculator,
+        runner="venv",
+        env_name="tests/calculator",
+        module_path="exgentic.testing.calculator",
+        value=10,
+    )
     yield proxy
     try:
         proxy.close()

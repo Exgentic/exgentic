@@ -1620,13 +1620,179 @@ class TestDockerBuildEnv:
 
 
 # ---------------------------------------------------------------------------
+# DockerBackend Dockerfile generation
+# ---------------------------------------------------------------------------
+
+
+class TestDockerBackendDockerfile:
+    """Verify the Dockerfile content DockerBackend generates.
+
+    These tests mock subprocess.run to capture the Dockerfile instead of
+    actually building.  They verify critical assumptions:
+    - exgentic is installed from source when a source dir is provided
+    - requirements.txt and setup.sh are included
+    - docker socket installs Docker CLI
+    - extra dependencies are installed
+    """
+
+    def _capture_dockerfile(self, tmp_path, **install_kwargs):
+        """Run DockerBackend.install() with mocked docker, return Dockerfile content."""
+        from exgentic.environment.docker import DockerBackend
+
+        dockerfiles: list[str] = []
+
+        def side_effect(cmd, **kwargs):
+            cmd = list(cmd)
+            if cmd[0] == "docker" and cmd[1:3] == ["image", "inspect"]:
+                # Image doesn't exist yet.
+                return _docker_mock_result(returncode=1)
+            if cmd[0] == "docker" and cmd[1] == "build":
+                # Find the Dockerfile.
+                if "-f" in cmd:
+                    df_path = cmd[cmd.index("-f") + 1]
+                else:
+                    df_path = str(Path(cmd[-1]) / "Dockerfile")
+                dockerfiles.append(Path(df_path).read_text())
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        backend = DockerBackend()
+        env_dir = tmp_path / "env"
+        env_dir.mkdir(parents=True, exist_ok=True)
+
+        with mock.patch("subprocess.run", side_effect=side_effect):
+            backend.install(env_dir, **install_kwargs)
+
+        assert len(dockerfiles) == 1, f"Expected 1 docker build, got {len(dockerfiles)}"
+        return dockerfiles[0]
+
+    def test_source_install_copies_source(self, tmp_path: Path) -> None:
+        """When project_root is given, COPY src/ and pip install."""
+        # Create a fake project root.
+        proj = tmp_path / "project"
+        proj.mkdir()
+        (proj / "pyproject.toml").write_text('[project]\nname = "fakepkg"\nversion = "0.1"\n')
+        (proj / "README.md").write_text("# Fake\n")
+        src = proj / "src" / "exgentic"
+        src.mkdir(parents=True)
+        (src / "__init__.py").write_text("")
+
+        df = self._capture_dockerfile(
+            tmp_path,
+            name="benchmarks/test",
+            module_path=None,
+            project_root=proj,
+        )
+
+        assert "COPY pyproject.toml" in df
+        assert "COPY src/ src/" in df
+        assert "uv pip install --no-cache ." in df
+        assert "uv pip install --no-cache --no-deps ." in df
+
+    def test_pypi_install(self, tmp_path: Path) -> None:
+        """When packages are given, RUN uv pip install."""
+        df = self._capture_dockerfile(
+            tmp_path,
+            name="benchmarks/test",
+            module_path=None,
+            packages=["exgentic==1.2.3"],
+        )
+
+        assert "uv pip install --no-cache exgentic==1.2.3" in df
+        assert "COPY src/" not in df
+
+    def test_requirements_included(self, tmp_path: Path) -> None:
+        """requirements.txt from module_path is installed."""
+        module_path = _create_fake_package(tmp_path, with_requirements=True, with_setup=False)
+
+        df = self._capture_dockerfile(
+            tmp_path,
+            name="benchmarks/test",
+            module_path=module_path,
+            packages=["exgentic==1.0"],
+        )
+
+        assert "requirements.txt" in df
+        assert "uv pip install --no-cache -r" in df
+
+    def test_setup_sh_included(self, tmp_path: Path) -> None:
+        """setup.sh from module_path is run during build."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=True)
+
+        df = self._capture_dockerfile(
+            tmp_path,
+            name="benchmarks/test",
+            module_path=module_path,
+            packages=["exgentic==1.0"],
+        )
+
+        assert "setup.sh" in df
+        assert "EXGENTIC_DOCKER_BUILD=1 bash /tmp/setup.sh" in df
+
+    def test_docker_socket_installs_cli(self, tmp_path: Path) -> None:
+        """docker_socket=True installs Docker CLI in the image."""
+        df = self._capture_dockerfile(
+            tmp_path,
+            name="benchmarks/test",
+            module_path=None,
+            docker_socket=True,
+        )
+
+        assert "docker-27.5.1.tgz" in df
+        assert "/usr/local/bin docker/docker" in df
+
+    def test_extra_dependencies(self, tmp_path: Path) -> None:
+        """Extra dependencies are pip-installed."""
+        df = self._capture_dockerfile(
+            tmp_path,
+            name="benchmarks/test",
+            module_path=None,
+            dependencies=["numpy", "pandas"],
+        )
+
+        assert "uv pip install --no-cache numpy pandas" in df
+
+    def test_no_exgentic_without_packages(self, tmp_path: Path) -> None:
+        """Without packages or project_root, no exgentic install lines."""
+        df = self._capture_dockerfile(
+            tmp_path,
+            name="benchmarks/test",
+            module_path=None,
+        )
+
+        assert "COPY src/" not in df
+        assert "exgentic" not in df.lower() or "exgentic-docker" in df.lower()
+
+    def test_image_tag_deterministic(self, tmp_path: Path) -> None:
+        """Same inputs produce the same image tag."""
+        from exgentic.environment.docker import DockerBackend
+
+        tag1 = DockerBackend._image_tag("benchmarks/test", None, docker_socket=True)
+        tag2 = DockerBackend._image_tag("benchmarks/test", None, docker_socket=True)
+        assert tag1 == tag2
+
+    def test_image_tag_changes_with_packages(self, tmp_path: Path) -> None:
+        """Different packages produce different tags."""
+        from exgentic.environment.docker import DockerBackend
+
+        tag1 = DockerBackend._image_tag("benchmarks/test", None, packages=["exgentic==1.0"])
+        tag2 = DockerBackend._image_tag("benchmarks/test", None, packages=["exgentic==2.0"])
+        assert tag1 != tag2
+
+
+# ---------------------------------------------------------------------------
 # Docker integration (requires Docker/Podman running)
 # ---------------------------------------------------------------------------
 
 _docker_available = shutil.which("docker") is not None
+if _docker_available:
+    try:
+        subprocess.run(["docker", "info"], check=True, capture_output=True, timeout=5)
+    except Exception:
+        _docker_available = False
 
 
-@pytest.mark.skipif(not _docker_available, reason="docker CLI not available")
+@pytest.mark.skipif(not _docker_available, reason="Docker not available")
 class TestDockerIntegration:
     """Real Docker tests -- actually build and remove images."""
 

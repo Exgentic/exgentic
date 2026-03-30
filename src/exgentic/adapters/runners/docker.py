@@ -5,21 +5,21 @@
 
 Uses the same HTTPTransport as ServiceRunner, but the uvicorn server
 runs inside a container instead of a local thread.
+
+The Docker image is managed by the EnvironmentManager — DockerRunner
+only starts the container and wires up volumes, ports and env vars.
 """
 
 from __future__ import annotations
 
 import atexit
-import hashlib
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any
 
 from ._utils import (
     find_free_port,
-    find_project_root,
     inject_exgentic_env,
     make_close,
     prepare_subprocess_env,
@@ -42,37 +42,30 @@ class DockerRunner:
     Parameters
     ----------
     target_cls:    Class to instantiate inside the container.
-    image:         Pre-built image name (skips building).
+    env_name:      Environment name for EnvironmentManager (e.g. "benchmarks/bfcl").
+    module_path:   Dotted module path for locating package resources.
+    image:         Pre-built image name (skips EM lookup).
     dockerfile:    Path to a Dockerfile to build from.
     port:          Host port to bind (auto-selected if None).
     docker_args:   Extra arguments forwarded to ``docker run``.
     dependencies:  Pip packages to install in the image.
-    setup_script:  Path to a shell script to run during image build.
-                   This is the primary way benchmarks declare their
-                   environment — the same script users run locally.
     docker_socket: Mount the host Docker socket into the container.
-                   Needed for benchmarks like SWE-bench that create
-                   sibling containers via the Docker API.
     volumes:       Host-to-container volume mappings (``{host: container}``).
-    requirements_txt: Path to a requirements.txt to install in the image.
     """
-
-    _BASE_IMAGE = "python:3.12-slim"
-    _IMAGE_VERSION = "v24"  # bump to invalidate cached images
 
     def __init__(
         self,
         target_cls: type | str,
         *args: Any,
+        env_name: str,
+        module_path: str,
         image: str | None = None,
         dockerfile: str | None = None,
         port: int | None = None,
         docker_args: list[str] | None = None,
         dependencies: list[str] | None = None,
-        setup_script: str | None = None,
         docker_socket: bool = False,
         volumes: dict[str, str] | None = None,
-        requirements_txt: str | None = None,
         **kwargs: Any,
     ) -> None:
         if args:
@@ -82,15 +75,15 @@ class DockerRunner:
             )
         self._target_cls = target_cls
         self._kwargs = kwargs
+        self._env_name = env_name
+        self._module_path = module_path
         self._image = image
         self._dockerfile = dockerfile
         self._port = port or find_free_port()
         self._docker_args = docker_args or []
         self._dependencies = dependencies or []
-        self._setup_script = setup_script
         self._docker_socket = docker_socket
         self._volumes = volumes or {}
-        self._requirements_txt = requirements_txt
         self._container_id: str | None = None
 
     # ── image handling ───────────────────────────────────────────────
@@ -105,127 +98,32 @@ class DockerRunner:
             _docker("build", "-t", tag, "-f", str(path), str(path.parent), capture_output=True)
             return tag
 
-        return self._build_default_image()
+        # Use EM's pre-built image.
+        from ...environment.instance import get_manager
 
-    def _image_tag(self) -> str:
-        """Compute a deterministic image tag from all build inputs."""
-        parts: list[str] = []
-        if self._requirements_txt:
-            req_path = Path(self._requirements_txt)
-            if req_path.exists():
-                parts.append("reqs:" + req_path.read_text())
-        if self._dependencies:
-            parts.append("deps:" + " ".join(sorted(self._dependencies)))
-        if self._setup_script:
-            script_path = Path(self._setup_script)
-            if script_path.exists():
-                parts.append("setup:" + script_path.read_text())
-        if self._docker_socket:
-            parts.append("docker-cli")
-        if not parts:
-            return f"exgentic-runner:{self._IMAGE_VERSION}"
-        parts.insert(0, self._IMAGE_VERSION)
-        content_hash = hashlib.sha256("\n".join(parts).encode()).hexdigest()[:12]
-        return f"exgentic-runner:{content_hash}"
+        mgr = get_manager()
+        image = mgr.docker_image(self._env_name)
+        if image:
+            return image
 
-    def _build_default_image(self) -> str:
-        tag = self._image_tag()
+        # Not pre-installed — install via EM now.
+        from ...environment import EnvType
+        from ...environment.helpers import get_exgentic_install_target
 
-        # Reuse if already built.
-        if _docker("image", "inspect", tag, check=False, capture_output=True).returncode == 0:
-            return tag
-
-        root = find_project_root()
-        tmp = Path(tempfile.mkdtemp(prefix="exgentic-docker-"))
-
-        # Build Dockerfile lines.  Build context is the project root.
-        # Dependencies are installed first with a stub package so the
-        # heavy layer is cached across source-code changes.
-        lines = [
-            f"FROM {self._BASE_IMAGE}",
-            "RUN apt-get update && apt-get install -y --no-install-recommends git git-lfs"
-            " && rm -rf /var/lib/apt/lists/* && git lfs install",
-            "RUN pip install --no-cache-dir uv",
-            "ENV UV_SYSTEM_PYTHON=true",
-            "WORKDIR /app",
-            # Layer 1 — install dependencies (cached unless pyproject.toml changes).
-            "COPY pyproject.toml README.md ./",
-            "RUN mkdir -p src/exgentic && touch src/exgentic/__init__.py",
-        ]
-
-        # Create stub directories for force-include paths so hatch can
-        # build the wheel during the deps-only install (the real files
-        # arrive in the later COPY src/ layer).
-        import tomllib
-
-        pyproject = tomllib.loads((root / "pyproject.toml").read_text())
-        force_includes = (
-            pyproject.get("tool", {})
-            .get("hatch", {})
-            .get("build", {})
-            .get("targets", {})
-            .get("wheel", {})
-            .get("force-include", {})
+        project_root, packages = get_exgentic_install_target()
+        mgr.install(
+            self._env_name,
+            env_type=EnvType.DOCKER,
+            module_path=self._module_path,
+            docker_socket=self._docker_socket,
+            dependencies=self._dependencies,
+            project_root=project_root,
+            packages=packages,
         )
-        for src_path in force_includes:
-            lines.append(f"RUN mkdir -p '{src_path}'")
-
-        lines.extend(
-            [
-                "RUN uv pip install --no-cache .",
-                # Layer 2 — install source code only (fast, deps already cached).
-                "COPY src/ src/",
-                "RUN uv pip install --no-cache --no-deps .",
-            ]
-        )
-        if self._requirements_txt:
-            req_path = Path(self._requirements_txt)
-            if req_path.exists():
-                # Use absolute path in COPY via the relative path from root.
-                rel = req_path.resolve().relative_to(root.resolve())
-                lines.append(f"COPY {rel} /tmp/requirements.txt")
-                # Skip Git LFS smudge filters — pip only needs Python source.
-                # Benchmarks that need LFS data fetch it in setup.sh instead.
-                lines.append("RUN GIT_LFS_SKIP_SMUDGE=1 uv pip install --no-cache -r /tmp/requirements.txt")
-
-        if self._dependencies:
-            lines.append(f"RUN uv pip install --no-cache {' '.join(self._dependencies)}")
-
-        if self._docker_socket:
-            # Install the Docker CLI (static binary) so the container can
-            # manage sibling containers via the mounted Docker socket.
-            # Using a static download avoids Debian-version-specific apt repos.
-            lines.append(
-                "RUN apt-get update && apt-get install -y --no-install-recommends curl && "
-                "rm -rf /var/lib/apt/lists/* && "
-                "ARCH=$(uname -m) && "
-                "curl -fsSL https://download.docker.com/linux/static/stable/${ARCH}/docker-27.5.1.tgz "
-                "| tar xz --strip-components=1 -C /usr/local/bin docker/docker"
-            )
-
-        if self._setup_script:
-            script_path = Path(self._setup_script)
-            if not script_path.exists():
-                raise FileNotFoundError(f"Setup script not found: {self._setup_script}")
-            rel = script_path.resolve().relative_to(root.resolve())
-            lines.append(f"COPY {rel} /tmp/setup.sh")
-            lines.append("RUN EXGENTIC_DOCKER_BUILD=1 bash /tmp/setup.sh")
-
-        (tmp / "Dockerfile").write_text("\n".join(lines) + "\n")
-        result = _docker(
-            "build",
-            "-t",
-            tag,
-            "-f",
-            str(tmp / "Dockerfile"),
-            str(root),
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"Docker build failed:\n{result.stderr}")
-        return tag
+        image = mgr.docker_image(self._env_name)
+        if not image:
+            raise RuntimeError(f"EM install succeeded but no Docker image found for {self._env_name}")
+        return image
 
     # ── container lifecycle ──────────────────────────────────────────
 

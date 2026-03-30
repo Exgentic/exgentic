@@ -12,6 +12,23 @@ from importlib import resources
 from pathlib import Path
 
 
+def get_exgentic_install_target() -> tuple[Path | None, list[str] | None]:
+    """Return ``(project_root, packages)`` for installing exgentic itself.
+
+    If running from a source checkout, returns ``(project_root, None)``
+    so backends install from source. Otherwise returns
+    ``(None, ["exgentic==X.Y.Z"])`` matching the running version.
+    """
+    from ..adapters.runners._utils import find_project_root
+
+    root = find_project_root()
+    if (root / "pyproject.toml").exists() and (root / "src" / "exgentic").is_dir():
+        return root, None
+    from importlib.metadata import version
+
+    return None, [f"exgentic=={version('exgentic')}"]
+
+
 def require_uv() -> str:
     """Return the path to ``uv``, raising a clear error if not found."""
     uv = shutil.which("uv")

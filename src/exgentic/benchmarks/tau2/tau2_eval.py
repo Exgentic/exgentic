@@ -131,6 +131,8 @@ class TAU2Session(PairableProxySession):
         if session_id is not None:
             self._session_id = session_id
         # Prepare config first so base Session.__init__ can persist it.
+        if isinstance(run_config, dict):
+            run_config = RunConfig(**run_config)
         self._cfg = run_config
         self.use_cache = use_cache
         self._cfg.save_to = self.session_id
@@ -622,7 +624,7 @@ class TAU2Evaluator(Evaluator):
             cfg.llm_args_user["output_cost_per_token"] = self._llm_user_output_cost_per_token
 
         return {
-            "run_config": cfg,
+            "run_config": cfg.model_dump(),
             "output_dir": settings.output_dir,
             "use_cache": self._use_cache,
             "session_id": index.session_id,
