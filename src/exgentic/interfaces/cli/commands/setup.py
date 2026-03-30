@@ -24,13 +24,13 @@ def _get_registry_entry(slug: str, kind: str):
 @click.option("--agent", "agent", default=None, help="Agent slug name to install.")
 @click.option("--force", is_flag=True, help="Force reinstall even if already installed.")
 @click.option("--docker", is_flag=True, help="Build a Docker image for the environment.")
-@click.option("--local", is_flag=True, help="Install into the current Python (no isolation).")
-def install_cmd(benchmark: str | None, agent: str | None, force: bool, docker: bool, local: bool) -> None:
+@click.option("--venv", is_flag=True, help="Install into an isolated venv instead of the local environment.")
+def install_cmd(benchmark: str | None, agent: str | None, force: bool, docker: bool, venv: bool) -> None:
     """Install a benchmark or agent environment.
 
-    By default, creates an isolated Python venv with dependencies.
-    Use --docker to build a Docker image, or --local to install
-    into the current Python (useful for debugging).
+    By default, installs dependencies into the current Python environment
+    and runs setup.sh.  Use --docker to build a Docker image, or --venv
+    to install into an isolated virtual environment.
     """
     from ....environment import EnvType
     from ....environment.instance import get_manager
@@ -40,15 +40,15 @@ def install_cmd(benchmark: str | None, agent: str | None, force: bool, docker: b
     if benchmark is None and agent is None:
         raise click.UsageError("Specify either --benchmark or --agent.")
 
-    if docker and local:
-        raise click.UsageError("Specify either --docker or --local, not both.")
+    if docker and venv:
+        raise click.UsageError("Specify either --docker or --venv, not both.")
 
     if docker:
         env_type = EnvType.DOCKER
-    elif local:
-        env_type = EnvType.LOCAL
-    else:
+    elif venv:
         env_type = EnvType.VENV
+    else:
+        env_type = EnvType.LOCAL
 
     mgr = get_manager()
 
@@ -72,8 +72,8 @@ def install_cmd(benchmark: str | None, agent: str | None, force: bool, docker: b
 @click.option("--benchmark", "benchmark", default=None, help="Benchmark slug name to uninstall.")
 @click.option("--agent", "agent", default=None, help="Agent slug name to uninstall.")
 @click.option("--docker", is_flag=True, help="Uninstall Docker environment only.")
-@click.option("--local", is_flag=True, help="Uninstall local environment only.")
-def uninstall_cmd(benchmark: str | None, agent: str | None, docker: bool, local: bool) -> None:
+@click.option("--venv", is_flag=True, help="Uninstall venv environment only.")
+def uninstall_cmd(benchmark: str | None, agent: str | None, docker: bool, venv: bool) -> None:
     """Uninstall a benchmark or agent environment."""
     from ....environment import EnvType
     from ....environment.instance import get_manager
@@ -83,13 +83,13 @@ def uninstall_cmd(benchmark: str | None, agent: str | None, docker: bool, local:
     if benchmark is None and agent is None:
         raise click.UsageError("Specify either --benchmark or --agent.")
 
-    if docker and local:
-        raise click.UsageError("Specify either --docker or --local, not both.")
+    if docker and venv:
+        raise click.UsageError("Specify either --docker or --venv, not both.")
 
     if docker:
         env_type = EnvType.DOCKER
-    elif local:
-        env_type = EnvType.LOCAL
+    elif venv:
+        env_type = EnvType.VENV
     else:
         env_type = None
 
