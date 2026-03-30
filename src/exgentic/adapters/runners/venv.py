@@ -94,10 +94,8 @@ class VenvRunner:
         """
         if self._venv_dir is not None:
             return Path(self._venv_dir).resolve()
-        from ...utils.settings import get_settings
-
         pyver = f"{sys.version_info.major}.{sys.version_info.minor}"
-        return Path(get_settings().cache_dir).expanduser().resolve() / f"venv-py{pyver}"
+        return Path.home() / ".cache" / "exgentic" / "venvs" / f"py{pyver}"
 
     def _venv_python(self) -> Path:
         """Return the path to the Python binary inside the venv."""

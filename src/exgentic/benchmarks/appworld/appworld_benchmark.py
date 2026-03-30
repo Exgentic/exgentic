@@ -34,13 +34,12 @@ from ...core.types import (
     SingleAction,
     SingleObservation,
 )
+from ...environment.instance import get_manager
 from ...utils.paths import get_run_id, get_run_paths
-from ...utils.settings import get_settings
 
 # NOTE: Avoid importing AppWorld modules at import-time to ensure warnings
 # capture (configured by run observers) is active before any third-party
 # import-time warnings fire. We lazy-import AppWorld pieces inside methods.
-settings = get_settings()
 logger = logging.getLogger(__name__)
 
 APPWORLD_TOTAL_TASKS = {
@@ -113,8 +112,8 @@ class AppWorldSession(Session):
         from appworld.environment import AppWorld  # type: ignore
 
         # Point appworld at the correct data directory before loading the task.
-        cache = Path(settings.cache_dir).expanduser()
-        update_root(str(cache / "appworld"))
+        env_dir = get_manager().env_path("benchmarks/appworld")
+        update_root(str(env_dir / "appworld"))
 
         self._world: AppWorld = AppWorld(task_id=self._task_id, **self._env_kwargs)
         self._experiment_name: str = self._world.experiment_name or DEFAULT_EXPERIMENT_NAME
@@ -518,8 +517,8 @@ class AppWorldEvaluator(Evaluator):
     def _ensure_appworld_root(self) -> None:
         from appworld import update_root  # type: ignore
 
-        cache = Path(settings.cache_dir).expanduser()
-        root = str(cache / "appworld")
+        env_dir = get_manager().env_path("benchmarks/appworld")
+        root = str(env_dir / "appworld")
         update_root(root)
 
     def list_tasks(self) -> list[str]:

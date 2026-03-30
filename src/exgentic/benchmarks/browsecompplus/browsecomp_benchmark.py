@@ -29,8 +29,9 @@ from ...core.types import (
     SingleAction,
     SingleObservation,
 )
+from ...environment.instance import get_manager
 from ...utils.cost import CostReport, LiteLLMCostReport
-from ...utils.settings import RunnerName, get_settings
+from ...utils.settings import RunnerName
 from .retriever import RetrieverClient, get_retriever_url, get_shared_retriever
 
 if TYPE_CHECKING:
@@ -420,7 +421,7 @@ class BrowseCompPlusEvaluator(Evaluator):
 
     @property
     def assets_dir(self):
-        return Path(get_settings().cache_dir).expanduser() / "browsecompplus"
+        return get_manager().env_path("benchmarks/browsecompplus") / "browsecompplus"
 
     def extract_dataset(self):
         import pandas as pd
@@ -613,7 +614,7 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
 
     @property
     def _assets_dir(self) -> str:
-        return str(Path(get_settings().cache_dir).expanduser() / "browsecompplus")
+        return str(get_manager().env_path("benchmarks/browsecompplus") / "browsecompplus")
 
     def _retriever_runner_kwargs(self) -> dict[str, Any]:
         """Runner kwargs for the retriever container (setup script + volumes).
