@@ -238,6 +238,8 @@ class TestDockerSessionE2E:
         proxy = with_runner(
             DockerSession,
             runner="docker",
+            env_name="test/docker-e2e",
+            module_path="",
             task_id="task-1",
             output_dir=str(out),
             volumes={str(out): str(out)},

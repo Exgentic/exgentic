@@ -57,8 +57,8 @@ class DockerRunner:
         self,
         target_cls: type | str,
         *args: Any,
-        env_name: str,
-        module_path: str,
+        env_name: str = "",
+        module_path: str = "",
         image: str | None = None,
         dockerfile: str | None = None,
         port: int | None = None,
@@ -97,6 +97,12 @@ class DockerRunner:
             path = Path(self._dockerfile)
             _docker("build", "-t", tag, "-f", str(path), str(path.parent), capture_output=True)
             return tag
+
+        if not self._env_name:
+            raise RuntimeError(
+                "DockerRunner requires 'env_name' (and usually 'module_path') "
+                "when no 'image' or 'dockerfile' is provided."
+            )
 
         # Use EM's pre-built image.
         from ...environment.instance import get_manager
