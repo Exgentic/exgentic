@@ -52,16 +52,9 @@ def _get_registry_entry(slug: str, kind: str):
 
 
 def _get_benchmark_default_runner(slug: str) -> str | None:
-    """Load the benchmark class and return its default ``runner`` value, if set."""
-    try:
-        entry = _get_registry_entry(slug, "benchmark")
-        cls = entry.load()
-        field = cls.model_fields.get("runner")
-        if field is not None and field.default is not None:
-            return str(field.default)
-    except Exception:
-        pass
-    return None
+    """Return the benchmark's default runner from the registry, if set."""
+    entry = _get_registry_entry(slug, "benchmark")
+    return entry.runner
 
 
 def _needs_setup(name: str, install_type: str) -> bool:

@@ -26,6 +26,7 @@ class RegistryEntry:
     subset_arg: str | None = None
     task_ids_arg: str | None = None
     task_id_type: str | None = None
+    runner: str | None = None
 
     def is_available(self) -> bool:
         return importlib.util.find_spec(self.module) is not None
@@ -79,6 +80,7 @@ BENCHMARKS: dict[str, RegistryEntry] = {
         subsets=("mock", "retail", "airline", "telecom"),
         subset_arg="subset",
         task_id_type="int",
+        runner="direct",
     ),
     "appworld": RegistryEntry(
         slug_name="appworld",
@@ -216,13 +218,13 @@ def apply_subset_kwargs(slug_name: str, subset: str | None, kwargs: dict[str, An
     subset_arg = get_benchmark_subset_arg(slug_name)
     if subset_arg:
         if subset_arg in kwargs and kwargs[subset_arg] != subset:
-            raise ValueError(f"Conflicting subset selection: {subset_arg}={kwargs[subset_arg]} " f"but subset={subset}")
+            raise ValueError(f"Conflicting subset selection: {subset_arg}={kwargs[subset_arg]} but subset={subset}")
         merged = dict(kwargs)
         merged[subset_arg] = subset
         return merged
     if subsets and subset != subsets[0]:
         raise ValueError(
-            f"Benchmark '{slug_name}' does not support subset selection; " f"default subset is '{subsets[0]}'."
+            f"Benchmark '{slug_name}' does not support subset selection; default subset is '{subsets[0]}'."
         )
     return kwargs
 
@@ -244,7 +246,7 @@ def apply_task_kwargs(slug_name: str, tasks: list[str] | None, kwargs: dict[str,
         coerced = [str(v) for v in tasks]
     if entry.task_ids_arg in kwargs and kwargs[entry.task_ids_arg] != coerced:
         raise ValueError(
-            f"Conflicting task selection: {entry.task_ids_arg}={kwargs[entry.task_ids_arg]} " f"but tasks={coerced}"
+            f"Conflicting task selection: {entry.task_ids_arg}={kwargs[entry.task_ids_arg]} but tasks={coerced}"
         )
     merged = dict(kwargs)
     merged[entry.task_ids_arg] = coerced
@@ -293,15 +295,15 @@ def _validate_entry(entry: RegistryEntry, cls: type) -> None:
 
 
 __all__ = [
-    "RegistryEntry",
-    "BENCHMARKS",
     "AGENTS",
-    "get_benchmark_entries",
-    "get_agent_entries",
-    "get_benchmark_subsets",
-    "get_benchmark_subset_arg",
+    "BENCHMARKS",
+    "RegistryEntry",
     "apply_subset_kwargs",
     "apply_task_kwargs",
-    "load_benchmark",
+    "get_agent_entries",
+    "get_benchmark_entries",
+    "get_benchmark_subset_arg",
+    "get_benchmark_subsets",
     "load_agent",
+    "load_benchmark",
 ]
