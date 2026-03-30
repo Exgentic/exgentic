@@ -99,6 +99,7 @@ def inject_exgentic_env(env: dict[str, str]) -> None:
     Mutates *env* in-place.
     """
     from ...core.context import context_env
+    from ...environment.instance import get_manager
     from ...utils.settings import get_settings
 
     for k, v in context_env().items():
@@ -108,7 +109,13 @@ def inject_exgentic_env(env: dict[str, str]) -> None:
             env[key] = str(Path(env[key]).resolve())
 
     settings = get_settings()
-    env.setdefault("EXGENTIC_CACHE_DIR", str(Path(settings.cache_dir).resolve()))
+    # Use the EnvironmentManager's base_dir (~/.exgentic/) so that
+    # EXGENTIC_CACHE_DIR points to the same location where benchmark
+    # data is actually installed.  The old settings.cache_dir default
+    # (".exgentic") resolved to a CWD-relative path that diverged from
+    # the manager's absolute ~/.exgentic/ path, breaking Docker mounts.
+    manager = get_manager()
+    env.setdefault("EXGENTIC_CACHE_DIR", str(manager.base_dir))
     env.setdefault("EXGENTIC_OUTPUT_DIR", str(Path(settings.output_dir).resolve()))
 
 
