@@ -65,9 +65,9 @@ def _ensure_installed(
 ) -> None:
     """Ensure benchmark/agent dependencies and data are installed.
 
-    Always installs as LOCAL (into current Python) because benchmark
-    classes are imported in the host process.  Venv/docker runners
-    handle their own isolated environments at runtime.
+    Uses VENV by default for isolation.  Falls back to LOCAL for
+    benchmarks/agents that use the direct runner (they need deps
+    importable in the host Python).
 
     For isolated runners (docker/venv), setup runs automatically without prompting.
     For other runners, the user is prompted to confirm.
@@ -76,14 +76,21 @@ def _ensure_installed(
     from ....environment.instance import get_manager
 
     mgr = get_manager()
+    runner = _get_runner_from_set(set_values) or get_settings().default_runner
+    if runner == "docker":
+        env_type = EnvType.DOCKER
+    elif runner in ("direct", "thread", "process", "service"):
+        env_type = EnvType.LOCAL
+    else:
+        env_type = EnvType.VENV
 
     to_install: list[tuple[str, str, str]] = []
     bench_name = f"benchmarks/{benchmark}"
     agent_name = f"agents/{agent}"
 
-    if not mgr.is_installed(bench_name) and _needs_setup(benchmark, "benchmark"):
+    if not mgr.is_installed(bench_name, env_type=env_type) and _needs_setup(benchmark, "benchmark"):
         to_install.append(("benchmark", benchmark, bench_name))
-    if not mgr.is_installed(agent_name) and _needs_setup(agent, "agent"):
+    if not mgr.is_installed(agent_name, env_type=env_type) and _needs_setup(agent, "agent"):
         to_install.append(("agent", agent, agent_name))
 
     if not to_install:
@@ -96,7 +103,10 @@ def _ensure_installed(
 
     for install_type, slug, name in to_install:
         entry = _get_registry_entry(slug, install_type)
-        mgr.install(name, env_type=EnvType.LOCAL, module_path=entry.module)
+        kwargs: dict = {"env_type": env_type, "module_path": entry.module}
+        if env_type is EnvType.VENV:
+            kwargs["venv_packages"] = ["exgentic"]
+        mgr.install(name, **kwargs)
 
 
 def _load_config_file(path: str) -> dict:
