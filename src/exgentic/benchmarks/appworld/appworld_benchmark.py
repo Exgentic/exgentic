@@ -113,7 +113,7 @@ class AppWorldSession(Session):
 
         # Point appworld at the correct data directory before loading the task.
         env_dir = get_manager().env_path("benchmarks/appworld")
-        update_root(str(env_dir / "appworld"))
+        update_root(str(env_dir))
 
         self._world: AppWorld = AppWorld(task_id=self._task_id, **self._env_kwargs)
         self._experiment_name: str = self._world.experiment_name or DEFAULT_EXPERIMENT_NAME
@@ -518,8 +518,7 @@ class AppWorldEvaluator(Evaluator):
         from appworld import update_root  # type: ignore
 
         env_dir = get_manager().env_path("benchmarks/appworld")
-        root = str(env_dir / "appworld")
-        update_root(root)
+        update_root(str(env_dir))
 
     def list_tasks(self) -> list[str]:
         from appworld.task import load_task_ids  # type: ignore

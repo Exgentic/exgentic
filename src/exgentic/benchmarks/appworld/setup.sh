@@ -6,8 +6,7 @@ if ! command -v git-lfs >/dev/null 2>&1; then
     exit 1
 fi
 
-APPWORLD_ROOT="appworld"
-mkdir -p "$APPWORLD_ROOT"
+APPWORLD_ROOT="."
 export APPWORLD_ROOT
 
 TMPDIR="$(mktemp -d)"
@@ -23,4 +22,4 @@ python -m appworld.cli install
 
 cd - >/dev/null 2>&1 || true
 rm -rf "$TMPDIR"
-python -m appworld.cli download data --root "$APPWORLD_ROOT"
+python -m appworld.cli download data --root "."

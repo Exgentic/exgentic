@@ -13,7 +13,7 @@ def _resolve_tau2_data_dir() -> str:
     """
     from ...environment.instance import get_manager
 
-    cache_data = get_manager().env_path("benchmarks/tau2") / "data"
+    cache_data = get_manager().env_path("benchmarks/tau2")
     if cache_data.is_dir():
         return str(cache_data)
 

@@ -421,7 +421,7 @@ class BrowseCompPlusEvaluator(Evaluator):
 
     @property
     def assets_dir(self):
-        return get_manager().env_path("benchmarks/browsecompplus") / "browsecompplus"
+        return get_manager().env_path("benchmarks/browsecompplus")
 
     def extract_dataset(self):
         import pandas as pd
@@ -614,7 +614,7 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
 
     @property
     def _assets_dir(self) -> str:
-        return str(get_manager().env_path("benchmarks/browsecompplus") / "browsecompplus")
+        return str(get_manager().env_path("benchmarks/browsecompplus"))
 
     def _retriever_runner_kwargs(self) -> dict[str, Any]:
         """Runner kwargs for the retriever container (setup script + volumes).

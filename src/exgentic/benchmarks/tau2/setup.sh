@@ -5,10 +5,8 @@ set -euo pipefail
 
 TAU2_REPO="https://github.com/sierra-research/tau2-bench.git"
 TAU2_REF="v0.1.3"
-DATA_ROOT="data"
-
-if [ -d "$DATA_ROOT/tau2/domains" ]; then
-    echo "tau2 data already present at $DATA_ROOT — skipping download."
+if [ -d "tau2/domains" ]; then
+    echo "tau2 data already present — skipping download."
     exit 0
 fi
 
@@ -21,7 +19,6 @@ cd "$TMPDIR/tau2-bench"
 git sparse-checkout set data
 cd - >/dev/null 2>&1
 
-mkdir -p "$DATA_ROOT"
-cp -r "$TMPDIR/tau2-bench/data/." "$DATA_ROOT/"
+cp -r "$TMPDIR/tau2-bench/data/." "./"
 
-echo "tau2 data installed to $DATA_ROOT"
+echo "tau2 data installed to env_dir"
