@@ -364,7 +364,7 @@ class HotpotQABenchmark(Benchmark, BaseModel):
 
     subset: Literal["distractor"] = "distractor"
     with_search_tools: bool = True
-    runner: RunnerName | None = "direct"  # Code is threadsafe
+    runner: RunnerName | None = None  # Threadsafe; uses global default runner (venv)
 
     def get_evaluator_kwargs(self) -> dict[str, Any]:
         return {

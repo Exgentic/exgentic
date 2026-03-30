@@ -592,7 +592,7 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
 
     subset: Literal["main"] = "main"
 
-    runner: RunnerName | None = "direct"  # Code is threadsafe
+    runner: RunnerName | None = None  # Threadsafe; uses global default runner (venv)
 
     # Retriever runner — when set, the search index runs as a shared service
     # instead of being loaded in each session process. Useful when sessions

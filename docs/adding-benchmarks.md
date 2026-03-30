@@ -240,12 +240,54 @@ A well-structured benchmark adapter usually has three separate concerns:
 
 Do not mix setup logic directly into the runtime path when it can be handled once in `setup.sh`.
 
-## Recommended Structure
+### 13. The main benchmark file must not import external dependencies
 
-For a benchmark package under `src/exgentic/benchmarks/<name>/`, prefer:
+The main benchmark file (`<name>_benchmark.py`) defines the `Benchmark` subclass that Exgentic loads in the host process. This file **must be importable without any benchmark-specific dependencies installed**.
 
-- `<name>_benchmark.py`
-  - benchmark and session runtime
+External dependencies (benchmark harnesses, datasets, ML libraries, etc.) belong in **separate files** that are only loaded inside the runner subprocess through `get_evaluator_class()` and `get_session_class()`.
+
+**Rule:** The benchmark class file may only import from:
+- Python standard library
+- `pydantic`
+- `exgentic` core modules
+
+All other imports must live in evaluator/session files that are accessed through the class getters.
+
+**Why:** Exgentic loads the benchmark class in the host process to read configuration (runner type, evaluator/session class names, kwargs). The actual benchmark execution happens inside an isolated runner (venv or Docker). If the main file imports heavy dependencies, the host process fails when those deps are only installed inside the runner environment.
+
+Bad:
+```python
+# <name>_benchmark.py
+from some_harness import HarnessRunner  # ← breaks host import
+
+class MyBenchmark(Benchmark):
+    ...
+```
+
+Good:
+```python
+# <name>_benchmark.py — no external deps
+class MyBenchmark(Benchmark):
+    def get_evaluator_class(self):
+        from .<name>_eval import MyEvaluator  # loaded inside runner
+        return MyEvaluator
+
+# <name>_eval.py — external deps are fine here
+from some_harness import HarnessRunner  # ← only loaded in runner subprocess
+```
+
+## Required Structure
+
+For a benchmark package under `src/exgentic/benchmarks/<name>/`:
+
+- `<name>_benchmark.py` **(required)**
+  - `Benchmark` subclass only
+  - no external dependency imports
+  - `get_evaluator_class()` and `get_session_class()` return classes from other files
+- `<name>_eval.py` or `<name>_session.py` **(required if benchmark has external deps)**
+  - evaluator, session, and runtime logic
+  - may import external dependencies at module level
+  - only loaded inside the runner subprocess
 - `setup.sh`
   - benchmark installation/bootstrap
 - optional shim module
@@ -268,6 +310,12 @@ Before opening a PR for a new benchmark, validate all of the following.
 - `finish` exists only if the benchmark contract needs it
 - success/failure/error semantics are distinct
 
+### Import validation
+
+- the main benchmark file (`<name>_benchmark.py`) imports **no external dependencies**
+- `get_evaluator_class()` and `get_session_class()` load from separate files
+- `python -c "from exgentic.benchmarks.<name>.<name>_benchmark import <Class>"` works without deps installed
+
 ### Functional validation
 
 - benchmark is discoverable through the registry
@@ -275,6 +323,7 @@ Before opening a PR for a new benchmark, validate all of the following.
 - tasks list correctly
 - setup script works from a clean environment
 - at least one happy-path task works end to end
+- benchmark works with the default venv runner (not just direct)
 - at least one failure-path task is represented correctly
 - adapter errors surface as errors, not silent failures
 
