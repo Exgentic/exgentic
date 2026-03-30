@@ -61,14 +61,14 @@ exgentic list tasks --benchmark tau2 --subset retail --limit 20
 
 ## install
 
-Install a benchmark's or agent's dependencies into the default runner environment.
+Install a benchmark's or agent's dependencies (default: local environment).
 
 ```bash
-exgentic install --benchmark tau2
+exgentic install --benchmark tau2              # install deps + data (default)
 exgentic install --agent tool_calling
 exgentic install --benchmark tau2 --force       # reinstall even if already set up
-exgentic install --benchmark tau2 --local       # install into the local environment
-exgentic install --benchmark tau2 --docker      # install into a Docker image
+exgentic install --benchmark tau2 --docker      # build Docker image
+exgentic install --benchmark tau2 --venv        # install into isolated venv
 ```
 
 | Flag | Description |
@@ -76,8 +76,8 @@ exgentic install --benchmark tau2 --docker      # install into a Docker image
 | `--benchmark` | Benchmark slug |
 | `--agent` | Agent slug |
 | `--force` | Force reinstall |
-| `--local` | Install into the local environment instead of the default runner |
-| `--docker` | Install into a Docker image |
+| `--docker` | Build a Docker image |
+| `--venv` | Install into an isolated venv instead of the local environment |
 
 See [Runners](./runners.md) for details on runner types.
 

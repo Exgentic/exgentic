@@ -51,10 +51,11 @@ exgentic evaluate --benchmark tau2 --agent tool_calling --subset retail --num-ta
 Benchmarks are automatically installed on first run — no manual installation needed. You can also install them explicitly:
 
 ```bash
-exgentic install --benchmark tau2
+exgentic install --benchmark tau2              # install deps + data (default)
 exgentic install --agent litellm_tool_calling
-exgentic install --benchmark tau2 --docker    # install into a Docker image
-exgentic uninstall --benchmark tau2           # remove installed environment
+exgentic install --benchmark tau2 --docker     # build Docker image
+exgentic install --benchmark tau2 --venv       # install into isolated venv
+exgentic uninstall --benchmark tau2            # remove installed environment
 ```
 
 > **Note:** `exgentic setup` still works but is deprecated in favor of `install`/`uninstall`.
@@ -168,6 +169,7 @@ exgentic list tasks --benchmark tau2 --subset retail --limit 5
 exgentic list agents
 exgentic install --benchmark tau2
 exgentic install --benchmark tau2 --docker
+exgentic install --benchmark tau2 --venv
 exgentic uninstall --benchmark tau2
 
 # Run
