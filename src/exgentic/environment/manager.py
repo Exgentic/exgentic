@@ -57,6 +57,7 @@ class EnvironmentManager:
         module_path: str | None = None,
         project_root: Path | None = None,
         packages: list[str] | None = None,
+        docker_socket: bool = False,
     ) -> Path:
         """Install an environment.
 
@@ -67,6 +68,8 @@ class EnvironmentManager:
             module_path: Dotted module path for locating package resources.
             project_root: Root of a Python project to install into the env.
             packages: Extra pip packages to install.
+            docker_socket: (Docker only) Install the Docker CLI binary so the
+                container can manage sibling containers via the mounted socket.
 
         Returns:
             The environment directory path.
@@ -90,6 +93,7 @@ class EnvironmentManager:
         if env_type is EnvType.DOCKER:
             kwargs["name"] = name
             kwargs["force"] = force
+            kwargs["docker_socket"] = docker_socket
 
         extra = backend.install(env_dir, module_path=module_path, **kwargs)
         self._add_marker_entry(name, env_type, {"installed_at": _now_iso(), **extra})

@@ -1171,8 +1171,10 @@ class TestDockerProjectRoot:
         with mock.patch("subprocess.run", side_effect=capture_run):
             mgr.install("mybench", env_type=EnvType.DOCKER, project_root=project)
 
-        assert len(build_contexts) == 1
+        # Two builds: base image uses project_root as context, bench uses a temp dir.
+        assert len(build_contexts) == 2
         assert build_contexts[0] == str(project)
+        assert "exgentic-bench-" in build_contexts[1]
 
     def test_docker_without_project_root_uses_tmp_dir(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=True, with_setup=False)
@@ -1237,8 +1239,11 @@ class TestDockerProjectRoot:
             mgr.install("a", env_type=EnvType.DOCKER, project_root=project)
             mgr.install("b", env_type=EnvType.DOCKER)
 
-        assert len(tags) == 2
-        assert tags[0].split(":")[-1] != tags[1].split(":")[-1]
+        # project_root install: 2 builds (base + bench); no-project_root install: 1 build.
+        assert len(tags) == 3
+        bench_tag_a = tags[1]  # bench tag for "a"
+        single_tag_b = tags[2]  # single-image tag for "b"
+        assert bench_tag_a.split(":")[-1] != single_tag_b.split(":")[-1]
 
     def test_project_root_with_force_includes(self, tmp_path: Path) -> None:
         project = _create_fake_project(tmp_path, name="withfi")
@@ -1276,6 +1281,292 @@ class TestDockerProjectRoot:
 
         assert len(dockerfiles) == 1
         assert "mkdir -p 'configs/'" in dockerfiles[0]
+
+    def test_two_builds_when_project_root_provided(self, tmp_path: Path) -> None:
+        """Two docker build calls: one base image, one bench image."""
+        project = _create_fake_project(tmp_path)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        base_builds: list[list] = []
+        bench_builds: list[list] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if cmd[1] == "build":
+                    if "-f" in cmd:
+                        base_builds.append(list(cmd))
+                    else:
+                        bench_builds.append(list(cmd))
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", env_type=EnvType.DOCKER, project_root=project)
+
+        assert len(base_builds) == 1
+        assert len(bench_builds) == 1
+
+    def test_base_image_tag_has_prefix(self, tmp_path: Path) -> None:
+        """Base image tag must start with 'exgentic-base:'."""
+        project = _create_fake_project(tmp_path)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        base_tags: list[str] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if cmd[1] == "build" and "-f" in cmd:
+                    idx = list(cmd).index("-t")
+                    base_tags.append(cmd[idx + 1])
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", env_type=EnvType.DOCKER, project_root=project)
+
+        assert len(base_tags) == 1
+        assert base_tags[0].startswith("exgentic-base:")
+
+    def test_bench_image_from_base(self, tmp_path: Path) -> None:
+        """Bench Dockerfile must start with FROM exgentic-base:..."""
+        project = _create_fake_project(tmp_path)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        bench_dockerfiles: list[str] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if cmd[1] == "build" and "-f" not in cmd:
+                    df = Path(cmd[-1]) / "Dockerfile"
+                    if df.exists():
+                        bench_dockerfiles.append(df.read_text())
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", env_type=EnvType.DOCKER, project_root=project)
+
+        assert len(bench_dockerfiles) == 1
+        assert bench_dockerfiles[0].startswith("FROM exgentic-base:")
+
+    def test_base_image_reused_on_second_install(self, tmp_path: Path) -> None:
+        """Base image is only built once; second bench reuses it."""
+        project = _create_fake_project(tmp_path)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        built_images: set[str] = set()
+        base_builds = 0
+        bench_builds = 0
+
+        def capture_run(cmd, **kwargs):
+            nonlocal base_builds, bench_builds
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if cmd[1] == "build":
+                    idx = list(cmd).index("-t")
+                    built_images.add(cmd[idx + 1])
+                    if "-f" in cmd:
+                        base_builds += 1
+                    else:
+                        bench_builds += 1
+                elif cmd[1:3] == ["image", "inspect"]:
+                    tag = cmd[-1]
+                    return _docker_mock_result(returncode=0 if tag in built_images else 1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("bench-a", env_type=EnvType.DOCKER, project_root=project)
+            mgr.install("bench-b", env_type=EnvType.DOCKER, project_root=project)
+
+        assert base_builds == 1
+        assert bench_builds == 2
+
+    def test_image_version_changes_base_tag(self, tmp_path: Path) -> None:
+        """Bumping _IMAGE_VERSION produces a different base tag."""
+        from exgentic.environment.docker import DockerBackend
+
+        project = _create_fake_project(tmp_path)
+
+        tag_v1 = DockerBackend._base_image_tag(project)
+        with mock.patch.object(DockerBackend, "_IMAGE_VERSION", "v99"):
+            tag_v99 = DockerBackend._base_image_tag(project)
+
+        assert tag_v1.startswith("exgentic-base:")
+        assert tag_v99.startswith("exgentic-base:")
+        assert tag_v1 != tag_v99
+
+
+# ---------------------------------------------------------------------------
+# Docker socket
+# ---------------------------------------------------------------------------
+
+
+class TestDockerSocket:
+    """docker_socket=True installs Docker CLI binary in the bench/single image."""
+
+    def test_docker_socket_adds_cli_to_bench_image(self, tmp_path: Path) -> None:
+        """docker_socket=True adds Docker CLI RUN to the bench Dockerfile."""
+        project = _create_fake_project(tmp_path)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        bench_dockerfiles: list[str] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if cmd[1] == "build" and "-f" not in cmd:
+                    df = Path(cmd[-1]) / "Dockerfile"
+                    if df.exists():
+                        bench_dockerfiles.append(df.read_text())
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", env_type=EnvType.DOCKER, project_root=project, docker_socket=True)
+
+        assert len(bench_dockerfiles) == 1
+        assert "docker.com/linux/static" in bench_dockerfiles[0]
+
+    def test_docker_socket_not_in_base_image(self, tmp_path: Path) -> None:
+        """docker_socket does NOT affect the base image — base must stay lean."""
+        project = _create_fake_project(tmp_path)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        base_dockerfiles: list[str] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if cmd[1] == "build" and "-f" in cmd:
+                    df_idx = list(cmd).index("-f") + 1
+                    df_path = Path(cmd[df_idx])
+                    if df_path.exists():
+                        base_dockerfiles.append(df_path.read_text())
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", env_type=EnvType.DOCKER, project_root=project, docker_socket=True)
+
+        assert len(base_dockerfiles) == 1
+        assert "docker.com/linux/static" not in base_dockerfiles[0]
+
+    def test_docker_socket_in_single_image_path(self, tmp_path: Path) -> None:
+        """docker_socket=True also adds Docker CLI in single-image (no project_root) path."""
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        dockerfiles: list[str] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if cmd[1] == "build":
+                    df = Path(cmd[-1]) / "Dockerfile"
+                    if df.exists():
+                        dockerfiles.append(df.read_text())
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", env_type=EnvType.DOCKER, docker_socket=True)
+
+        assert len(dockerfiles) == 1
+        assert "docker.com/linux/static" in dockerfiles[0]
+
+    def test_docker_socket_changes_image_hash(self, tmp_path: Path) -> None:
+        """Same config with and without docker_socket produces different image tags."""
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        tags: list[str] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if cmd[1] == "build":
+                    idx = list(cmd).index("-t")
+                    tags.append(cmd[idx + 1])
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("bench-no-socket", env_type=EnvType.DOCKER)
+            mgr.install("bench-with-socket", env_type=EnvType.DOCKER, docker_socket=True)
+
+        assert len(tags) == 2
+        assert tags[0].split(":")[-1] != tags[1].split(":")[-1]
+
+
+# ---------------------------------------------------------------------------
+# Docker build environment variable
+# ---------------------------------------------------------------------------
+
+
+class TestDockerBuildEnv:
+    """EXGENTIC_DOCKER_BUILD=1 is set when running setup.sh during image builds."""
+
+    def test_exgentic_docker_build_in_bench_setup_sh(self, tmp_path: Path) -> None:
+        """EXGENTIC_DOCKER_BUILD=1 is prepended to the setup.sh RUN in bench image."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=True)
+        project = _create_fake_project(tmp_path)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        bench_dockerfiles: list[str] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if cmd[1] == "build" and "-f" not in cmd:
+                    df = Path(cmd[-1]) / "Dockerfile"
+                    if df.exists():
+                        bench_dockerfiles.append(df.read_text())
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install(
+                "mybench",
+                env_type=EnvType.DOCKER,
+                project_root=project,
+                module_path=module_path,
+            )
+
+        assert len(bench_dockerfiles) == 1
+        assert "EXGENTIC_DOCKER_BUILD=1 bash /tmp/setup.sh" in bench_dockerfiles[0]
+
+    def test_exgentic_docker_build_in_single_image_setup_sh(self, tmp_path: Path) -> None:
+        """EXGENTIC_DOCKER_BUILD=1 is also present in the single-image (no project_root) path."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=True)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        dockerfiles: list[str] = []
+
+        def capture_run(cmd, **kwargs):
+            if isinstance(cmd, list) and cmd[0] == "docker":
+                if cmd[1] == "build":
+                    df = Path(cmd[-1]) / "Dockerfile"
+                    if df.exists():
+                        dockerfiles.append(df.read_text())
+                if cmd[1:3] == ["image", "inspect"]:
+                    return _docker_mock_result(returncode=1)
+                return _docker_mock_result()
+            return _real_subprocess_run(cmd, **kwargs)
+
+        with mock.patch("subprocess.run", side_effect=capture_run):
+            mgr.install("mybench", env_type=EnvType.DOCKER, module_path=module_path)
+
+        assert len(dockerfiles) == 1
+        assert "EXGENTIC_DOCKER_BUILD=1 bash /tmp/setup.sh" in dockerfiles[0]
 
 
 # ---------------------------------------------------------------------------
@@ -1394,3 +1685,55 @@ class TestDockerIntegration:
         assert result.stdout.strip() == "0.1.0"
 
         mgr.uninstall("inttest6")
+
+    def test_docker_socket_creates_working_docker_cli(self, tmp_path: Path) -> None:
+        """docker_socket=True installs a functional Docker CLI binary inside the image."""
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        mgr.install("inttest-ds", env_type=EnvType.DOCKER, docker_socket=True)
+
+        image_tag = mgr.docker_image("inttest-ds")
+        assert image_tag is not None
+
+        result = subprocess.run(
+            ["docker", "run", "--rm", image_tag, "docker", "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "Docker version" in result.stdout
+
+        mgr.uninstall("inttest-ds")
+
+    def test_base_image_shared_between_benchmarks(self, tmp_path: Path) -> None:
+        """Two benchmarks with the same project_root share the base image (1 base build, 2 bench builds)."""
+        project = _create_fake_project(tmp_path, name="shared")
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        # Use a unique name prefix to avoid collisions with other test runs.
+        mgr.install("inttest-shared-a", env_type=EnvType.DOCKER, project_root=project)
+        mgr.install("inttest-shared-b", env_type=EnvType.DOCKER, project_root=project)
+
+        tag_a = mgr.docker_image("inttest-shared-a")
+        tag_b = mgr.docker_image("inttest-shared-b")
+        assert tag_a is not None
+        assert tag_b is not None
+        # Same project_root → same base tag prefix, different bench tags (different names).
+        assert tag_a != tag_b
+        assert tag_a.startswith("inttest-shared-a:")
+        assert tag_b.startswith("inttest-shared-b:")
+
+        # Both images must be runnable.
+        for tag in (tag_a, tag_b):
+            result = subprocess.run(
+                ["docker", "run", "--rm", tag, "python", "-c", "import shared; print(shared.__version__)"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            assert result.returncode == 0, result.stderr
+            assert result.stdout.strip() == "0.1.0"
+
+        mgr.uninstall("inttest-shared-a")
+        mgr.uninstall("inttest-shared-b")
