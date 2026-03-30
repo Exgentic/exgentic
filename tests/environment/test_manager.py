@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import shutil
 import stat
 import subprocess
@@ -22,7 +23,7 @@ from unittest import mock
 
 import pytest
 from exgentic.environment import EnvironmentManager, EnvType
-from exgentic.environment.helpers import find_package_file, require_uv
+from exgentic.environment.helpers import build_subprocess_env, find_package_file, require_uv
 
 _pkg_counter = 0
 
@@ -958,6 +959,49 @@ class TestRequireUv:
         with mock.patch("shutil.which", return_value=None):
             with pytest.raises(RuntimeError, match="Could not find 'uv'"):
                 require_uv()
+
+
+class TestBuildSubprocessEnv:
+    """build_subprocess_env strips vars that could interfere with installs."""
+
+    def test_strips_virtual_env(self) -> None:
+        with mock.patch.dict(os.environ, {"VIRTUAL_ENV": "/some/venv"}, clear=False):
+            env = build_subprocess_env()
+        assert "VIRTUAL_ENV" not in env
+
+    def test_strips_conda_vars(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {"CONDA_DEFAULT_ENV": "base", "CONDA_PREFIX": "/opt/conda"},
+            clear=False,
+        ):
+            env = build_subprocess_env()
+        assert "CONDA_DEFAULT_ENV" not in env
+        assert "CONDA_PREFIX" not in env
+
+    def test_strips_uv_prefix_vars(self) -> None:
+        with mock.patch.dict(
+            os.environ,
+            {"UV_INDEX_URL": "https://evil.example.com", "UV_PYTHON": "3.8"},
+            clear=False,
+        ):
+            env = build_subprocess_env()
+        assert "UV_INDEX_URL" not in env
+        assert "UV_PYTHON" not in env
+
+    def test_strips_pip_prefix_vars(self) -> None:
+        with mock.patch.dict(os.environ, {"PIP_INDEX_URL": "https://evil.example.com"}, clear=False):
+            env = build_subprocess_env()
+        assert "PIP_INDEX_URL" not in env
+
+    def test_preserves_path_and_home(self) -> None:
+        env = build_subprocess_env()
+        assert "PATH" in env
+        assert "HOME" in env
+
+    def test_sets_git_lfs_skip_smudge(self) -> None:
+        env = build_subprocess_env()
+        assert env["GIT_LFS_SKIP_SMUDGE"] == "1"
 
 
 # ---------------------------------------------------------------------------

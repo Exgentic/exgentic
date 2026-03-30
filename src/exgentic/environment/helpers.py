@@ -22,10 +22,29 @@ def require_uv() -> str:
     return uv
 
 
+_ENV_BLOCKLIST: frozenset[str] = frozenset(
+    {
+        "VIRTUAL_ENV",
+        "CONDA_DEFAULT_ENV",
+        "CONDA_PREFIX",
+    }
+)
+_ENV_PREFIX_BLOCKLIST: tuple[str, ...] = ("UV_", "PIP_", "VSCODE_", "LC_")
+
+
 def build_subprocess_env() -> dict:
-    """Build an env dict for subprocess calls."""
-    env = os.environ.copy()
-    env.pop("VIRTUAL_ENV", None)
+    """Build a filtered env dict for subprocess calls.
+
+    Strips virtual-env manager vars and package-tool overrides
+    (``UV_*``, ``PIP_*``) that could redirect package installs or
+    change the Python version used by uv/pip.  Preserves ``PATH``,
+    ``HOME``, and other vars needed for tools to run.
+    """
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in _ENV_BLOCKLIST and not any(k.startswith(p) for p in _ENV_PREFIX_BLOCKLIST)
+    }
     env["GIT_LFS_SKIP_SMUDGE"] = "1"
     return env
 
@@ -82,7 +101,7 @@ def run_setup_sh(module_path: str, env_dir: Path, *, venv_dir: Path | None = Non
     setup_path = find_package_file(module_path, "setup.sh")
     if setup_path is None:
         return
-    env = os.environ.copy()
+    env = build_subprocess_env()
     if venv_dir is not None:
         env["VIRTUAL_ENV"] = str(venv_dir)
         env["PATH"] = str(venv_dir / "bin") + os.pathsep + env.get("PATH", "")
