@@ -19,7 +19,7 @@ from .transport import ObjectHost, Transport, deserialize_error, serialize_error
 def _worker(q_in: mp.Queue, q_out: mp.Queue) -> None:
     """Subprocess entry point: create the object and serve RPC requests."""
     # Late imports — these run in the child process.
-    from ...core.context import init_context_from_env, set_context, try_get_context
+    from ...core.context import set_context, try_get_context, try_init_context
     from ...observers.logging import configure_warnings_logging
 
     configure_warnings_logging(replace_existing_file_handlers=False)
@@ -32,10 +32,7 @@ def _worker(q_in: mp.Queue, q_out: mp.Queue) -> None:
         if ctx is not None:
             set_context(ctx)
         else:
-            try:
-                init_context_from_env()
-            except RuntimeError:
-                pass  # No context env vars — standalone worker
+            try_init_context()
 
         obj = target_cls(*args, **kwargs)
 
@@ -90,7 +87,7 @@ class PipeTransport(Transport):
         if self._proc is not None and self._proc.is_alive():
             return
 
-        from ...core.context import context_env_scope, try_get_context
+        from ...core.context import get_runtime_env, try_get_context
 
         self._q_in = self._ctx.Queue()
         self._q_out = self._ctx.Queue()
@@ -99,9 +96,20 @@ class PipeTransport(Transport):
             args=(self._q_in, self._q_out),
             daemon=True,
         )
-        # Ensure context env vars are in os.environ for the spawned process.
-        with context_env_scope():
+        # Ensure runtime env vars are set for the spawned process.
+        import os
+
+        runtime_env = get_runtime_env()
+        old_vals = {k: os.environ.get(k) for k in runtime_env}
+        os.environ.update(runtime_env)
+        try:
             self._proc.start()
+        finally:
+            for k, v in old_vals.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
         self._finalizer = weakref.finalize(self, _terminate, self._q_in, self._proc)
 
         # Send init payload with context.

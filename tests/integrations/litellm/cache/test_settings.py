@@ -83,18 +83,13 @@ def test_configure_litellm_always_registers_trace_logger_callbacks() -> None:
         configure_litellm(config=settings.to_litellm_config(), cache_only=False)
         configure_litellm(config=settings.to_litellm_config(), cache_only=False)
 
-        assert any(isinstance(cb, SyncTraceLogger) for cb in litellm.success_callback)
-        assert any(isinstance(cb, AsyncTraceLogger) for cb in litellm.success_callback)
-        assert any(isinstance(cb, SyncTraceLogger) for cb in litellm.failure_callback)
-        assert any(isinstance(cb, AsyncTraceLogger) for cb in litellm.failure_callback)
-        assert sum(isinstance(cb, SyncTraceLogger) for cb in litellm.success_callback) == 1
-        assert sum(isinstance(cb, AsyncTraceLogger) for cb in litellm.success_callback) == 1
-        assert sum(isinstance(cb, SyncTraceLogger) for cb in litellm.failure_callback) == 1
-        assert sum(isinstance(cb, AsyncTraceLogger) for cb in litellm.failure_callback) == 1
-        assert any(isinstance(cb, SyncTraceLogger) for cb in litellm._async_success_callback)
-        assert any(isinstance(cb, AsyncTraceLogger) for cb in litellm._async_success_callback)
-        assert any(isinstance(cb, SyncTraceLogger) for cb in litellm._async_failure_callback)
-        assert any(isinstance(cb, AsyncTraceLogger) for cb in litellm._async_failure_callback)
+        # CustomLogger subclasses are registered in litellm.callbacks
+        # (not success_callback / failure_callback) so that litellm
+        # invokes log_success_event / log_failure_event on them.
+        assert any(isinstance(cb, SyncTraceLogger) for cb in litellm.callbacks)
+        assert any(isinstance(cb, AsyncTraceLogger) for cb in litellm.callbacks)
+        assert sum(isinstance(cb, SyncTraceLogger) for cb in litellm.callbacks) == 1
+        assert sum(isinstance(cb, AsyncTraceLogger) for cb in litellm.callbacks) == 1
     finally:
         litellm.callbacks = original_callbacks
         litellm.success_callback = original_success
@@ -124,7 +119,8 @@ def test_trace_logger_callback_registered_and_writes_by_default(tmp_path, monkey
         settings = ExgenticSettings(litellm_caching=False)
         configure_litellm(config=settings.to_litellm_config(), cache_only=False)
 
-        registered = [cb for cb in litellm.success_callback if isinstance(cb, TraceLogger)]
+        # CustomLogger subclasses are in litellm.callbacks now.
+        registered = [cb for cb in litellm.callbacks if isinstance(cb, TraceLogger)]
         assert len(registered) == 2
 
         kwargs = {

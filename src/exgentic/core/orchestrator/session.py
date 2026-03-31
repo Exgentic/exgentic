@@ -40,7 +40,10 @@ def run_session(
         tracker = Tracker(observers=observers, controllers=controllers)
 
     with session_scope(session.session_id, task_id=session.task_id):
-        agent_instance = agent.get_instance(session_id=session.session_id)
+        tracker.on_session_creation(session)
+
+        with agent_scope():
+            agent_instance = agent.get_instance(session_id=session.session_id)
 
         with benchmark_scope():
             observation = session.start()

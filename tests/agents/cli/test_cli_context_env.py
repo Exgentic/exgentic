@@ -11,7 +11,7 @@ from exgentic.agents.cli.base import (
     CLIResult,
     ExecutionBackend,
 )
-from exgentic.core.context import Context, set_context
+from exgentic.core.context import Context, save_runtime, set_context
 
 
 class _DummyRunner:
@@ -34,9 +34,14 @@ class _DummyCLI(BaseCLIWrapper):
         return ["echo", "ok"]
 
 
-def test_cli_includes_context_env():
-    ctx = Context(run_id="run-cli", output_dir="/tmp/out", cache_dir="/tmp/cache")
+def test_cli_includes_context_env(tmp_path):
+    ctx = Context(run_id="run-cli", output_dir=str(tmp_path), cache_dir="/tmp/cache")
     set_context(ctx)
+
+    # Write runtime.json so _derive_runtime_dir resolves.
+    runtime_dir = tmp_path / "run-cli"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    save_runtime(runtime_dir)
 
     runner = _DummyRunner()
     cli = _DummyCLI(runner=ExecutionBackend.PROCESS)
@@ -51,4 +56,4 @@ def test_cli_includes_context_env():
         ),
     )
 
-    assert runner.env["EXGENTIC_CTX_RUN_ID"] == "run-cli"
+    assert runner.env["EXGENTIC_RUNTIME_FILE"] == str(runtime_dir / "runtime.json")

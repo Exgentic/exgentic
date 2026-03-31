@@ -5,13 +5,12 @@
 import logging
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Dict, List, Tuple
 
 from uvicorn.logging import DefaultFormatter
 
 from ...core.context import try_get_context
-from ...core.context import try_get_context as _try_get_context_for_run_id
 from ...utils.settings import get_settings
 
 
@@ -168,7 +167,7 @@ def configure_warnings_logging(
         settings = get_settings()
         base = run_dir_base or settings.output_dir
     if run_id is None:
-        ctx = _try_get_context_for_run_id()
+        ctx = try_get_context()
         rid = ctx.run_id if ctx is not None else "default"
     else:
         rid = run_id
@@ -224,7 +223,7 @@ def configure_uvicorn_file_logging(log_path: Path, *, thread_id: int) -> Callabl
         logging.getLogger("uvicorn.error"),
         logging.getLogger("uvicorn.access"),
     ]
-    prev_logger_state: Dict[logging.Logger, tuple[int, bool, list[logging.Handler]]] = {}
+    prev_logger_state: dict[logging.Logger, tuple[int, bool, list[logging.Handler]]] = {}
     for lg in uvicorn_loggers:
         removed_handlers = list(lg.handlers)
         for h in removed_handlers:
@@ -269,7 +268,7 @@ def configure_library_file_logging(
         if name.startswith(prefixes):
             names.add(name)
 
-    prev_logger_state: Dict[logging.Logger, tuple[int, bool, list[logging.Handler]]] = {}
+    prev_logger_state: dict[logging.Logger, tuple[int, bool, list[logging.Handler]]] = {}
     for name in names:
         lg = logging.getLogger(name)
         removed_handlers = list(lg.handlers)
@@ -299,7 +298,7 @@ def attach_library_logger_to_handler(
     *,
     level: int = logging.DEBUG,
     propagate: bool = False,
-) -> Tuple[logging.Logger, List[logging.Handler], bool]:
+) -> tuple[logging.Logger, list[logging.Handler], bool]:
     """Attach a library logger to the given handler.
 
     Returns a tuple of (logger, previous_handlers, previous_propagate) so callers
@@ -318,7 +317,7 @@ def attach_library_logger_to_handler(
 
 def restore_library_logger(
     logger: logging.Logger,
-    handlers: List[logging.Handler],
+    handlers: list[logging.Handler],
     propagate: bool,
 ) -> None:
     """Restore a library logger's handlers and propagation flag."""

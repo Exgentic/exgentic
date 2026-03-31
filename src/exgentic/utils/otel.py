@@ -9,10 +9,11 @@ This module provides OTEL setup functions and structured logging for OTEL operat
 import base64
 import json
 import os
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path, PurePath
-from typing import Any, Dict, Mapping, Optional, Sequence, Union
+from typing import Any, Union
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
@@ -23,12 +24,32 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
 )
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace.id_generator import IdGenerator
 from opentelemetry.trace import Tracer
 from opentelemetry.util.types import AttributeValue
 
 OTEL_SPAN_ATTRIBUTE_NAMESPACE = "exgentic"
+
+
+class FileSpanExporter(SpanExporter):
+    """Exports OTEL spans as JSON lines to a file on disk."""
+
+    def __init__(self, file_path: Union[str, Path]) -> None:
+        self._path = Path(file_path)
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+
+    def export(self, spans: Sequence) -> SpanExportResult:
+        try:
+            with open(self._path, "a") as f:
+                for span in spans:
+                    f.write(span.to_json() + "\n")
+            return SpanExportResult.SUCCESS
+        except Exception:
+            return SpanExportResult.FAILURE
+
+    def shutdown(self) -> None:
+        pass
 
 
 class UrandomIdGenerator(IdGenerator):
@@ -42,7 +63,7 @@ class UrandomIdGenerator(IdGenerator):
 
 
 def init_tracing_from_env(
-    service_name: Optional[str] = None,
+    service_name: str | None = None,
     use_urandom_ids: bool = True,
     use_simple_processor: bool = True,
 ) -> Tracer:
@@ -89,20 +110,31 @@ def init_tracing_from_env(
     provider = TracerProvider(resource=resource, id_generator=id_generator)
     trace.set_tracer_provider(provider)
 
-    protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf").strip().lower()
-    exporter = GrpcOTLPSpanExporter() if protocol == "grpc" else HttpOTLPSpanExporter()
+    # Build list of exporters
+    exporters: list[SpanExporter] = []
+
+    # File exporter: write spans to a JSONL file on disk
+    file_path = os.getenv("OTEL_EXPORTER_FILE")
+    if file_path:
+        exporters.append(FileSpanExporter(file_path))
+
+    # OTLP exporter: send spans to a collector (skip if only file export is wanted)
+    if not file_path or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf").strip().lower()
+        exporters.append(GrpcOTLPSpanExporter() if protocol == "grpc" else HttpOTLPSpanExporter())
 
     # Use SimpleSpanProcessor for immediate export (useful for subprocesses)
     # or BatchSpanProcessor for better performance (default)
-    if use_simple_processor:
-        provider.add_span_processor(SimpleSpanProcessor(exporter))
-    else:
-        provider.add_span_processor(BatchSpanProcessor(exporter))
+    for exporter in exporters:
+        if use_simple_processor:
+            provider.add_span_processor(SimpleSpanProcessor(exporter))
+        else:
+            provider.add_span_processor(BatchSpanProcessor(exporter))
 
     return trace.get_tracer(__name__)
 
 
-def check_otel_collector_health(timeout: int = 5) -> tuple[bool, Optional[str]]:
+def check_otel_collector_health(timeout: int = 5) -> tuple[bool, str | None]:
     """Check if the OTEL collector endpoint is reachable and protocol matches.
 
     Verifies:
@@ -219,7 +251,7 @@ def check_otel_collector_health(timeout: int = 5) -> tuple[bool, Optional[str]]:
 
                 return False, f"gRPC endpoint at {endpoint} did not respond to HTTP/2 preface"
 
-            except socket.timeout:
+            except TimeoutError:
                 return (
                     False,
                     f"Timeout waiting for gRPC response from {endpoint}. Server may not support gRPC protocol.",
@@ -232,7 +264,7 @@ def check_otel_collector_health(timeout: int = 5) -> tuple[bool, Optional[str]]:
 
     except socket.gaierror:
         return False, f"Cannot resolve hostname: {host}"
-    except socket.timeout:
+    except TimeoutError:
         return False, f"Connection timeout to {host}:{port}"
     except Exception as e:
         return False, f"Error checking OTEL collector: {e!s}"
@@ -264,7 +296,7 @@ def flush_traces(timeout_millis: int = 30000) -> bool:
 _Primitive = (str, bool, int, float)
 
 
-def _to_primitive_number(x: Any) -> Optional[Union[int, float]]:
+def _to_primitive_number(x: Any) -> Union[int, float] | None:
     """Convert numeric-ish types to plain Python int/float."""
     if isinstance(x, bool):
         # bool is a subclass of int; do not coerce.
@@ -277,7 +309,7 @@ def _to_primitive_number(x: Any) -> Optional[Union[int, float]]:
     return None
 
 
-def _canonical_attr_type(x: Any) -> Optional[type]:
+def _canonical_attr_type(x: Any) -> type | None:
     """Return which primitive type x maps to, or None if not primitive."""
     if isinstance(x, bool):
         return bool
@@ -325,7 +357,7 @@ def _json_default(o: Any) -> Any:
     return str(o)
 
 
-def _to_homogeneous_sequence(seq: Sequence[Any]) -> Optional[Sequence[Union[str, bool, int, float]]]:
+def _to_homogeneous_sequence(seq: Sequence[Any]) -> Sequence[Union[str, bool, int, float]] | None:
     """Try to coerce a sequence into a homogeneous list of primitives allowed by AttributeValue.
 
     Returns list on success, None on failure.
@@ -365,7 +397,7 @@ def _to_homogeneous_sequence(seq: Sequence[Any]) -> Optional[Sequence[Union[str,
     return None
 
 
-def to_otel_attribute_value(value: Any, *, prefer_json: bool = True) -> Optional[AttributeValue]:
+def to_otel_attribute_value(value: Any, *, prefer_json: bool = True) -> AttributeValue | None:
     """Convert an arbitrary value into an OpenTelemetry-Python AttributeValue for spans.
 
     Returns:
@@ -469,7 +501,7 @@ class OtelLogger:
 
     # Standardized OTEL operation logging methods
 
-    def log_tracer_init(self, tracer_params: Dict[str, Any]) -> None:
+    def log_tracer_init(self, tracer_params: dict[str, Any]) -> None:
         params_str = ", ".join(f"{k}={v}" for k, v in tracer_params.items())
         self.info(f"TRACER_INIT | {params_str}")
 
@@ -478,10 +510,10 @@ class OtelLogger:
         span_name: str,
         span_id: str,
         trace_id: str,
-        parent_span_id: Optional[str] = None,
+        parent_span_id: str | None = None,
         is_root: bool = False,
-        depth: Optional[int] = None,
-        start_time: Optional[datetime] = None,
+        depth: int | None = None,
+        start_time: datetime | None = None,
     ) -> None:
         root_marker = " [ROOT]" if is_root else ""
         parent_info = f" parent={parent_span_id}" if parent_span_id else ""
@@ -501,9 +533,9 @@ class OtelLogger:
         span_name: str,
         span_id: str,
         is_root: bool = False,
-        status: Optional[str] = None,
-        depth: Optional[int] = None,
-        end_time: Optional[datetime] = None,
+        status: str | None = None,
+        depth: int | None = None,
+        end_time: datetime | None = None,
     ) -> None:
         root_marker = " [ROOT]" if is_root else ""
         status_info = f" status={status}" if status else ""
@@ -511,7 +543,7 @@ class OtelLogger:
         time_info = f" end_time={end_time.strftime('%Y-%m-%d %H:%M:%S.%f')}" if end_time else ""
         self.info(f"SPAN_END{root_marker} | name='{span_name}' id={span_id}{status_info}{depth_info}{time_info}")
 
-    def log_attribute_set(self, key: str, value: Any, span_id: Optional[str] = None) -> None:
+    def log_attribute_set(self, key: str, value: Any, span_id: str | None = None) -> None:
         span_info = f" span={span_id}" if span_id else ""
         # Truncate long values
         value_str = str(value)
@@ -519,11 +551,11 @@ class OtelLogger:
             value_str = value_str[:97] + "..."
         self.debug(f"ATTR_SET | {key}={value_str}{span_info}")
 
-    def log_exception(self, exc: Exception, context: Optional[str] = None) -> None:
+    def log_exception(self, exc: Exception, context: str | None = None) -> None:
         context_str = f" context={context}" if context else ""
         self.error(f"EXCEPTION | {type(exc).__name__}: {exc}{context_str}")
 
-    def log_context_update(self, trace_id: Optional[str], span_id: Optional[str], operation: str = "update") -> None:
+    def log_context_update(self, trace_id: str | None, span_id: str | None, operation: str = "update") -> None:
         """Log OTEL context update operation."""
         self.debug(f"CONTEXT_{operation.upper()} | trace={trace_id} span={span_id}")
 

@@ -66,22 +66,13 @@ def _configure_callbacks() -> None:
         sync_trace_logger,
     )
 
-    if not any(isinstance(cb, SyncTraceLogger) for cb in litellm.success_callback):
-        litellm.success_callback.append(sync_trace_logger)
-    if not any(isinstance(cb, AsyncTraceLogger) for cb in litellm.success_callback):
-        litellm.success_callback.append(async_trace_logger)
-    if not any(isinstance(cb, SyncTraceLogger) for cb in litellm.failure_callback):
-        litellm.failure_callback.append(sync_trace_logger)
-    if not any(isinstance(cb, AsyncTraceLogger) for cb in litellm.failure_callback):
-        litellm.failure_callback.append(async_trace_logger)
-    if not any(isinstance(cb, SyncTraceLogger) for cb in litellm._async_success_callback):
-        litellm._async_success_callback.append(sync_trace_logger)
-    if not any(isinstance(cb, AsyncTraceLogger) for cb in litellm._async_success_callback):
-        litellm._async_success_callback.append(async_trace_logger)
-    if not any(isinstance(cb, SyncTraceLogger) for cb in litellm._async_failure_callback):
-        litellm._async_failure_callback.append(sync_trace_logger)
-    if not any(isinstance(cb, AsyncTraceLogger) for cb in litellm._async_failure_callback):
-        litellm._async_failure_callback.append(async_trace_logger)
+    # CustomLogger subclasses must be in litellm.callbacks (not
+    # success_callback / failure_callback) so that litellm invokes
+    # log_success_event / log_failure_event on them.
+    if not any(isinstance(cb, SyncTraceLogger) for cb in litellm.callbacks):
+        litellm.callbacks.append(sync_trace_logger)
+    if not any(isinstance(cb, AsyncTraceLogger) for cb in litellm.callbacks):
+        litellm.callbacks.append(async_trace_logger)
 
 
 def _configure_logging(config: LitellmSettings) -> None:

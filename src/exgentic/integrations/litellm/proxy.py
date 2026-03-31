@@ -22,7 +22,6 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Optional
 
 from ...core.context import try_get_context
 from ...core.types.model_settings import ModelSettings
@@ -52,11 +51,11 @@ class LitellmProxy:
         self,
         model: str,
         *,
-        port: Optional[int] = None,
-        model_alias_map: Optional[dict[str, str]] = None,
-        env: Optional[dict[str, str]] = None,
-        log_path: Optional[str] = None,
-        usage_log_path: Optional[str] = None,
+        port: int | None = None,
+        model_alias_map: dict[str, str] | None = None,
+        env: dict[str, str] | None = None,
+        log_path: str | None = None,
+        usage_log_path: str | None = None,
         startup_timeout: float = 15.0,
         model_settings: ModelSettings | None = None,
     ) -> None:
@@ -69,8 +68,8 @@ class LitellmProxy:
         self.startup_timeout = startup_timeout
         self.model_settings = model_settings or ModelSettings()
         self._log_file = None
-        self._proc: Optional[subprocess.Popen[str]] = None
-        self._config_file: Optional[Path] = None
+        self._proc: subprocess.Popen[str] | None = None
+        self._config_file: Path | None = None
 
     @property
     def base_url(self) -> str:
@@ -112,11 +111,11 @@ class LitellmProxy:
         src_path = repo_root / "src"
         extra_paths: list[str] = [str(src_path), str(repo_root)]
 
+        from ...core.context import get_runtime_env
+
         settings = get_settings()
-        ctx = try_get_context()
-        if ctx is not None:
-            for k, v in ctx.to_env().items():
-                env.setdefault(k, v)
+        for k, v in get_runtime_env().items():
+            env.setdefault(k, v)
 
         existing = {key.lower() for key in env}
         for key, value in settings.get_env().items():
@@ -146,7 +145,7 @@ class LitellmProxy:
         return None
 
     @staticmethod
-    def _set_trace_log_env(env: dict[str, str], usage_path: Path, session_root: Optional[Path]) -> None:
+    def _set_trace_log_env(env: dict[str, str], usage_path: Path, session_root: Path | None) -> None:
         from .trace_logger import FILE_ENV
 
         env.setdefault(FILE_ENV, str(usage_path))
@@ -211,7 +210,7 @@ class LitellmProxy:
 
     def _wait_for_startup(self, *, stdout) -> None:
         deadline = time.time() + self.startup_timeout
-        last_err: Optional[str] = None
+        last_err: str | None = None
         while time.time() < deadline:
             if self._proc and self._proc.poll() is not None:
                 # Process exited; capture any output for debugging.

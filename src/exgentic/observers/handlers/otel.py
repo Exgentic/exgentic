@@ -6,7 +6,7 @@ import os
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, cast
+from typing import Any, cast
 
 from opentelemetry import context, trace
 from opentelemetry.sdk.trace import Span
@@ -35,7 +35,7 @@ class SessionSpanManager:
         self.session_id = session_id
         self._tracer = tracer
         self._span_stack: list[Span] = []
-        self._heritable_attributes: Dict[str, AttributeValue] = {}
+        self._heritable_attributes: dict[str, AttributeValue] = {}
 
         # Initialize session logger
         self._logger = get_session_logger(
@@ -99,10 +99,10 @@ class SessionSpanManager:
         )
 
     @property
-    def current_span(self) -> Optional[Span]:
+    def current_span(self) -> Span | None:
         return self._span_stack[-1] if self._span_stack else None
 
-    def get_otel_context(self) -> Optional[OtelContext]:
+    def get_otel_context(self) -> OtelContext | None:
         """Export current span context for subprocess transport.
 
         Returns:
@@ -136,7 +136,7 @@ class SessionSpanManager:
         span_ctx = self.current_span.get_span_context()
         self._logger.log_attribute_set(key, value, format(span_ctx.span_id, "016x"))
 
-    def set_attributes(self, attributes: Optional[Dict[str, AttributeValue]] = None, **kwargs) -> None:
+    def set_attributes(self, attributes: dict[str, AttributeValue] | None = None, **kwargs) -> None:
         if attributes is None:
             attributes = {}
         attributes.update(kwargs)
@@ -148,7 +148,7 @@ class SessionSpanManager:
         if self.current_span:
             self.set_attribute(key, value)
 
-    def set_heritable_attributes(self, attributes: Optional[Dict[str, AttributeValue]] = None, **kwargs) -> None:
+    def set_heritable_attributes(self, attributes: dict[str, AttributeValue] | None = None, **kwargs) -> None:
         if attributes:
             self._heritable_attributes.update(attributes)
         self._heritable_attributes.update(kwargs)
@@ -185,16 +185,16 @@ class OtelTracingObserver(Observer):
 
     def __init__(self):
         super().__init__()
-        self._run_attributes: Dict[str, AttributeValue] = {}
-        self._span_managers: Dict[str, SessionSpanManager] = {}
-        self._session_step_counters: Dict[str, int] = {}
-        self._session_agents: Dict[str, Any] = {}  # Store agent instances by session_id
-        self._session_actions: Dict[str, list] = {}  # Store session actions for tool definitions
+        self._run_attributes: dict[str, AttributeValue] = {}
+        self._span_managers: dict[str, SessionSpanManager] = {}
+        self._session_step_counters: dict[str, int] = {}
+        self._session_agents: dict[str, Any] = {}  # Store agent instances by session_id
+        self._session_actions: dict[str, list] = {}  # Store session actions for tool definitions
 
     def _get_span_manager(self, session_id: str) -> SessionSpanManager:
         return self._span_managers[session_id]
 
-    def _get_action_description(self, session, action_name: str) -> Optional[str]:
+    def _get_action_description(self, session, action_name: str) -> str | None:
         """Look up action description from session.actions by name."""
         for action_type in session.actions:
             if action_type.name == action_name:
@@ -245,7 +245,7 @@ class OtelTracingObserver(Observer):
 
         self._run_attributes = {
             "exgentic.benchmark.slug_name": bench_entry.slug_name if bench_entry is not None else run_config.benchmark,
-            "exgentic.benchmark.subset": run_config.subset,
+            "exgentic.benchmark.subset": run_config.subset or "",
             "exgentic.benchmark.agent.name": agent_entry.slug_name if agent_entry is not None else run_config.agent,
             "exgentic.agent.slug": run_config.agent,
             "exgentic.run.id": get_run_paths().run_id,

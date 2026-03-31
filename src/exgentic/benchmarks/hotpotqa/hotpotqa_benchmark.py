@@ -146,9 +146,9 @@ class HotpotQASession(Session):
         log_path = self.paths.benchmark_dir / "wikipedia_mcp.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
-        from ...core.context import context_env
+        from ...core.context import get_runtime_env
 
-        ctx_env = context_env()
+        ctx_env = get_runtime_env()
         ctx_env_json = json.dumps(ctx_env)
 
         # Generate a tiny Python wrapper to keep stdout for JSONRPC and send stderr to a file.

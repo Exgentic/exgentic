@@ -13,9 +13,9 @@ from __future__ import annotations
 import json
 import os
 import warnings
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from litellm.integrations.custom_logger import CustomLogger
 
@@ -46,15 +46,12 @@ class TraceLogger(CustomLogger):
 
     @staticmethod
     def _ensure_context() -> None:
-        try:
-            from ...core.context import init_context_from_env, try_get_context
+        from ...core.context import try_get_context, try_init_context
 
-            if try_get_context() is not None:
-                return
+        if try_get_context() is not None:
+            return
 
-            init_context_from_env()
-        except RuntimeError:
-            pass
+        try_init_context()
 
     def _init_otel(self, kwargs) -> None:
         import threading
@@ -112,7 +109,7 @@ class TraceLogger(CustomLogger):
         parent_span = NonRecordingSpan(span_context)
         return trace.set_span_in_context(parent_span)
 
-    def _create_llm_span(self, kwargs, name: str, start_time: Optional[Any] = None) -> Optional[Any]:
+    def _create_llm_span(self, kwargs, name: str, start_time: Any | None = None) -> Any | None:
         """Create span for LLM call with CLIENT span kind.
 
         Args:
@@ -253,7 +250,7 @@ class TraceLogger(CustomLogger):
         Path(file_path).parent.mkdir(parents=True, exist_ok=True)
         usage = self._extract_usage(response_obj)
         row = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "status": status,
             "model": kwargs.get("model"),
             "prompt_tokens": usage.get("prompt_tokens"),
@@ -291,6 +288,8 @@ class TraceLogger(CustomLogger):
             # Lazy initialize OTEL if not already done
             if self._tracer is None:
                 self._init_otel(kwargs)
+            if self._tracer is None:
+                return
             ctx = self.get_context(kwargs)
 
             # Lazy import GenAI semantic conventions

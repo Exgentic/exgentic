@@ -25,16 +25,10 @@ def serve_cmd(host: str, port: int, cls: str, kwargs_json: str | None, kwargs_b6
 
     import importlib
     import json
-    import os
 
-    from ....core.context import init_context_from_env
+    from ....core.context import try_init_context
 
-    try:
-        init_context_from_env()
-    except RuntimeError as exc:
-        logger.warning("Context init failed: %s", exc)
-        ctx_vars = {k: v for k, v in os.environ.items() if k.startswith("EXGENTIC_CTX")}
-        logger.debug("Context env vars: %s", ctx_vars)
+    try_init_context()
 
     from ....adapters.runners.service import serve
 

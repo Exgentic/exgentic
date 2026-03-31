@@ -6,6 +6,7 @@ from __future__ import annotations
 from ...interfaces.registry import load_benchmark
 from ...observers.logging import get_logger
 from ...utils.paths import get_run_paths
+from ..context import save_runtime
 from ..types import (
     RunConfig,
     RunPlan,
@@ -65,6 +66,8 @@ def core_run(
             if run_config.cache_dir is None:
                 updates["cache_dir"] = ctx.cache_dir
             run_config = run_config.model_copy(update=updates)
+        # Write runtime.json to the run dir so child processes can read it.
+        save_runtime()
         if execute:
             tracker = Tracker(
                 observers=observers,

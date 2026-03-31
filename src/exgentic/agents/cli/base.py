@@ -12,7 +12,7 @@ from typing import Any
 
 from ...adapters.agents.mcp_agent import MCPAgentInstance
 from ...core.agent import Agent
-from ...core.context import context_env
+from ...core.context import get_runtime_env
 from ...core.types import ModelSettings
 from ...integrations.litellm import LitellmProxy
 from ...integrations.litellm.health import check_model_accessible_sync
@@ -71,7 +71,7 @@ class BaseCLIWrapper(abc.ABC):
             "config": config,
         }
         env = self.build_env(cfg_root=cfg_root, prompt=prompt, config=config)
-        env.update(context_env())
+        env.update(get_runtime_env())
         if config.env:
             env = {**env, **config.env}
         cmd = self.build_command(cfg_root=cfg_root, prompt=prompt, config=config)

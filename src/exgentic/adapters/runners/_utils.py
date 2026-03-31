@@ -94,29 +94,36 @@ def prepare_subprocess_env() -> dict[str, str]:
 
 
 def inject_exgentic_env(env: dict[str, str]) -> None:
-    """Add exgentic context vars and resolved settings paths into *env*.
+    """Point *env* at the current ``runtime.json`` and propagate settings.
+
+    Sets the env vars needed for the child to call
+    :func:`~exgentic.core.context.init_context` (or ``try_init_context``),
+    which reads ``runtime.json`` and restores the full Context + settings.
 
     Mutates *env* in-place.
     """
-    from ...core.context import context_env
+    from ...core.context import get_runtime_env
     from ...environment.instance import get_manager
     from ...utils.settings import get_settings
 
-    for k, v in context_env().items():
+    # Point child at runtime.json (written by session_scope / save_runtime).
+    for k, v in get_runtime_env().items():
         env[k] = v
-    for key in ("EXGENTIC_CTX_OUTPUT_DIR", "EXGENTIC_CTX_CACHE_DIR"):
-        if key in env:
-            env[key] = str(Path(env[key]).resolve())
 
     settings = get_settings()
+    # Propagate all EXGENTIC_* settings (otel_enabled, log_level, etc.)
+    # to the subprocess so it inherits the parent's configuration.
+    for k, v in settings.get_env().items():
+        env.setdefault(k, v)
+
     # Use the EnvironmentManager's base_dir (~/.exgentic/) so that
     # EXGENTIC_CACHE_DIR points to the same location where benchmark
     # data is actually installed.  The old settings.cache_dir default
     # (".exgentic") resolved to a CWD-relative path that diverged from
     # the manager's absolute ~/.exgentic/ path, breaking Docker mounts.
     manager = get_manager()
-    env.setdefault("EXGENTIC_CACHE_DIR", str(manager.base_dir))
-    env.setdefault("EXGENTIC_OUTPUT_DIR", str(Path(settings.output_dir).resolve()))
+    env["EXGENTIC_CACHE_DIR"] = str(manager.base_dir)
+    env["EXGENTIC_OUTPUT_DIR"] = str(Path(settings.output_dir).resolve())
 
 
 def make_close(transport: Any, stop_fn: Any) -> Any:
