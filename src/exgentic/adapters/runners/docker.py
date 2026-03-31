@@ -164,6 +164,17 @@ class DockerRunner:
         Path(cache_dir).mkdir(parents=True, exist_ok=True)
         run_args.extend(["-v", f"{cache_dir}:{cache_dir}"])
 
+        # Mount runtime dir (read-only) so the container can read
+        # runtime.json for context, settings, and OTEL propagation.
+        from ...core.context import _derive_runtime_path, try_get_context
+
+        ctx = try_get_context()
+        runtime_path = _derive_runtime_path(ctx) if ctx else None
+        if runtime_path is not None:
+            runtime_dir = runtime_path.parent
+            runtime_dir.mkdir(parents=True, exist_ok=True)
+            run_args.extend(["-v", f"{runtime_dir}:{runtime_dir}:ro"])
+
         # Mount volumes.  Resolve to absolute paths (Docker requires them)
         # and ensure source directories exist — Docker Desktop on macOS
         # cannot create mount sources in some protected paths.
