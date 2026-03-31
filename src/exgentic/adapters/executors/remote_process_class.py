@@ -139,6 +139,12 @@ class RemoteProcess:
             pass
         if self._process.is_alive():
             self._process.terminate()
+            # Wait for process to actually exit after terminate
+            self._process.join(timeout=2.0)
+            # If still alive after terminate, force kill
+            if self._process.is_alive():
+                self._process.kill()
+                self._process.join(timeout=1.0)
         try:
             self._queue_in.close()
             self._queue_out.close()
@@ -155,6 +161,12 @@ class RemoteProcess:
             pass
         if process.is_alive():
             process.terminate()
+            # Wait for process to actually exit after terminate
+            process.join(timeout=2.0)
+            # If still alive after terminate, force kill
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=1.0)
         try:
             queue_in.close()
             queue_out.close()

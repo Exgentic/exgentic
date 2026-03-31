@@ -213,6 +213,12 @@ class RemoteProcessExecuter(BaseExecuter):
             if self._proc is not None and self._proc.is_alive():
                 self._logger.warning(f"Terminating unresponsive worker process PID:{self._proc.pid}")
                 self._proc.terminate()
+                # Wait for process to actually exit after terminate
+                self._proc.join(timeout=2.0)
+                if self._proc.is_alive():
+                    self._logger.error(f"Worker process PID:{self._proc.pid} did not exit after terminate, forcing kill")
+                    self._proc.kill()
+                    self._proc.join(timeout=1.0)
         except Exception:
             pass
         self._qin = None
@@ -368,7 +374,36 @@ class RemoteProcessExecuter(BaseExecuter):
                 else:
                     self._exe.delete(name)
 
+            def close(self) -> None:
+                """Close the remote session and shutdown the executor.
+                
+                This method attempts to gracefully close the remote session object
+                by calling its close() method if it exists, then shuts down the
+                executor process.
+                """
+                # First try to close the remote session object if it has a close method
+                try:
+                    # Check if the remote object has a close method before calling
+                    if hasattr(self._exe, 'signature'):
+                        try:
+                            self._exe.signature('close')
+                            # Method exists, call it
+                            self._exe.call('close')
+                        except (AttributeError, KeyError):
+                            # Method doesn't exist, skip
+                            pass
+                except Exception:
+                    # Best effort - session might be already closed or in bad state
+                    pass
+                # Then shutdown the executor process
+                self._exe.shutdown()
+
             def shutdown(self) -> None:
+                """Shutdown the executor process without closing the remote session.
+                
+                Use this when you want to forcefully terminate the executor without
+                attempting to gracefully close the remote session object.
+                """
                 self._exe.shutdown()
 
         return _Proxy()
