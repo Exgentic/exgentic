@@ -23,13 +23,13 @@ class LiteLLMToolCallingAgent(Agent):
     allow_truncated_messages: bool = False
 
     @classmethod
-    def get_instance_class(cls):
+    def _get_instance_class(cls):
         from .instance import LiteLLMToolCallingAgentInstance
 
         return LiteLLMToolCallingAgentInstance
 
     @classmethod
-    def get_instance_class_ref(cls) -> str:
+    def _get_instance_class_ref(cls) -> str:
         return "exgentic.agents.litellm_tool_calling.instance:LiteLLMToolCallingAgentInstance"
 
     @property
@@ -39,7 +39,7 @@ class LiteLLMToolCallingAgent(Agent):
     def get_models_names(self) -> list[str]:  # type: ignore[override]
         return [str(self.model)]
 
-    def get_instance_kwargs(
+    def _get_instance_kwargs(
         self,
         session_id: str,
     ) -> dict[str, Any]:

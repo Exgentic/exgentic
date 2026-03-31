@@ -4,8 +4,8 @@
 """TAU2 benchmark adapter — light benchmark class only.
 
 Evaluator, session, and proxy-agent classes live in ``tau2_eval.py``
-and are loaded inside the runner subprocess via ``get_evaluator_class()``
-and ``get_session_class()``.  This file must remain importable without
+and are loaded inside the runner subprocess via ``_get_evaluator_class()``
+and ``_get_session_class()``.  This file must remain importable without
 the ``tau2`` package installed.
 """
 
@@ -25,11 +25,11 @@ class TAU2Benchmark(Benchmark, BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
     @classmethod
-    def get_evaluator_class(cls):
+    def _get_evaluator_class(cls):
         return "exgentic.benchmarks.tau2.tau2_eval:TAU2Evaluator"
 
     @classmethod
-    def get_session_class(cls):
+    def _get_session_class(cls):
         return "exgentic.benchmarks.tau2.tau2_eval:TAU2Session"
 
     subset: Literal["mock", "retail", "airline", "telecom"] = "retail"
@@ -45,7 +45,7 @@ class TAU2Benchmark(Benchmark, BaseModel):
     def list_subsets(self) -> list[str]:  # type: ignore[override]
         return list(self.available_subsets)
 
-    def get_evaluator_kwargs(self) -> dict[str, Any]:
+    def _get_evaluator_kwargs(self) -> dict[str, Any]:
         return {
             "subset": self.subset,
             "user_simulator_model": self.user_simulator_model,

@@ -39,16 +39,16 @@ class OpenAIMCPAgent(Agent):
     mcp_config: MCPConfig | dict | None = None
 
     @classmethod
-    def get_instance_class(cls):
+    def _get_instance_class(cls):
         from .instance import OpenAIMCPAgentInstance
 
         return OpenAIMCPAgentInstance
 
     @classmethod
-    def get_instance_class_ref(cls) -> str:
+    def _get_instance_class_ref(cls) -> str:
         return "exgentic.agents.openai.instance:OpenAIMCPAgentInstance"
 
-    def get_instance_kwargs(
+    def _get_instance_kwargs(
         self,
         session_id: str,
     ) -> dict[str, Any]:

@@ -25,10 +25,10 @@ Then inspect the most relevant existing adapters:
    If the agent depends on heavy third-party libraries (litellm, smolagents, openai SDK, etc.), put the Agent in one file and the AgentInstance in `instance.py`. If deps are light, keep both in a single file.
 
 2. Implement the Agent class first.
-   Subclass `Agent`. Declare `display_name` and `slug_name` as `ClassVar[str]`. Add user-facing config fields. Implement `get_instance_class()` with a lazy import. Implement `get_instance_kwargs()` to translate config and the benchmark contract into instance constructor kwargs.
+   Subclass `Agent`. Declare `display_name` and `slug_name` as `ClassVar[str]`. Add user-facing config fields. Implement `_get_instance_class()` with a lazy import. Implement `_get_instance_kwargs()` to translate config and the benchmark contract into instance constructor kwargs.
 
 3. Implement the AgentInstance class.
-   Subclass `AgentInstance`. Accept `session_id` plus the kwargs from `get_instance_kwargs()`. Call `super().__init__(session_id)`. Implement `react()` as the core decision loop and `close()` for cleanup. Optionally override `start()` and `get_cost()`.
+   Subclass `AgentInstance`. Accept `session_id` plus the kwargs from `_get_instance_kwargs()`. Call `super().__init__(session_id)`. Implement `react()` as the core decision loop and `close()` for cleanup. Optionally override `start()` and `get_cost()`.
 
 4. Add `requirements.txt` for agent-specific dependencies.
    List only packages not already in the base exgentic install. Place the file in the agent's package directory; `RunnerMixin` discovers it automatically.
@@ -45,8 +45,8 @@ Then inspect the most relevant existing adapters:
 ## Non-negotiable rules
 
 - The Agent file must be importable without installing agent-specific packages.
-- `get_instance_class()` must use a lazy import to isolate heavy deps.
-- `get_instance_kwargs()` must faithfully pass the benchmark contract (task, context, actions, session_id) through to the instance.
+- `_get_instance_class()` must use a lazy import to isolate heavy deps.
+- `_get_instance_kwargs()` must faithfully pass the benchmark contract (task, context, actions, session_id) through to the instance.
 - The instance constructor must call `super().__init__(session_id)`.
 - `react()` must return `None` when the agent decides it is done.
 - `close()` must not raise exceptions.

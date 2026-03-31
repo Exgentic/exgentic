@@ -136,8 +136,8 @@ class TestAgentWithRunnerSession:
 
     def test_good_then_finish_policy(self, session_proxy):
         agent = TestAgent(policy="good_then_finish", finish_after=3)
-        instance = agent.get_instance_class()(
-            **agent.get_instance_kwargs(session_id="sess-e2e-001"),
+        instance = agent._get_instance_class()(
+            **agent._get_instance_kwargs(session_id="sess-e2e-001"),
         )
         instance.start(
             task=session_proxy.task,
@@ -161,8 +161,8 @@ class TestAgentWithRunnerSession:
 
     def test_finish_immediately_policy(self, session_proxy):
         agent = TestAgent(policy="finish_immediately")
-        instance = agent.get_instance_class()(
-            **agent.get_instance_kwargs(session_id="sess-e2e-001"),
+        instance = agent._get_instance_class()(
+            **agent._get_instance_kwargs(session_id="sess-e2e-001"),
         )
         instance.start(
             task=session_proxy.task,

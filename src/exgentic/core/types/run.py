@@ -271,7 +271,6 @@ class RunConfig(BaseEvaluationConfig):
         *,
         resolved_config: RunConfig | None = None,
     ) -> list[SessionConfig]:
-        from ...adapters.runners import with_runner
         from ...interfaces.registry import load_benchmark
 
         resolved = resolved_config or self
@@ -280,12 +279,7 @@ class RunConfig(BaseEvaluationConfig):
         if task_ids is None:
             bench_cls = load_benchmark(resolved.benchmark)
             benchmark = bench_cls(**(resolved.benchmark_kwargs or {}))
-            evaluator = with_runner(
-                benchmark.get_evaluator_class(),
-                runner=benchmark.resolve_runner(),
-                **benchmark.get_evaluator_kwargs(),
-                **benchmark.runner_kwargs(),
-            )
+            evaluator = benchmark.get_evaluator()
             try:
                 selected = [str(t) for t in evaluator.list_tasks()]
                 if resolved.num_tasks is not None:

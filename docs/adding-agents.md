@@ -17,7 +17,7 @@ The agent adapts to the benchmark contract, not the other way around.
 
 That means:
 - the benchmark decides the task, context, actions, step flow, and scoring
-- the agent receives these through `get_instance_kwargs()` and must work within them
+- the agent receives these through `_get_instance_kwargs()` and must work within them
 - the agent should not require benchmark modifications to function
 - the agent should not impose protocol-specific assumptions on the benchmark
 
@@ -39,8 +39,8 @@ Exgentic agents are split into two classes with distinct roles:
 Responsibilities:
 - declare `display_name` and `slug_name` as `ClassVar[str]`
 - hold user-facing configuration fields (model name, max steps, feature flags)
-- implement `get_instance_class()` to resolve the execution class
-- implement `get_instance_kwargs()` to translate config + benchmark contract into constructor arguments
+- implement `_get_instance_class()` to resolve the execution class
+- implement `_get_instance_kwargs()` to translate config + benchmark contract into constructor arguments
 - optionally override `setup()` for non-pip setup (Docker builds, npm installs)
 - optionally override `model_name` / `get_models_names()` for dashboard metadata
 
@@ -54,21 +54,21 @@ Responsibilities:
 - optionally override `start()` for initialization that happens after construction
 - optionally override `get_cost()` to report monetary cost
 
-The agent instance receives a single `session_id` in its constructor, which scopes all logs and artifacts. Additional kwargs come from `get_instance_kwargs()`.
+The agent instance receives a single `session_id` in its constructor, which scopes all logs and artifacts. Additional kwargs come from `_get_instance_kwargs()`.
 
 ## Key Pattern: Lazy Import for Dependency Isolation
 
-The `get_instance_class()` classmethod must use a lazy import so that heavy dependencies are only loaded inside the runner environment, not on the host.
+The `_get_instance_class()` classmethod must use a lazy import so that heavy dependencies are only loaded inside the runner environment, not on the host.
 
 ```python
 @classmethod
-def get_instance_class(cls):
+def _get_instance_class(cls):
     from .instance import MyAgentInstance
 
     return MyAgentInstance
 ```
 
-This is the same pattern that `Benchmark.get_session_class()` uses. It ensures the host process never imports libraries like `litellm`, `smolagents`, `openai`, or any other agent-specific SDK.
+This is the same pattern that `Benchmark._get_session_class()` uses. It ensures the host process never imports libraries like `litellm`, `smolagents`, `openai`, or any other agent-specific SDK.
 
 ## When to Split Files
 
@@ -102,24 +102,24 @@ The rule is simple: if importing the instance class would pull in packages that 
 
 ### On the Agent class
 
-#### `get_instance_class()` (classmethod, abstract)
+#### `_get_instance_class()` (classmethod, abstract)
 
 Returns the `AgentInstance` subclass. Must use a lazy import.
 
 ```python
 @classmethod
-def get_instance_class(cls):
+def _get_instance_class(cls):
     from .instance import MyAgentInstance
 
     return MyAgentInstance
 ```
 
-#### `get_instance_kwargs()` (abstract)
+#### `_get_instance_kwargs()` (abstract)
 
 Translates the agent's configuration into constructor kwargs for the instance class. Task, context, and actions are passed separately via `start()`, not through the constructor.
 
 ```python
-def get_instance_kwargs(self, session_id: str) -> dict[str, Any]:
+def _get_instance_kwargs(self, session_id: str) -> dict[str, Any]:
     return {
         "session_id": session_id,
         "model": self.model,
@@ -250,7 +250,7 @@ class MyAgent(Agent):
     max_steps: int = 100
 
     @classmethod
-    def get_instance_class(cls):
+    def _get_instance_class(cls):
         from .instance import MyAgentInstance
 
         return MyAgentInstance
@@ -259,7 +259,7 @@ class MyAgent(Agent):
     def model_name(self) -> str:
         return self.model
 
-    def get_instance_kwargs(self, session_id: str) -> dict[str, Any]:
+    def _get_instance_kwargs(self, session_id: str) -> dict[str, Any]:
         return {
             "session_id": session_id,
             "model": self.model,
@@ -326,15 +326,15 @@ Before opening a PR for a new agent, validate all of the following.
 ### Contract validation
 
 - Agent class declares `display_name` and `slug_name` as `ClassVar[str]`
-- `get_instance_class()` uses a lazy import
-- `get_instance_kwargs()` returns a dict whose keys match the instance constructor
+- `_get_instance_class()` uses a lazy import
+- `_get_instance_kwargs()` returns a dict whose keys match the instance constructor
 - The instance implements `react()` and `close()`
 - The instance calls `super().__init__(session_id)` in its constructor
 
 ### Dependency isolation validation
 
 - The Agent file does not import heavy third-party libraries at module level
-- Heavy imports only appear inside `get_instance_class()` or in the instance module
+- Heavy imports only appear inside `_get_instance_class()` or in the instance module
 - `requirements.txt` lists all agent-specific dependencies
 
 ### Registry validation
@@ -366,7 +366,7 @@ When in doubt, ask:
 1. Does the agent adapt to the benchmark, or does it require the benchmark to change?
 2. Are heavy dependencies isolated behind a lazy import?
 3. Is the Agent file importable without installing agent-specific packages?
-4. Does `get_instance_kwargs()` faithfully pass the benchmark contract through?
+4. Does `_get_instance_kwargs()` faithfully pass the benchmark contract through?
 5. Will this agent work with benchmarks that have very different action spaces?
 6. Is the configuration surface minimal and explicit?
 

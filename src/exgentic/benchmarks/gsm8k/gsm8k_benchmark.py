@@ -333,18 +333,18 @@ class GSM8kBenchmark(Benchmark, BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @classmethod
-    def get_evaluator_class(cls):
+    def _get_evaluator_class(cls):
         return GSM8kEvaluator
 
     @classmethod
-    def get_session_class(cls):
+    def _get_session_class(cls):
         return GSM8kSession
 
     subset: Literal["main"] = "main"
     include_calculator_tool: bool = True
     runner: RunnerName | None = None  # Threadsafe; uses global default runner
 
-    def get_evaluator_kwargs(self) -> dict[str, Any]:
+    def _get_evaluator_kwargs(self) -> dict[str, Any]:
         return {
             "subset": self.subset,
             "include_calculator_tool": self.include_calculator_tool,

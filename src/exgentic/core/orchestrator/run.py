@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from ...adapters.runners import with_runner
 from ...interfaces.registry import load_benchmark
 from ...observers.logging import get_logger
 from ...utils.paths import get_run_paths
@@ -133,12 +132,7 @@ def core_run(
             # Create evaluator for aggregation.
             bench_cls = load_benchmark(run_config.benchmark)
             benchmark = bench_cls(**(run_config.benchmark_kwargs or {}))
-            evaluator = with_runner(
-                benchmark.get_evaluator_class(),
-                runner=benchmark.resolve_runner(),
-                **benchmark.get_evaluator_kwargs(),
-                **benchmark.runner_kwargs(),
-            )
+            evaluator = benchmark.get_evaluator()
             try:
                 results = evaluator.aggregate_sessions(session_indexes)
             finally:

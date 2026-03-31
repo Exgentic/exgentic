@@ -4,8 +4,8 @@
 """AppWorld benchmark adapter -- light benchmark class only.
 
 Evaluator and session classes live in ``appworld_eval.py`` and are loaded
-inside the runner subprocess via ``get_evaluator_class()`` and
-``get_session_class()``.  This file must remain importable without the
+inside the runner subprocess via ``_get_evaluator_class()`` and
+``_get_session_class()``.  This file must remain importable without the
 ``appworld`` package installed.
 """
 
@@ -30,11 +30,11 @@ class AppWorldBenchmark(Benchmark, BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @classmethod
-    def get_evaluator_class(cls):
+    def _get_evaluator_class(cls):
         return "exgentic.benchmarks.appworld.appworld_eval:AppWorldEvaluator"
 
     @classmethod
-    def get_session_class(cls):
+    def _get_session_class(cls):
         return "exgentic.benchmarks.appworld.appworld_eval:AppWorldSession"
 
     # Inputs
@@ -47,7 +47,7 @@ class AppWorldBenchmark(Benchmark, BaseModel):
     def list_subsets(self) -> list[str]:  # type: ignore[override]
         return list(self.available_subsets)
 
-    def get_evaluator_kwargs(self) -> dict[str, Any]:
+    def _get_evaluator_kwargs(self) -> dict[str, Any]:
         return {
             "subset": self.subset,
             "env_kwargs": self.env_kwargs,

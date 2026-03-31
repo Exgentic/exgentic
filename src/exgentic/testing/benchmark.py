@@ -162,17 +162,17 @@ class TestBenchmark(Benchmark):
     tasks: list[str] = ["task-1", "task-2", "task-3"]  # noqa: RUF012
 
     @classmethod
-    def get_evaluator_class(cls):
+    def _get_evaluator_class(cls):
         return TestEvaluator
 
     @classmethod
-    def get_session_class(cls):
+    def _get_session_class(cls):
         return TestSession
 
     stop_on_step: bool = False
     invalid_observation: bool = False
 
-    def get_evaluator_kwargs(self) -> dict[str, Any]:
+    def _get_evaluator_kwargs(self) -> dict[str, Any]:
         return {
             "tasks": self.tasks,
             "stop_on_step": self.stop_on_step,

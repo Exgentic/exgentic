@@ -16,7 +16,7 @@ class SmolagentBaseAgent(Agent):
     model_settings: ModelSettings | None = None
     retry_on_all_errors: bool = True
 
-    def get_instance_kwargs(
+    def _get_instance_kwargs(
         self,
         session_id: str,
     ) -> dict[str, Any]:

@@ -89,10 +89,10 @@ class ReplayAgent(Agent):
     runner: str | None = "direct"  # No external deps — run in host process
 
     @classmethod
-    def get_instance_class(cls):
+    def _get_instance_class(cls):
         return ReplayAgentInstance
 
-    def get_instance_kwargs(
+    def _get_instance_kwargs(
         self,
         session_id: str,
     ) -> dict[str, Any]:

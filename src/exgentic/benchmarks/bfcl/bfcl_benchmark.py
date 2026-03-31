@@ -4,8 +4,8 @@
 """BFCL benchmark adapter — light benchmark class only.
 
 Evaluator, session, and helper classes live in ``bfcl_eval.py``
-and are loaded inside the runner subprocess via ``get_evaluator_class()``
-and ``get_session_class()``.  This file must remain importable without
+and are loaded inside the runner subprocess via ``_get_evaluator_class()``
+and ``_get_session_class()``.  This file must remain importable without
 the ``bfcl_eval`` package installed.
 """
 
@@ -75,11 +75,11 @@ class BFCLBenchmark(Benchmark, BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
 
     @classmethod
-    def get_evaluator_class(cls):
+    def _get_evaluator_class(cls):
         return "exgentic.benchmarks.bfcl.bfcl_eval:BFCLEvaluator"
 
     @classmethod
-    def get_session_class(cls):
+    def _get_session_class(cls):
         return "exgentic.benchmarks.bfcl.bfcl_eval:BFCLSession"
 
     subset: BFCLSubset = "simple_python"
@@ -87,7 +87,7 @@ class BFCLBenchmark(Benchmark, BaseModel):
     def list_subsets(self) -> list[str]:  # type: ignore[override]
         return list(self.available_subsets)
 
-    def get_evaluator_kwargs(self) -> dict[str, Any]:
+    def _get_evaluator_kwargs(self) -> dict[str, Any]:
         return {
             "subset": self.subset,
         }

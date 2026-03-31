@@ -10,7 +10,6 @@ from pathlib import Path
 
 from filelock import FileLock, Timeout
 
-from ...adapters.runners import with_runner
 from ...interfaces.registry import load_agent, load_benchmark
 from ...observers.logging import get_disabled_logger
 from ...utils.paths import get_run_paths, get_session_paths
@@ -166,12 +165,7 @@ def run_session_config(
     agent = agent_cls(**(session_config.agent_kwargs or {}))
 
     # Create evaluator to obtain session kwargs.
-    evaluator = with_runner(
-        benchmark.get_evaluator_class(),
-        runner=benchmark.resolve_runner(),
-        **benchmark.get_evaluator_kwargs(),
-        **benchmark.runner_kwargs(),
-    )
+    evaluator = benchmark.get_evaluator()
 
     session_id = session_config.get_session_id()
     index = SessionIndex(
@@ -181,13 +175,8 @@ def run_session_config(
 
     try:
         session_kwargs = evaluator.get_session_kwargs(index)
-        # Create session via with_runner for isolation.
-        session = with_runner(
-            benchmark.get_session_class(),
-            runner=benchmark.resolve_runner(),
-            **session_kwargs,
-            **benchmark.runner_kwargs(),
-        )
+        # Create session via runner for isolation.
+        session = benchmark.get_session(**session_kwargs)
         # run_session handles session.close() internally.
         run_session(session_config, session, agent, tracker=tracker)
     finally:

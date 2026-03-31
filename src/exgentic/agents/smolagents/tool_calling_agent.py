@@ -11,11 +11,11 @@ class SmolagentToolCallingAgent(SmolagentBaseAgent):
     slug_name: ClassVar[str] = "smolagents_tool"
 
     @classmethod
-    def get_instance_class(cls):
+    def _get_instance_class(cls):
         from .tool_calling_instance import SmolagentToolCallingAgentInstance
 
         return SmolagentToolCallingAgentInstance
 
     @classmethod
-    def get_instance_class_ref(cls) -> str:
+    def _get_instance_class_ref(cls) -> str:
         return "exgentic.agents.smolagents.tool_calling_instance:SmolagentToolCallingAgentInstance"

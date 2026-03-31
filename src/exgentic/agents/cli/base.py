@@ -317,13 +317,13 @@ class ProxyBackedAgent(Agent):
     max_steps: int = 150
 
     @classmethod
-    def get_instance_class(cls):
+    def _get_instance_class(cls):
         raise NotImplementedError
 
     execution_backend: ExecutionBackend = ExecutionBackend.AUTO
     model_settings: ModelSettings | None = None
 
-    def get_instance_kwargs(
+    def _get_instance_kwargs(
         self,
         session_id: str,
     ) -> dict[str, Any]:

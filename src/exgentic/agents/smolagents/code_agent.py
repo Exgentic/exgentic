@@ -11,11 +11,11 @@ class SmolagentCodeAgent(SmolagentBaseAgent):
     slug_name: ClassVar[str] = "smolagents_code"
 
     @classmethod
-    def get_instance_class(cls):
+    def _get_instance_class(cls):
         from .code_instance import SmolagentCodeAgentInstance
 
         return SmolagentCodeAgentInstance
 
     @classmethod
-    def get_instance_class_ref(cls) -> str:
+    def _get_instance_class_ref(cls) -> str:
         return "exgentic.agents.smolagents.code_instance:SmolagentCodeAgentInstance"

@@ -583,11 +583,11 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @classmethod
-    def get_evaluator_class(cls):
+    def _get_evaluator_class(cls):
         return BrowseCompPlusEvaluator
 
     @classmethod
-    def get_session_class(cls):
+    def _get_session_class(cls):
         return BrowseCompPlusSession
 
     subset: Literal["main"] = "main"
@@ -670,7 +670,7 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
             kw["volumes"] = volumes
         return kw
 
-    def get_evaluator_kwargs(self) -> dict[str, Any]:
+    def _get_evaluator_kwargs(self) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
             "subset": self.subset,
             "searcher_type": self.searcher_type,

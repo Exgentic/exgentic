@@ -4,8 +4,8 @@
 """SWE-bench benchmark adapter -- light benchmark class only.
 
 Evaluator, session, and helper classes live in ``swebench_eval.py``
-and are loaded inside the runner subprocess via ``get_evaluator_class()``
-and ``get_session_class()``.  This file must remain importable without
+and are loaded inside the runner subprocess via ``_get_evaluator_class()``
+and ``_get_session_class()``.  This file must remain importable without
 the ``swebench`` package installed.
 """
 
@@ -82,11 +82,11 @@ class SWEBenchBenchmark(Benchmark):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @classmethod
-    def get_evaluator_class(cls):
+    def _get_evaluator_class(cls):
         return "exgentic.benchmarks.swebench.swebench_eval:SWEBenchEvaluator"
 
     @classmethod
-    def get_session_class(cls):
+    def _get_session_class(cls):
         return "exgentic.benchmarks.swebench.swebench_eval:SWEBenchSession"
 
     subset: str | None = None
@@ -111,7 +111,7 @@ class SWEBenchBenchmark(Benchmark):
         if self.max_interactions is None:
             self.max_interactions = session_cfg.get("max_interactions")
 
-    def get_evaluator_kwargs(self) -> dict[str, Any]:
+    def _get_evaluator_kwargs(self) -> dict[str, Any]:
         return {
             "subset": self.subset,
             "require_submit_for_patch_evaluation": self.require_submit_for_patch_evaluation,

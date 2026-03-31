@@ -74,14 +74,14 @@ class ReplayBenchmark(Benchmark):
     recording_dir: str
 
     @classmethod
-    def get_evaluator_class(cls):
+    def _get_evaluator_class(cls):
         return ReplayEvaluator
 
     @classmethod
-    def get_session_class(cls):
+    def _get_session_class(cls):
         return ReplaySession
 
-    def get_evaluator_kwargs(self) -> dict[str, Any]:
+    def _get_evaluator_kwargs(self) -> dict[str, Any]:
         return {"recording_dir": self.recording_dir}
 
     def runner_kwargs(self) -> dict[str, Any]:

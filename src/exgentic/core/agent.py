@@ -19,10 +19,9 @@ if TYPE_CHECKING:
 class Agent(BaseModel, RunnerMixin, ABC):
     """Agent configuration — lightweight config that lives on the host.
 
-    Provides ``get_instance_class()`` to lazily resolve the execution class,
-    which can be wrapped with ``with_runner()`` for container/venv isolation,
-    mirroring how ``Benchmark`` provides ``get_session_class()`` and
-    ``get_evaluator_class()``.
+    Callers use ``get_instance(session_id)`` to obtain a running
+    ``AgentInstance`` wrapped in the configured runner, mirroring
+    ``Benchmark.get_evaluator()`` and ``Benchmark.get_session()``.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -35,7 +34,7 @@ class Agent(BaseModel, RunnerMixin, ABC):
 
     @classmethod
     @abstractmethod
-    def get_instance_class(cls) -> type[AgentInstance]:
+    def _get_instance_class(cls) -> type[AgentInstance]:
         """Return the AgentInstance subclass for this agent.
 
         Subclasses implement this with a lazy import so heavy deps
@@ -44,18 +43,18 @@ class Agent(BaseModel, RunnerMixin, ABC):
         ...
 
     @classmethod
-    def get_instance_class_ref(cls) -> str:
+    def _get_instance_class_ref(cls) -> str:
         """Return a ``"module:qualname"`` string for the instance class.
 
-        By default calls ``get_instance_class()`` and converts to string.
+        By default calls ``_get_instance_class()`` and converts to string.
         Override in subclasses whose instance module has heavy third-party
         imports to return the string directly without triggering the import.
         """
-        klass = cls.get_instance_class()
+        klass = cls._get_instance_class()
         return f"{klass.__module__}:{klass.__qualname__}"
 
     @abstractmethod
-    def get_instance_kwargs(
+    def _get_instance_kwargs(
         self,
         session_id: str,
     ) -> dict[str, Any]:
@@ -66,6 +65,17 @@ class Agent(BaseModel, RunnerMixin, ABC):
         OS argument-list size limits.
         """
         ...
+
+    def get_instance(self, session_id: str) -> AgentInstance:
+        """Create an ``AgentInstance`` wrapped in the configured runner."""
+        from ..adapters.runners import with_runner
+
+        return with_runner(
+            self._get_instance_class_ref(),
+            runner=self.resolve_runner(),
+            **self._get_instance_kwargs(session_id=session_id),
+            **self.runner_kwargs(),
+        )
 
     # Optional metadata property for dashboard/leaderboards
     @property

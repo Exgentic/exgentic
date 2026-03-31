@@ -115,7 +115,7 @@ class TestAgent(Agent):
     runner: str | None = "direct"  # No external deps — run in host process
 
     @classmethod
-    def get_instance_class(cls):
+    def _get_instance_class(cls):
         return TestAgentInstance
 
     seed: int = 0
@@ -132,7 +132,7 @@ class TestAgent(Agent):
     finish_after: int = 2
     max_steps: int | None = None
 
-    def get_instance_kwargs(
+    def _get_instance_kwargs(
         self,
         session_id: str,
     ) -> dict[str, Any]:

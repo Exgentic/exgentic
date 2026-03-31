@@ -355,18 +355,18 @@ class HotpotQABenchmark(Benchmark, BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @classmethod
-    def get_evaluator_class(cls):
+    def _get_evaluator_class(cls):
         return HotpotQAEvaluator
 
     @classmethod
-    def get_session_class(cls):
+    def _get_session_class(cls):
         return HotpotQASession
 
     subset: Literal["distractor"] = "distractor"
     with_search_tools: bool = True
     runner: RunnerName | None = None  # Threadsafe; uses global default runner (venv)
 
-    def get_evaluator_kwargs(self) -> dict[str, Any]:
+    def _get_evaluator_kwargs(self) -> dict[str, Any]:
         return {
             "subset": self.subset,
             "with_search_tools": self.with_search_tools,

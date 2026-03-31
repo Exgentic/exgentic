@@ -3,8 +3,8 @@
 
 """Evaluator ABC — benchmark evaluation logic (task discovery, session config, aggregation).
 
-An Evaluator can be wrapped with ``with_runner()`` for container isolation,
-keeping heavy dependencies off the host.
+An Evaluator is created via ``Benchmark.get_evaluator()`` for container
+isolation, keeping heavy dependencies off the host.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ class Evaluator(ABC):
 
         The orchestrator will call::
 
-            with_runner(session_class, runner=..., **session_kwargs, **runner_kwargs)
+            benchmark.get_session(**session_kwargs)
         """
         ...
 

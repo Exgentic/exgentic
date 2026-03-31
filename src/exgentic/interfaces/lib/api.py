@@ -545,16 +545,9 @@ def list_tasks(
     bench_kwargs = dict(benchmark_kwargs or {})
     if subset is not None:
         bench_kwargs = apply_subset_kwargs(benchmark, subset, bench_kwargs)
-    from ...adapters.runners import with_runner
-
     bench_cls = load_benchmark_class(benchmark)
     benchmark_obj: Benchmark = bench_cls(**bench_kwargs)
-    evaluator = with_runner(
-        benchmark_obj.get_evaluator_class(),
-        runner=benchmark_obj.resolve_runner(),
-        **benchmark_obj.get_evaluator_kwargs(),
-        **benchmark_obj.runner_kwargs(),
-    )
+    evaluator = benchmark_obj.get_evaluator()
     try:
         try:
             return evaluator.list_tasks()

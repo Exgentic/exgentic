@@ -244,7 +244,7 @@ Do not mix setup logic directly into the runtime path when it can be handled onc
 
 The main benchmark file (`<name>_benchmark.py`) defines the `Benchmark` subclass that Exgentic loads in the host process. This file **must be importable without any benchmark-specific dependencies installed**.
 
-External dependencies (benchmark harnesses, datasets, ML libraries, etc.) belong in **separate files** that are only loaded inside the runner subprocess through `get_evaluator_class()` and `get_session_class()`.
+External dependencies (benchmark harnesses, datasets, ML libraries, etc.) belong in **separate files** that are only loaded inside the runner subprocess through `_get_evaluator_class()` and `_get_session_class()`.
 
 **Rule:** The benchmark class file may only import from:
 - Python standard library
@@ -268,7 +268,7 @@ Good:
 ```python
 # <name>_benchmark.py — no external deps
 class MyBenchmark(Benchmark):
-    def get_evaluator_class(self):
+    def _get_evaluator_class(self):
         from .<name>_eval import MyEvaluator  # loaded inside runner
         return MyEvaluator
 
@@ -283,7 +283,7 @@ For a benchmark package under `src/exgentic/benchmarks/<name>/`:
 - `<name>_benchmark.py` **(required)**
   - `Benchmark` subclass only
   - no external dependency imports
-  - `get_evaluator_class()` and `get_session_class()` return classes from other files
+  - `_get_evaluator_class()` and `_get_session_class()` return classes from other files
 - `<name>_eval.py` or `<name>_session.py` **(required if benchmark has external deps)**
   - evaluator, session, and runtime logic
   - may import external dependencies at module level
@@ -313,7 +313,7 @@ Before opening a PR for a new benchmark, validate all of the following.
 ### Import validation
 
 - the main benchmark file (`<name>_benchmark.py`) imports **no external dependencies**
-- `get_evaluator_class()` and `get_session_class()` load from separate files
+- `_get_evaluator_class()` and `_get_session_class()` load from separate files
 - `python -c "from exgentic.benchmarks.<name>.<name>_benchmark import <Class>"` works without deps installed
 
 ### Functional validation

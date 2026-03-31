@@ -19,9 +19,8 @@ if TYPE_CHECKING:
 class Benchmark(BaseModel, RunnerMixin, ABC):
     """Benchmark configuration — lightweight config that lives on the host.
 
-    Provides ``get_evaluator_class()`` (task discovery & aggregation) and
-    ``get_session_class()`` (task execution). Both can be wrapped with
-    ``with_runner()`` for container isolation.
+    Callers use ``get_evaluator()`` and ``get_session()`` to obtain
+    instances wrapped in the configured runner for container isolation.
     """
 
     model_config = ConfigDict(
@@ -48,7 +47,7 @@ class Benchmark(BaseModel, RunnerMixin, ABC):
         return [subset] if subset and subset != "unknown" else []
 
     @classmethod
-    def get_evaluator_class(cls) -> type[Evaluator]:
+    def _get_evaluator_class(cls) -> type[Evaluator]:
         """Return the Evaluator subclass for this benchmark.
 
         Subclasses implement this with a lazy import so heavy deps
@@ -57,7 +56,7 @@ class Benchmark(BaseModel, RunnerMixin, ABC):
         raise NotImplementedError
 
     @classmethod
-    def get_session_class(cls) -> type[Session]:
+    def _get_session_class(cls) -> type[Session]:
         """Return the Session subclass for this benchmark.
 
         Subclasses implement this with a lazy import so heavy deps
@@ -65,9 +64,31 @@ class Benchmark(BaseModel, RunnerMixin, ABC):
         """
         raise NotImplementedError
 
-    def get_evaluator_kwargs(self) -> dict[str, Any]:
+    def _get_evaluator_kwargs(self) -> dict[str, Any]:
         """Return kwargs for constructing the Evaluator.
 
         Subclasses override this to pass benchmark-specific config.
         """
         return {}
+
+    def get_evaluator(self) -> Evaluator:
+        """Create an ``Evaluator`` wrapped in the configured runner."""
+        from ..adapters.runners import with_runner
+
+        return with_runner(
+            self._get_evaluator_class(),
+            runner=self.resolve_runner(),
+            **self._get_evaluator_kwargs(),
+            **self.runner_kwargs(),
+        )
+
+    def get_session(self, **session_kwargs: Any) -> Session:
+        """Create a ``Session`` wrapped in the configured runner."""
+        from ..adapters.runners import with_runner
+
+        return with_runner(
+            self._get_session_class(),
+            runner=self.resolve_runner(),
+            **session_kwargs,
+            **self.runner_kwargs(),
+        )

@@ -83,7 +83,7 @@ class ClaudeCodeAgent(ProxyBackedAgent):
     execution_backend: ExecutionBackend = ExecutionBackend.AUTO
 
     @classmethod
-    def get_instance_class(cls):
+    def _get_instance_class(cls):
         return ClaudeCodeAgentInstance
 
     def get_models_names(self) -> list[str]:  # type: ignore[override]

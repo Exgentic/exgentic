@@ -10,11 +10,11 @@ splitting agent/benchmark modules into separate config and instance files:
    cannot discover ``requirements.txt`` / ``setup.sh``, so the CLI's
    ``needs_setup()`` returns False and dependencies are never installed.
 
-2. Host-side import of heavy deps — if ``get_instance_class_ref()`` falls
-   back to ``get_instance_class()`` (which does a lazy import), it will
+2. Host-side import of heavy deps — if ``_get_instance_class_ref()`` falls
+   back to ``_get_instance_class()`` (which does a lazy import), it will
    pull heavy third-party packages (litellm, smolagents, openai-agents)
    into the host process.  Agents with heavy deps must override
-   ``get_instance_class_ref()`` to return a string directly.
+   ``_get_instance_class_ref()`` to return a string directly.
 """
 
 from __future__ import annotations
@@ -75,7 +75,7 @@ def test_all_benchmark_packages_have_init():
 
 
 def test_agent_instance_class_ref_is_valid_string():
-    """Every agent's get_instance_class_ref() must return a 'module:class' string.
+    """Every agent's _get_instance_class_ref() must return a 'module:class' string.
 
     This verifies the ref is well-formed; it does NOT import the module
     (which would defeat the purpose of the string ref).
@@ -83,12 +83,12 @@ def test_agent_instance_class_ref_is_valid_string():
     entries = get_agent_entries()
     for slug, _entry in entries.items():
         agent_cls = load_agent(slug)
-        ref = agent_cls.get_instance_class_ref()
+        ref = agent_cls._get_instance_class_ref()
         assert isinstance(ref, str), (
-            f"Agent '{slug}': get_instance_class_ref() returned " f"{type(ref).__name__}, expected str"
+            f"Agent '{slug}': _get_instance_class_ref() returned " f"{type(ref).__name__}, expected str"
         )
         assert ":" in ref, (
-            f"Agent '{slug}': get_instance_class_ref() returned '{ref}', " f"expected 'module:qualname' format"
+            f"Agent '{slug}': _get_instance_class_ref() returned '{ref}', " f"expected 'module:qualname' format"
         )
         module_path, qualname = ref.rsplit(":", 1)
         assert module_path, f"Agent '{slug}': empty module path in ref '{ref}'"
@@ -96,14 +96,14 @@ def test_agent_instance_class_ref_is_valid_string():
 
 
 def test_agent_instance_class_ref_module_file_exists():
-    """The module referenced by get_instance_class_ref() must exist on disk.
+    """The module referenced by _get_instance_class_ref() must exist on disk.
 
     This catches typos in string refs without importing the module.
     """
     entries = get_agent_entries()
     for slug, entry in entries.items():
         agent_cls = load_agent(slug)
-        ref = agent_cls.get_instance_class_ref()
+        ref = agent_cls._get_instance_class_ref()
         module_path, _ = ref.rsplit(":", 1)
         # Convert module path to file path
         parts = module_path.split(".")
@@ -118,7 +118,8 @@ def test_agent_instance_class_ref_module_file_exists():
         # Now resolve the ref module path
         expected_file = src_root / Path(*parts[:-1]) / f"{parts[-1]}.py"
         assert expected_file.exists(), (
-            f"Agent '{slug}': get_instance_class_ref() points to " f"'{module_path}' but {expected_file} does not exist"
+            f"Agent '{slug}': _get_instance_class_ref() points to "
+            f"'{module_path}' but {expected_file} does not exist."
         )
 
 

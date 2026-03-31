@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-from ...adapters.runners import with_runner
 from ..context import agent_scope, benchmark_scope, session_scope
 from ..types import SessionConfig
 from .controller import Controller
@@ -34,19 +33,14 @@ def run_session(
 ) -> None:
     """Process a single session.
 
-    The *session* and *agent_instance* are created via ``with_runner()``
-    for isolation.
+    The *agent_instance* is created via ``agent.get_instance()`` for
+    runner isolation.
     """
     if tracker is None:
         tracker = Tracker(observers=observers, controllers=controllers)
 
     with session_scope(session.session_id, task_id=session.task_id):
-        agent_instance = with_runner(
-            agent.get_instance_class_ref(),
-            runner=agent.resolve_runner(),
-            **agent.get_instance_kwargs(session_id=session.session_id),
-            **agent.runner_kwargs(),
-        )
+        agent_instance = agent.get_instance(session_id=session.session_id)
 
         with benchmark_scope():
             observation = session.start()
