@@ -32,13 +32,13 @@ class TestSession(Session):
 
     def __init__(
         self,
-        *,
         task_id: str,
-        session_id: str,
         stop_on_step: bool,
         invalid_observation: bool,
+        session_id: str | None = None,
     ) -> None:
-        self._session_id = session_id
+        if session_id is not None:
+            self._session_id = session_id
         self._task_id = task_id
         self._stop_on_step = stop_on_step
         self._invalid_observation = invalid_observation
@@ -126,14 +126,6 @@ class TestEvaluator(Evaluator):
     def list_tasks(self) -> list[str]:
         return list(self._tasks)
 
-    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
-        return {
-            "task_id": str(index.task_id),
-            "session_id": index.session_id,
-            "stop_on_step": self._stop_on_step,
-            "invalid_observation": self._invalid_observation,
-        }
-
     def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
         scores: list[float] = []
         for paths in self.get_sessions_paths(sessions):
@@ -173,8 +165,10 @@ class TestBenchmark(Benchmark):
     invalid_observation: bool = False
 
     def _get_evaluator_kwargs(self) -> dict[str, Any]:
+        return {"tasks": self.tasks}
+
+    def _get_session_kwargs(self) -> dict[str, Any]:
         return {
-            "tasks": self.tasks,
             "stop_on_step": self.stop_on_step,
             "invalid_observation": self.invalid_observation,
         }

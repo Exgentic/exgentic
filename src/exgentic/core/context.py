@@ -28,6 +28,7 @@ class Role(str, Enum):
     FRAMEWORK = "framework"
     AGENT = "agent"
     BENCHMARK = "benchmark"
+    AGGREGATOR = "aggregator"
 
 
 # ---------------------------------------------------------------------------

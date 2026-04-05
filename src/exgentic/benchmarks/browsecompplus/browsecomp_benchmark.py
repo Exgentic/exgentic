@@ -84,18 +84,41 @@ class BrowseCompPlusSession(Session):
 
     def __init__(
         self,
-        instance: dict[str, Any],
+        task_id: str,
         searcher_params: dict[str, Any],
+        assets_dir: str,
         eval_model_id: str = "openai/Azure/gpt-4.1",
         max_interactions: int | None = 100,
         session_id: str | None = None,
         retriever_url: str | None = None,
         **_kwargs: Any,
     ) -> None:
+        import pandas as pd
+
         if session_id is not None:
             self._session_id = session_id
-        self._instance = instance.copy()
-        self._task_id = instance["task_id"]
+        data_path = Path(assets_dir) / "data" / "browsecomp_plus_decrypted_docids.jsonl"
+        if not data_path.exists():
+            raise Exception(f"{data_path} does not exist. Run 'exgentic install --benchmark browsecompplus' first.")
+        matches = [
+            row
+            for row in pd.read_json(path_or_buf=data_path, lines=True).to_dict(orient="records")
+            if str(row["query_id"]) == str(task_id)
+        ]
+        if not matches:
+            raise KeyError(f"Unknown BrowseCompPlus task id '{task_id}'.")
+        row = matches[0]
+        instance = {
+            "task_id": task_id,
+            "query_id": row["query_id"],
+            "query": row["query"],
+            "gold_answer": row["answer"],
+            "gold_docs": row["gold_docs"],
+            "evidence_docs": row["evidence_docs"],
+            "negative_docs": row["negative_docs"],
+        }
+        self._instance = instance
+        self._task_id = task_id
         self._done = False
         self._searcher_params = searcher_params
 
@@ -389,33 +412,17 @@ class BrowseCompPlusSession(Session):
 
 
 class BrowseCompPlusEvaluator(Evaluator):
-    """Evaluator for BrowseCompPlus — task discovery, session kwargs, aggregation."""
+    """Evaluator for BrowseCompPlus — task discovery and aggregation."""
 
     def __init__(
         self,
         subset: str = "main",
-        searcher_type: str = "faiss",
         searcher_model_name: str = "Qwen/Qwen3-Embedding-8B",
-        max_snippet_length: int = 512,
-        top_k_docs: int = 5,
-        include_get_document: bool = True,
-        normalize_search: bool = True,
-        full_doc_max_tokens: int = 2048,
-        max_interactions: int | None = 100,
         inference_model: str = "N/A",
-        retriever_url: str | None = None,
     ) -> None:
         self._subset = subset
-        self._searcher_type = searcher_type
         self._searcher_model_name = searcher_model_name
-        self._max_snippet_length = max_snippet_length
-        self._top_k_docs = top_k_docs
-        self._include_get_document = include_get_document
-        self._normalize_search = normalize_search
-        self._full_doc_max_tokens = full_doc_max_tokens
-        self._max_interactions = max_interactions
         self._inference_model = inference_model
-        self._retriever_url = retriever_url
         self._dataset: list[dict[str, Any]] | None = None
         self._task_lookup: dict[str, dict[str, Any]] | None = None
 
@@ -483,22 +490,6 @@ class BrowseCompPlusEvaluator(Evaluator):
             "full_doc_max_tokens": self._full_doc_max_tokens,
             **searcher_args,
         }
-
-    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
-        self._ensure_dataset()
-        task_id = index.task_id
-        if self._task_lookup is None or task_id not in self._task_lookup:
-            raise KeyError(f"Unknown BrowseCompPlus task id '{task_id}'.")
-        instance = {"task_id": task_id, **self._task_lookup[task_id]}
-        kwargs: dict[str, Any] = {
-            "instance": instance,
-            "searcher_params": self._get_searcher_params(),
-            "max_interactions": self._max_interactions,
-            "session_id": index.session_id,
-        }
-        if self._retriever_url:
-            kwargs["retriever_url"] = self._retriever_url
-        return kwargs
 
     def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
         # Aggregate per-session scores written by sessions
@@ -671,22 +662,49 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
         return kw
 
     def _get_evaluator_kwargs(self) -> dict[str, Any]:
-        kwargs: dict[str, Any] = {
+        return {
             "subset": self.subset,
-            "searcher_type": self.searcher_type,
             "searcher_model_name": self.searcher_model_name,
+            "inference_model": self.inference_model,
+        }
+
+    def _searcher_params(self) -> dict[str, Any]:
+        index_dir = Path(self._assets_dir) / "indexes"
+        if self.searcher_type == "bm25":
+            searcher_args = {"index_path": str(index_dir / "bm25")}
+        else:
+            model_dir_name = self.searcher_model_name.lower().split("/")[-1]
+            model_index_dir = index_dir / model_dir_name
+            if not os.path.exists(model_index_dir):
+                available_models = os.listdir(index_dir)
+                raise FileNotFoundError(
+                    f"Index dir for BrowseCompPlus benchmark {model_index_dir} does not exist. "
+                    f"Please select an available embedding model out of {available_models}"
+                )
+            searcher_args = {
+                "index_path": str(model_index_dir / "corpus.shard*_of_4.pkl"),
+                "model_name": self.searcher_model_name,
+                "normalize": self.normalize_search,
+            }
+        return {
+            "searcher_type": self.searcher_type,
             "max_snippet_length": self.max_snippet_length,
             "top_k_docs": self.top_k_docs,
             "include_get_document": self.include_get_document,
-            "normalize_search": self.normalize_search,
             "full_doc_max_tokens": self.full_doc_max_tokens,
-            "max_interactions": self.max_interactions,
-            "inference_model": self.inference_model,
+            **searcher_args,
         }
+
+    def _get_session_kwargs(self) -> dict[str, Any]:
         # Auto-use a shared retriever service for Docker so that session
         # containers don't each load the heavy search index (OOM).
         if not self.retriever_runner and self.resolve_runner() == "docker":
             self.retriever_runner = "service"
+        kwargs: dict[str, Any] = {
+            "searcher_params": self._searcher_params(),
+            "assets_dir": self._assets_dir,
+            "max_interactions": self.max_interactions,
+        }
         if self.retriever_runner:
             kwargs["retriever_url"] = self._ensure_retriever()
         return kwargs

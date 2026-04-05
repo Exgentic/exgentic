@@ -48,6 +48,12 @@ class TAU2Benchmark(Benchmark, BaseModel):
     def _get_evaluator_kwargs(self) -> dict[str, Any]:
         return {
             "subset": self.subset,
+            "score_path": self.score_path,
+        }
+
+    def _get_session_kwargs(self) -> dict[str, Any]:
+        return {
+            "subset": self.subset,
             "user_simulator_model": self.user_simulator_model,
             "llm_temperature_user": self.llm_temperature_user,
             "llm_user_input_cost_per_token": self.llm_user_input_cost_per_token,
@@ -56,6 +62,5 @@ class TAU2Benchmark(Benchmark, BaseModel):
             "max_errors": self.max_errors,
             "num_trials": self.num_trials,
             "seed": self.seed,
-            "score_path": self.score_path,
             "use_cache": self.use_cache,
         }

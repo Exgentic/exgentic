@@ -41,12 +41,6 @@ class ReplayEvaluator(Evaluator):
             return [str(task_id)]
         return ["0"]
 
-    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
-        return {
-            "recording_dir": self._recording_dir,
-            "session_id": index.session_id,
-        }
-
     def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
         paths = self.get_sessions_paths(sessions)
         scores = []
@@ -82,6 +76,9 @@ class ReplayBenchmark(Benchmark):
         return ReplaySession
 
     def _get_evaluator_kwargs(self) -> dict[str, Any]:
+        return {"recording_dir": self.recording_dir}
+
+    def _get_session_kwargs(self) -> dict[str, Any]:
         return {"recording_dir": self.recording_dir}
 
     def runner_kwargs(self) -> dict[str, Any]:

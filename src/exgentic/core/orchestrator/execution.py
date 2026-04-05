@@ -16,7 +16,6 @@ from ...utils.paths import get_run_paths, get_session_paths
 from ..types import (
     SessionConfig,
     SessionExecutionStatus,
-    SessionIndex,
     SessionOutcomeStatus,
     SessionResults,
     SessionStatus,
@@ -167,31 +166,23 @@ def run_session_config(
     agent = agent_cls(**(session_config.agent_kwargs or {}))
 
     session_id = session_config.get_session_id()
-    index = SessionIndex(
-        task_id=str(session_config.task_id),
-        session_id=session_id,
-    )
-
     # Enter session_scope here (not inside run_session) so that
-    # benchmark.get_evaluator/get_session() — which spawn per-service
-    # subprocesses — see session_id on the context and can write
-    # per-service runtime.json at the correct path.
+    # benchmark.get_session() — which spawns a per-service subprocess —
+    # sees session_id on the context and writes its runtime.json at the
+    # correct path.
     with session_scope(session_id, task_id=str(session_config.task_id)):
         # Fire on_session_enter BEFORE spawning any service so observers
         # (e.g. OtelTracingObserver) can publish trace context into the
         # ContextVar — which ends up in each service's runtime.json.
         tracker.on_session_enter(session_id, str(session_config.task_id))
-        evaluator = benchmark.get_evaluator()
+        session = benchmark.get_session(
+            task_id=str(session_config.task_id),
+            session_id=session_id,
+        )
         try:
-            session_kwargs = evaluator.get_session_kwargs(index)
-            session = benchmark.get_session(**session_kwargs)
             # run_session handles session.close() internally.
             run_session(session_config, session, agent, tracker=tracker)
         finally:
-            try:
-                evaluator.close()
-            except Exception:
-                pass
             try:
                 benchmark.close()
             finally:
