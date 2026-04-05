@@ -277,7 +277,7 @@ Exgentic reads the following environment variables.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `EXGENTIC_LOG_LEVEL` | `INFO` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
-| `EXGENTIC_CACHE_DIR` | `.exgentic` | Cache directory for venvs and setup state |
+| `EXGENTIC_CACHE_DIR` | `~/.exgentic` | Cache directory for venvs and setup state |
 | `EXGENTIC_DOTENV_PATH` | `.env` | Path to `.env` file loaded automatically |
 | `EXGENTIC_OTEL_ENABLED` | `false` | Enable OpenTelemetry tracing |
 | `EXGENTIC_OTEL_RECORD_CONTENT` | `false` | Include prompts/responses in traces (opt-in) |
