@@ -355,9 +355,9 @@ def _resolve_context(
     resolved_run_id = run_id or datetime.now().isoformat().replace(":", "--")
     resolved_run_id = sanitize_path_component(resolved_run_id)
     resolved_output_dir = output_dir or settings.output_dir
-    resolved_output_dir = str(Path(resolved_output_dir).resolve())
+    resolved_output_dir = str(Path(resolved_output_dir).expanduser().resolve())
     resolved_cache_dir = cache_dir or settings.cache_dir
-    resolved_cache_dir = str(Path(resolved_cache_dir).resolve())
+    resolved_cache_dir = str(Path(resolved_cache_dir).expanduser().resolve())
     if overwrite_run:
         run_root = Path(resolved_output_dir) / resolved_run_id
         if run_root.exists():

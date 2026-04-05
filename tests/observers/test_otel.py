@@ -2860,8 +2860,13 @@ class TestTraceLoggerSilentFailure:
 # ===================================================================
 
 
-class TestPrepareSubprocessEnvOtelVars:
-    """Verify OTEL_* env vars pass through prepare_subprocess_env blocklist."""
+class TestPrepareSubprocessEnvAllowlist:
+    """Verify prepare_subprocess_env forwards only allowlisted env vars.
+
+    Exgentic settings (``EXGENTIC_*``) travel via runtime.json — not env
+    vars — so the allowlist only needs to cover model-provider
+    credentials and OTEL configuration.
+    """
 
     def test_otel_endpoint_forwarded(self, monkeypatch):
         from exgentic.adapters.runners._utils import prepare_subprocess_env
@@ -2884,23 +2889,36 @@ class TestPrepareSubprocessEnvOtelVars:
         env = prepare_subprocess_env()
         assert env.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") == "http://localhost:4318/v1/traces"
 
-    def test_exgentic_otel_vars_forwarded(self, monkeypatch):
+    def test_provider_api_keys_forwarded(self, monkeypatch):
+        """Suffix-match catches providers without explicit prefix entries."""
+        from exgentic.adapters.runners._utils import prepare_subprocess_env
+
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+        monkeypatch.setenv("FIREWORKS_API_KEY", "fw-key")
+        monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://example.com")
+        env = prepare_subprocess_env()
+        assert env.get("OPENAI_API_KEY") == "sk-openai"
+        assert env.get("FIREWORKS_API_KEY") == "fw-key"
+        assert env.get("ANTHROPIC_BASE_URL") == "https://example.com"
+
+    def test_exgentic_vars_not_forwarded(self, monkeypatch):
+        """EXGENTIC_* settings travel via runtime.json, not env vars."""
         from exgentic.adapters.runners._utils import prepare_subprocess_env
 
         monkeypatch.setenv("EXGENTIC_OTEL_ENABLED", "true")
-        monkeypatch.setenv("EXGENTIC_OTEL_RECORD_CONTENT", "true")
+        monkeypatch.setenv("EXGENTIC_CACHE_DIR", "/tmp/cache")
         env = prepare_subprocess_env()
-        assert env.get("EXGENTIC_OTEL_ENABLED") == "true"
-        assert env.get("EXGENTIC_OTEL_RECORD_CONTENT") == "true"
+        assert "EXGENTIC_OTEL_ENABLED" not in env
+        assert "EXGENTIC_CACHE_DIR" not in env
 
-    def test_system_vars_blocked(self, monkeypatch):
+    def test_system_vars_not_forwarded(self):
         from exgentic.adapters.runners._utils import prepare_subprocess_env
 
-        # These should always be blocked
         env = prepare_subprocess_env()
         assert "PATH" not in env
         assert "HOME" not in env
         assert "VIRTUAL_ENV" not in env
+        assert "SHELL" not in env
 
     def test_vscode_prefix_blocked(self, monkeypatch):
         from exgentic.adapters.runners._utils import prepare_subprocess_env

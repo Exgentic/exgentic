@@ -52,90 +52,80 @@ def serialize_kwargs(kwargs: dict[str, Any]) -> tuple[str, str]:
         return "--kwargs-b64", base64.b64encode(cp.dumps(kwargs)).decode("ascii")
 
 
-_SYSTEM_ENV_BLOCKLIST = frozenset(
-    {
-        "PATH",
-        "HOME",
-        "USER",
-        "SHELL",
-        "HOSTNAME",
-        "LANG",
-        "TERM",
-        "PWD",
-        "OLDPWD",
-        "SHLVL",
-        "_",
-        "TMPDIR",
-        "VIRTUAL_ENV",
-        "CONDA_DEFAULT_ENV",
-        "CONDA_PREFIX",
-    }
+# Env vars forwarded to subprocess runners (venv, docker).  We use a
+# pattern-based allowlist so we don't leak the host shell's entire
+# environment (IDE vars, macOS/Claude-specific vars, SSH sockets, etc.)
+# into the child, while still covering the long tail of LiteLLM
+# providers without enumerating all ~100+ of them by prefix.
+# Exgentic's own settings travel through runtime.json, not env vars.
+#
+# Suffix patterns catch virtually all provider credentials
+# (``OPENAI_API_KEY``, ``FIREWORKS_API_KEY``, ``ANTHROPIC_BASE_URL``, …).
+_FORWARD_SUFFIXES = (
+    "_API_KEY",
+    "_API_BASE",
+    "_API_VERSION",
+    "_API_TYPE",
+    "_BASE_URL",
+    "_ACCESS_KEY",
+    "_SECRET_KEY",
+    "_ACCESS_TOKEN",
+    "_AUTH_TOKEN",
+    "_SESSION_TOKEN",
 )
-_PREFIX_BLOCKLIST = ("VSCODE_", "UV_", "PIP_")
+# Prefix patterns catch multi-variable providers that use keys without
+# the above suffixes (region names, credential file paths, model IDs).
+_FORWARD_PREFIXES = (
+    "AWS_",
+    "AZURE_",
+    "GOOGLE_",
+    "GEMINI_",
+    "VERTEX_",
+    "HF_",
+    "HUGGINGFACE_",
+    "LITELLM_",
+    "OTEL_",
+)
 
 
 def prepare_subprocess_env() -> dict[str, str]:
     """Build a filtered env dict for subprocess runners (venv, docker).
 
-    Forwards API tokens and user config while excluding system-level
-    vars, IDE noise, and Python-path-manager prefixes that could
-    conflict with the isolated environment.
+    Forwards only model-provider credentials, base URLs, and OTEL
+    configuration (see :data:`_FORWARD_SUFFIXES` and
+    :data:`_FORWARD_PREFIXES`).  Exgentic context and settings travel
+    via ``runtime.json`` (see :func:`inject_exgentic_env`), so no
+    ``EXGENTIC_*`` vars need to be forwarded here.
     """
     import os
 
-    root = find_project_root()
-    project_root = str(root) if (root / "pyproject.toml").exists() else ""
-
-    env: dict[str, str] = {
-        k: v
-        for k, v in os.environ.items()
-        if k not in _SYSTEM_ENV_BLOCKLIST
-        and not any(k.startswith(p) for p in _PREFIX_BLOCKLIST)
-        and not v.startswith(project_root + "/src/")
-    }
-    return env
+    return {k: v for k, v in os.environ.items() if k.endswith(_FORWARD_SUFFIXES) or k.startswith(_FORWARD_PREFIXES)}
 
 
 def inject_exgentic_env(env: dict[str, str], role: Role | None = None) -> None:
-    """Point *env* at a per-service ``runtime.json`` and propagate settings.
+    """Point *env* at a per-service ``runtime.json``.
 
-    When *role* is provided, this writes a fresh ``runtime.json`` for that
-    service's role at the per-service path
-    (``sessions/{session_id}/{role}/runtime.json``) and points the child at
-    it via ``EXGENTIC_RUNTIME_FILE``.  When *role* is ``None`` the child
+    When *role* is provided, writes a fresh ``runtime.json`` for that
+    service's role and points the child at it via
+    ``EXGENTIC_RUNTIME_FILE``.  When *role* is ``None`` the child
     inherits whatever ``EXGENTIC_RUNTIME_FILE`` is set in the current
     process (used by sub-services like litellm proxies that share their
     parent's role).
 
+    The child bootstraps context, settings, and OTEL state from the
+    runtime file via :func:`init_context` — no individual ``EXGENTIC_*``
+    env vars are needed.
+
     Mutates *env* in-place.
     """
     from ...core.context import get_runtime_env, save_service_runtime
-    from ...environment.instance import get_manager
-    from ...utils.settings import get_settings
 
     if role is not None:
-        # Role transition — write a fresh per-service runtime.json.
         runtime_path = save_service_runtime(role)
         env["EXGENTIC_RUNTIME_FILE"] = str(runtime_path)
     else:
-        # No role transition — inherit the parent's runtime file.
         for k, v in get_runtime_env().items():
             env[k] = v
-
-    settings = get_settings()
-    # Propagate all EXGENTIC_* settings (otel_enabled, log_level, etc.)
-    # to the subprocess so it inherits the parent's configuration.
-    for k, v in settings.get_env().items():
-        env.setdefault(k, v)
-
-    # Use the EnvironmentManager's base_dir (~/.exgentic/) so that
-    # EXGENTIC_CACHE_DIR points to the same location where benchmark
-    # data is actually installed.  The old settings.cache_dir default
-    # (".exgentic") resolved to a CWD-relative path that diverged from
-    # the manager's absolute ~/.exgentic/ path, breaking Docker mounts.
-    manager = get_manager()
-    env["EXGENTIC_CACHE_DIR"] = str(manager.base_dir)
-    env["EXGENTIC_OUTPUT_DIR"] = str(Path(settings.output_dir).resolve())
 
 
 def make_close(transport: Any, stop_fn: Any) -> Any:
