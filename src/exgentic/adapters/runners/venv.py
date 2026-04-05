@@ -20,7 +20,10 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ...core.context import Role
 
 from ._utils import (
     find_free_port,
@@ -70,6 +73,7 @@ class VenvRunner:
         port: int | None = None,
         dependencies: list[str] | None = None,
         health_timeout: float | None = None,
+        role: Role | None = None,
         **kwargs: Any,
     ) -> None:
         if args:
@@ -84,6 +88,7 @@ class VenvRunner:
         self._port = port or find_free_port()
         self._dependencies = dependencies or []
         self._health_timeout = health_timeout or _HEALTH_TIMEOUT
+        self._role = role
         self._process: subprocess.Popen | None = None
 
     # ── venv handling ─────────────────────────────────────────────────
@@ -154,7 +159,7 @@ class VenvRunner:
         # podman, git, …) remain reachable from within the venv subprocess.
         system_path = os.environ.get("PATH", "")
         env["PATH"] = venv_bin + os.pathsep + system_path
-        inject_exgentic_env(env)
+        inject_exgentic_env(env, role=self._role)
 
         exgentic_bin = self._get_venv_dir() / "bin" / "exgentic"
         cmd = [

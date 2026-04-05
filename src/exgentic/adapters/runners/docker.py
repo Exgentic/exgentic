@@ -16,7 +16,10 @@ import atexit
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ...core.context import Role
 
 from ._utils import (
     find_free_port,
@@ -66,6 +69,7 @@ class DockerRunner:
         dependencies: list[str] | None = None,
         docker_socket: bool = False,
         volumes: dict[str, str] | None = None,
+        role: Role | None = None,
         **kwargs: Any,
     ) -> None:
         if args:
@@ -84,6 +88,7 @@ class DockerRunner:
         self._dependencies = dependencies or []
         self._docker_socket = docker_socket
         self._volumes = volumes or {}
+        self._role = role
         self._container_id: str | None = None
 
     # ── image handling ───────────────────────────────────────────────
@@ -147,7 +152,7 @@ class DockerRunner:
         # Forward host environment into the container (API tokens, user
         # config) while excluding system-level and IDE vars.
         env = prepare_subprocess_env()
-        inject_exgentic_env(env)
+        inject_exgentic_env(env, role=self._role)
         cache_dir = env.get("EXGENTIC_CACHE_DIR", "")
 
         for k, v in env.items():
@@ -166,12 +171,11 @@ class DockerRunner:
 
         # Mount runtime dir (read-only) so the container can read
         # runtime.json for context, settings, and OTEL propagation.
-        from ...core.context import _derive_runtime_path, try_get_context
-
-        ctx = try_get_context()
-        runtime_path = _derive_runtime_path(ctx) if ctx else None
-        if runtime_path is not None:
-            runtime_dir = runtime_path.parent
+        # The per-service runtime.json was just written by
+        # inject_exgentic_env above.  Its path is in env.
+        runtime_file = env.get("EXGENTIC_RUNTIME_FILE")
+        if runtime_file:
+            runtime_dir = Path(runtime_file).parent
             runtime_dir.mkdir(parents=True, exist_ok=True)
             run_args.extend(["-v", f"{runtime_dir}:{runtime_dir}:ro"])
 

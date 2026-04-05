@@ -41,11 +41,6 @@ class SessionPaths:
         return self.output_dir / self.run_id / "sessions" / self.session_id
 
     @property
-    def runtime(self) -> Path:
-        """Persisted runtime context (framework Context + Settings + OTEL)."""
-        return self.root / "runtime.json"
-
-    @property
     def results(self) -> Path:
         return self.root / "results.json"
 
@@ -139,11 +134,6 @@ class RunPaths:
     @property
     def run_dir(self) -> Path:
         return self.root / "run"
-
-    @property
-    def runtime(self) -> Path:
-        """Persisted runtime context (framework Context + Settings + OTEL)."""
-        return self.root / "runtime.json"
 
     @property
     def results(self) -> Path:

@@ -8,7 +8,12 @@ from exgentic.integrations.litellm import LitellmProxy
 
 
 def test_proxy_passes_context_env(monkeypatch):
-    monkeypatch.delenv("EXGENTIC_RUNTIME_FILE", raising=False)
+    # Simulate being inside a service that already has a runtime file set —
+    # the proxy is a sub-process that inherits its parent's runtime file.
+    monkeypatch.setenv(
+        "EXGENTIC_RUNTIME_FILE",
+        "/tmp/out/run-proxy/sessions/sess-1/benchmark/runtime.json",
+    )
     captured = {}
 
     class _DummyProc:
@@ -42,4 +47,4 @@ def test_proxy_passes_context_env(monkeypatch):
 
     with LitellmProxy(model="openai/gpt-4o-mini", port=49998, startup_timeout=1.0):
         env = captured["env"]
-        assert env["EXGENTIC_RUNTIME_FILE"] == "/tmp/out/run-proxy/sessions/sess-1/runtime.json"
+        assert env["EXGENTIC_RUNTIME_FILE"] == "/tmp/out/run-proxy/sessions/sess-1/benchmark/runtime.json"

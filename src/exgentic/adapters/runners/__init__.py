@@ -19,10 +19,13 @@ Usage::
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from .direct import DirectTransport
 from .transport import ObjectHost, ObjectProxy, Transport
+
+if TYPE_CHECKING:
+    from ...core.context import Role
 
 RunnerName = Literal["direct", "thread", "process", "service", "docker", "venv"]
 
@@ -41,13 +44,24 @@ def _resolve_cls(cls: type | str) -> type:
     return obj  # type: ignore[return-value]
 
 
-def with_runner(cls: type | str, *args: Any, runner: RunnerName = "direct", **kwargs: Any) -> Any:
+def with_runner(
+    cls: type | str,
+    *args: Any,
+    runner: RunnerName = "direct",
+    role: Role | None = None,
+    **kwargs: Any,
+) -> Any:
     """Create an instance of *cls* running in the specified isolation level.
 
     *cls* may be a class or a ``"module:qualname"`` string.  String
     references are resolved lazily — for ``venv`` and ``docker`` runners
     the string is forwarded directly so heavy imports never happen on the
     host.
+
+    *role* identifies which service-level role (agent/benchmark) this
+    runner represents.  Subprocess-based runners use it to write a
+    per-service ``runtime.json`` with the correct role.  Non-subprocess
+    runners ignore it.
 
     Returns an ``ObjectProxy`` that transparently forwards all
     attribute access and method calls to the real object.
@@ -68,7 +82,7 @@ def with_runner(cls: type | str, *args: Any, runner: RunnerName = "direct", **kw
         from .process import PipeTransport
 
         cls = _resolve_cls(cls)
-        t = PipeTransport(cls, *args, **kwargs)
+        t = PipeTransport(cls, *args, role=role, **kwargs)
         t.start()
         return ObjectProxy(t)
 
@@ -95,7 +109,7 @@ def with_runner(cls: type | str, *args: Any, runner: RunnerName = "direct", **kw
         ):
             if key in kwargs:
                 docker_kw[key] = kwargs.pop(key)
-        return DockerRunner(cls, *args, **docker_kw, **kwargs).start()
+        return DockerRunner(cls, *args, role=role, **docker_kw, **kwargs).start()
 
     if runner == "venv":
         from .venv import VenvRunner
@@ -110,7 +124,7 @@ def with_runner(cls: type | str, *args: Any, runner: RunnerName = "direct", **kw
         ):
             if key in kwargs:
                 venv_kw[key] = kwargs.pop(key)
-        return VenvRunner(cls, *args, **venv_kw, **kwargs).start()
+        return VenvRunner(cls, *args, role=role, **venv_kw, **kwargs).start()
 
     raise ValueError(f"Unknown runner: {runner!r}")
 

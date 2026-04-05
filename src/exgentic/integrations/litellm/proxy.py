@@ -32,7 +32,8 @@ from .trace_logger import (
 )
 
 TRACE_CALLBACK = "exgentic.integrations.litellm.trace_logger.trace_logger"
-ASYNC_TRACE_CALLBACK = "exgentic.integrations.litellm.trace_logger.async_trace_logger"
+# TODO: see config.py — single callback is sufficient on litellm>=1.82.
+# ASYNC_TRACE_CALLBACK = "exgentic.integrations.litellm.trace_logger.async_trace_logger"
 
 
 def _get_free_port() -> int:
@@ -162,7 +163,6 @@ class LitellmProxy:
 
     def _build_config_data(self) -> dict[str, object]:
         trace_cb = TRACE_CALLBACK
-        async_cb = ASYNC_TRACE_CALLBACK
         config_data: dict[str, object] = {
             "model_list": [
                 {
@@ -171,8 +171,8 @@ class LitellmProxy:
                 }
             ],
             "litellm_settings": {
-                "success_callback": [trace_cb, async_cb],
-                "failure_callback": [trace_cb, async_cb],
+                "success_callback": [trace_cb],
+                "failure_callback": [trace_cb],
                 # Force chat/completions instead of /responses for Anthropic
                 # message translation — many backends (Azure proxies, etc.)
                 # don't expose the newer Responses API endpoint.

@@ -9,7 +9,10 @@ import base64
 import json
 import socket
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ...core.context import Role
 
 
 def find_project_root() -> Path:
@@ -93,22 +96,31 @@ def prepare_subprocess_env() -> dict[str, str]:
     return env
 
 
-def inject_exgentic_env(env: dict[str, str]) -> None:
-    """Point *env* at the current ``runtime.json`` and propagate settings.
+def inject_exgentic_env(env: dict[str, str], role: Role | None = None) -> None:
+    """Point *env* at a per-service ``runtime.json`` and propagate settings.
 
-    Sets the env vars needed for the child to call
-    :func:`~exgentic.core.context.init_context` (or ``try_init_context``),
-    which reads ``runtime.json`` and restores the full Context + settings.
+    When *role* is provided, this writes a fresh ``runtime.json`` for that
+    service's role at the per-service path
+    (``sessions/{session_id}/{role}/runtime.json``) and points the child at
+    it via ``EXGENTIC_RUNTIME_FILE``.  When *role* is ``None`` the child
+    inherits whatever ``EXGENTIC_RUNTIME_FILE`` is set in the current
+    process (used by sub-services like litellm proxies that share their
+    parent's role).
 
     Mutates *env* in-place.
     """
-    from ...core.context import get_runtime_env
+    from ...core.context import get_runtime_env, save_service_runtime
     from ...environment.instance import get_manager
     from ...utils.settings import get_settings
 
-    # Point child at runtime.json (written by session_scope / save_runtime).
-    for k, v in get_runtime_env().items():
-        env[k] = v
+    if role is not None:
+        # Role transition — write a fresh per-service runtime.json.
+        runtime_path = save_service_runtime(role)
+        env["EXGENTIC_RUNTIME_FILE"] = str(runtime_path)
+    else:
+        # No role transition — inherit the parent's runtime file.
+        for k, v in get_runtime_env().items():
+            env[k] = v
 
     settings = get_settings()
     # Propagate all EXGENTIC_* settings (otel_enabled, log_level, etc.)

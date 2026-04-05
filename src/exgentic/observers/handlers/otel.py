@@ -255,11 +255,16 @@ class OtelTracingObserver(Observer):
         if model_name:
             self._run_attributes["gen_ai.request.model"] = model_name
 
-    def on_session_creation(self, session) -> None:
-        span_manager = SessionSpanManager(session.session_id, self.paths.session(session.session_id).root)
-        self._span_managers[session.session_id] = span_manager
-        self._session_step_counters[session.session_id] = 0
-        self._session_actions[session.session_id] = session.actions  # Store actions for tool definitions
+    def on_session_enter(self, session_id: str, task_id: str | None) -> None:
+        """Start the root session span + publish OTEL context.
+
+        This fires before benchmark/agent services are spawned, so the
+        trace_id and span_id land in their per-service runtime.json
+        files and their LLM calls can attach to the session trace.
+        """
+        span_manager = SessionSpanManager(session_id, self.paths.session(session_id).root)
+        self._span_managers[session_id] = span_manager
+        self._session_step_counters[session_id] = 0
 
         # Start root session span
         bench_name = self._run_attributes.get("exgentic.benchmark.slug_name", "unknown_benchmark")
@@ -269,18 +274,23 @@ class OtelTracingObserver(Observer):
 
         span_manager.set_heritable_attributes(self._run_attributes)
 
-        # Set session-level attributes
         # gen_ai.conversation.id is the primary correlation attribute (heritable)
-        span_manager.set_heritable_attribute(
-            "gen_ai.conversation.id",
-            session.session_id,
-        )
+        span_manager.set_heritable_attribute("gen_ai.conversation.id", session_id)
         # Also keep exgentic.session.id for backwards compatibility
-        span_manager.set_heritable_attribute(
-            "exgentic.session.id",
-            session.session_id,
-        )
-        span_manager.set_attribute("exgentic.session.task_id", session.task_id)
+        span_manager.set_heritable_attribute("exgentic.session.id", session_id)
+        if task_id is not None:
+            span_manager.set_attribute("exgentic.session.task_id", task_id)
+
+    def on_session_creation(self, session) -> None:
+        """Add session-dependent attributes to the already-started span."""
+        span_manager = self._span_managers.get(session.session_id)
+        if span_manager is None:
+            # on_session_enter wasn't called first — start the span now
+            # for backward compatibility (tests and observers that only
+            # hook on_session_creation).
+            self.on_session_enter(session.session_id, session.task_id)
+            span_manager = self._span_managers[session.session_id]
+        self._session_actions[session.session_id] = session.actions  # Store actions for tool definitions
 
         # Only record task content if otel_record_content is enabled
         if get_settings().otel_record_content:

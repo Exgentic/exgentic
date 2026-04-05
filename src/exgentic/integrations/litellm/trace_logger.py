@@ -150,58 +150,6 @@ class TraceLogger(CustomLogger):
         self._otel_logger.log_attribute_set(key, value, format(span_ctx.span_id, "016x"))
 
     @staticmethod
-    def _metadata_context(kwargs: dict[str, Any]):
-        from ...core.context import Context, OtelContext, Role
-
-        # Check multiple locations where metadata might be stored
-        # 1. Direct litellm_metadata parameter
-        metadata = kwargs.get("litellm_metadata")
-        if not metadata:
-            # 2. litellm_params.litellm_metadata
-            metadata = kwargs.get("litellm_params", {}).get("litellm_metadata")
-        if not metadata:
-            # 3. litellm_params.metadata (for 'metadata' parameter)
-            metadata = kwargs.get("litellm_params", {}).get("metadata")
-
-        if not isinstance(metadata, dict):
-            return None
-
-        context = metadata.get("context")
-        if isinstance(context, Context):
-            return context
-
-        # Reconstruct Context from serialized fields
-        # Check if we have the required fields
-        if "exgentic_ctx_run_id" not in metadata:
-            return None
-
-        # Reconstruct OtelContext if present
-        otel_context = None
-        if "exgentic_ctx_otel_trace_id" in metadata and "exgentic_ctx_otel_span_id" in metadata:
-            otel_context = OtelContext(
-                trace_id=metadata["exgentic_ctx_otel_trace_id"],
-                span_id=metadata["exgentic_ctx_otel_span_id"],
-            )
-
-        # Reconstruct Role
-        role_str = metadata.get("exgentic_ctx_role", "framework")
-        try:
-            role = Role(role_str)
-        except ValueError:
-            role = Role.FRAMEWORK
-
-        # Reconstruct Context
-        return Context(
-            run_id=metadata["exgentic_ctx_run_id"],
-            output_dir=metadata["exgentic_ctx_output_dir"],
-            cache_dir=metadata["exgentic_ctx_cache_dir"],
-            session_id=metadata.get("exgentic_ctx_session_id"),
-            task_id=metadata.get("exgentic_ctx_task_id"),
-            role=role,
-            otel_context=otel_context,
-        )
-
-    @staticmethod
     def _context_log_path(ctx) -> str:
         base = Path(ctx.output_dir) / ctx.run_id
         if ctx.session_id:
@@ -212,9 +160,6 @@ class TraceLogger(CustomLogger):
         from ...core.context import Context, try_get_context
 
         self._ensure_context()
-        metadata_context = self._metadata_context(kwargs)
-        if isinstance(metadata_context, Context):
-            return metadata_context
         context = kwargs.get("context")
         if isinstance(context, Context):
             return context
@@ -227,10 +172,6 @@ class TraceLogger(CustomLogger):
             return self._file_path
 
         self._ensure_context()
-        metadata_context = self._metadata_context(kwargs)
-        if metadata_context is not None:
-            return self._context_log_path(metadata_context)
-
         context = kwargs.get("context")
         if isinstance(context, Context):
             return self._context_log_path(context)
@@ -239,7 +180,7 @@ class TraceLogger(CustomLogger):
         if file_path:
             return file_path
 
-        ctx = self.get_context(kwargs)  # TODO: this is redundant
+        ctx = self.get_context(kwargs)
         if ctx is not None:
             return self._context_log_path(ctx)
 
@@ -561,8 +502,11 @@ class TraceLogger(CustomLogger):
                     status=status,
                     end_time=end_time,
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            warnings.warn(
+                f"TraceLogger._write_otel failed: {type(exc).__name__}: {exc}",
+                stacklevel=2,
+            )
 
     def log_success_event(self, kwargs: dict[str, Any], response_obj: dict[str, Any], start_time, end_time):
         self._write_row(kwargs, response_obj, status="success")

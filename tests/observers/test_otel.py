@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import contextvars
+import json
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -1121,30 +1122,30 @@ class TestSpanManagerOperations:
 
 
 class TestLitellmCallbackRegistration:
-    """_configure_callbacks adds loggers to litellm.callbacks correctly."""
+    """_configure_callbacks adds a TraceLogger to litellm.callbacks."""
 
-    def test_adds_sync_and_async(self):
+    def test_adds_single_trace_logger(self):
         import litellm
         from exgentic.integrations.litellm.config import _configure_callbacks
-        from exgentic.integrations.litellm.trace_logger import AsyncTraceLogger, SyncTraceLogger
+        from exgentic.integrations.litellm.trace_logger import SyncTraceLogger
 
         litellm.callbacks = []
         _configure_callbacks()
 
+        # One CustomLogger handles both sync and async dispatch on modern
+        # litellm; registering two caused duplicate OTEL spans.
         assert sum(1 for cb in litellm.callbacks if isinstance(cb, SyncTraceLogger)) == 1
-        assert sum(1 for cb in litellm.callbacks if isinstance(cb, AsyncTraceLogger)) == 1
 
     def test_idempotent(self):
         import litellm
         from exgentic.integrations.litellm.config import _configure_callbacks
-        from exgentic.integrations.litellm.trace_logger import AsyncTraceLogger, SyncTraceLogger
+        from exgentic.integrations.litellm.trace_logger import SyncTraceLogger
 
         litellm.callbacks = []
         _configure_callbacks()
         _configure_callbacks()
 
         assert sum(1 for cb in litellm.callbacks if isinstance(cb, SyncTraceLogger)) == 1
-        assert sum(1 for cb in litellm.callbacks if isinstance(cb, AsyncTraceLogger)) == 1
 
 
 # ===================================================================
@@ -1288,52 +1289,6 @@ class TestCrossBoundaryContextPropagation:
 
         session_span.end()
 
-    def test_metadata_path_preserves_trace_linkage(self, tmp_path):
-        """Simulate OpenAI agent: otel context injected via litellm metadata → TraceLogger links correctly."""
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
-        from opentelemetry import trace as trace_api
-
-        # Parent trace/span ids
-        parent_trace_id = "ab" * 16  # 32 hex chars
-        parent_span_id = "cd" * 8  # 16 hex chars
-
-        # Simulate what OpenAI agent does: inject into litellm metadata
-        kwargs = {
-            "model": "gpt-4o",
-            "litellm_metadata": {
-                "exgentic_ctx_run_id": "run-1",
-                "exgentic_ctx_output_dir": str(tmp_path),
-                "exgentic_ctx_cache_dir": str(tmp_path),
-                "exgentic_ctx_session_id": "sess-1",
-                "exgentic_ctx_role": "agent",
-                "exgentic_ctx_otel_trace_id": parent_trace_id,
-                "exgentic_ctx_otel_span_id": parent_span_id,
-            },
-        }
-
-        logger = TraceLogger()
-        logger._otel_logger = MagicMock()
-
-        # _metadata_context should reconstruct Context with OtelContext
-        metadata_ctx = logger._metadata_context(kwargs)
-        assert metadata_ctx is not None
-        assert metadata_ctx.otel_context is not None
-        assert metadata_ctx.otel_context.trace_id == parent_trace_id
-        assert metadata_ctx.otel_context.span_id == parent_span_id
-
-        # get_context should prefer metadata over ContextVar
-        resolved = logger.get_context(kwargs)
-        assert resolved.otel_context.trace_id == parent_trace_id
-
-        # _get_parent_context should create correct NonRecordingSpan
-        with patch.object(logger, "get_context", return_value=metadata_ctx):
-            parent_otel_ctx = logger._get_parent_context(kwargs)
-
-        span = trace_api.get_current_span(parent_otel_ctx)
-        span_ctx = span.get_span_context()
-        assert format(span_ctx.trace_id, "032x") == parent_trace_id
-        assert format(span_ctx.span_id, "016x") == parent_span_id
-
     def test_smolagents_context_object_path(self, tmp_path):
         """Simulate smolagents: whole Context object in metadata['context']."""
         from exgentic.integrations.litellm.trace_logger import TraceLogger
@@ -1410,11 +1365,13 @@ class TestCrossBoundaryContextPropagation:
             set_context_fallback(None)
 
     def test_inject_exgentic_env_includes_otel_vars(self, tmp_path, monkeypatch):
-        """inject_exgentic_env sets EXGENTIC_RUNTIME_FILE when session context exists.
+        """inject_exgentic_env(role=...) writes a per-service runtime.json.
 
         OTEL vars are persisted in runtime.json on disk; the child reads them
         via init_context() using the runtime file path.
         """
+        from exgentic.core.context import Role
+
         monkeypatch.delenv("EXGENTIC_RUNTIME_FILE", raising=False)
         otel = OtelContext(trace_id="aa" * 16, span_id="bb" * 8)
         ctx = Context(
@@ -1429,12 +1386,12 @@ class TestCrossBoundaryContextPropagation:
         from exgentic.adapters.runners._utils import inject_exgentic_env
 
         env: dict[str, str] = {}
-        inject_exgentic_env(env)
+        inject_exgentic_env(env, role=Role.AGENT)
 
-        expected_file = str(tmp_path / "run-1" / "sessions" / "sess-1" / "runtime.json")
+        expected_file = str(tmp_path / "run-1" / "sessions" / "sess-1" / "agent" / "runtime.json")
         assert (
             env.get("EXGENTIC_RUNTIME_FILE") == expected_file
-        ), "inject_exgentic_env must set EXGENTIC_RUNTIME_FILE for session contexts"
+        ), "inject_exgentic_env must set EXGENTIC_RUNTIME_FILE for the given role"
 
     def test_full_chain_session_to_llm_span(self, tmp_path):
         """Full chain: SessionSpanManager → update_tracing_context → env vars → child TraceLogger → LLM span.
@@ -1527,10 +1484,10 @@ class TestCallbackRegistrationCrossBoundary:
     """Verify litellm callbacks work when registered in child process context."""
 
     def test_configure_callbacks_registers_custom_logger_subclasses(self):
-        """CustomLogger subclasses must be in litellm.callbacks, not success_callback."""
+        """A single CustomLogger must be in litellm.callbacks, not success_callback."""
         import litellm
         from exgentic.integrations.litellm.config import _configure_callbacks
-        from exgentic.integrations.litellm.trace_logger import AsyncTraceLogger, SyncTraceLogger
+        from exgentic.integrations.litellm.trace_logger import TraceLogger
 
         # Simulate fresh child process (no callbacks)
         litellm.callbacks = []
@@ -1540,11 +1497,9 @@ class TestCallbackRegistrationCrossBoundary:
         _configure_callbacks()
 
         # Must be in callbacks (not success_callback)
-        assert any(isinstance(cb, SyncTraceLogger) for cb in litellm.callbacks)
-        assert any(isinstance(cb, AsyncTraceLogger) for cb in litellm.callbacks)
+        assert any(isinstance(cb, TraceLogger) for cb in litellm.callbacks)
         # Must NOT be in success_callback
-        assert not any(isinstance(cb, SyncTraceLogger) for cb in litellm.success_callback)
-        assert not any(isinstance(cb, AsyncTraceLogger) for cb in litellm.success_callback)
+        assert not any(isinstance(cb, TraceLogger) for cb in litellm.success_callback)
 
     def test_trace_logger_is_custom_logger_subclass(self):
         """TraceLogger must be a CustomLogger subclass for litellm to call log_success_event."""
@@ -1642,19 +1597,19 @@ class TestDependencyCrossing:
 
     # -- inject_exgentic_env propagates OTEL context vars --
 
-    def test_inject_exgentic_env_includes_otel_context(self, monkeypatch):
-        """inject_exgentic_env sets EXGENTIC_RUNTIME_FILE when session context exists.
+    def test_inject_exgentic_env_includes_otel_context(self, tmp_path, monkeypatch):
+        """inject_exgentic_env(role=...) writes a per-service runtime.json.
 
         OTEL context is propagated via runtime.json on disk; the child reads
         it through init_context() using the runtime file path.
         """
         monkeypatch.delenv("EXGENTIC_RUNTIME_FILE", raising=False)
-        from exgentic.core.context import Context, OtelContext, set_context
+        from exgentic.core.context import Context, OtelContext, Role, set_context
 
         ctx = Context(
             session_id="s1",
             run_id="r1",
-            output_dir="/tmp/out",
+            output_dir=str(tmp_path),
             cache_dir="/tmp/cache",
             otel_context=OtelContext(trace_id="abc123", span_id="def456"),
         )
@@ -1663,24 +1618,29 @@ class TestDependencyCrossing:
         env: dict[str, str] = {}
         from exgentic.adapters.runners._utils import inject_exgentic_env
 
-        inject_exgentic_env(env)
-        assert env.get("EXGENTIC_RUNTIME_FILE") == "/tmp/out/r1/sessions/s1/runtime.json"
+        inject_exgentic_env(env, role=Role.BENCHMARK)
+        expected = str(tmp_path / "r1" / "sessions" / "s1" / "benchmark" / "runtime.json")
+        assert env.get("EXGENTIC_RUNTIME_FILE") == expected
 
-    def test_inject_exgentic_env_propagates_settings(self, monkeypatch):
-        """inject_exgentic_env sets EXGENTIC_RUNTIME_FILE; settings are in runtime.json."""
+    def test_inject_exgentic_env_propagates_settings(self, tmp_path, monkeypatch):
+        """inject_exgentic_env(role=...) sets EXGENTIC_RUNTIME_FILE; settings are in runtime.json."""
         monkeypatch.delenv("EXGENTIC_RUNTIME_FILE", raising=False)
-        from exgentic.core.context import Context, set_context
+        from exgentic.core.context import Context, Role, set_context
 
-        ctx = Context(session_id="s", run_id="r", output_dir="/tmp/o", cache_dir="/tmp/c")
+        ctx = Context(
+            session_id="s",
+            run_id="r",
+            output_dir=str(tmp_path),
+            cache_dir="/tmp/c",
+        )
         set_context(ctx)
 
         env: dict[str, str] = {}
         from exgentic.adapters.runners._utils import inject_exgentic_env
 
-        inject_exgentic_env(env)
-        # With session context, settings propagate via runtime.json on disk,
-        # not individual env vars.  inject_exgentic_env just sets the dir.
-        assert env.get("EXGENTIC_RUNTIME_FILE") == "/tmp/o/r/sessions/s/runtime.json"
+        inject_exgentic_env(env, role=Role.AGENT)
+        expected = str(tmp_path / "r" / "sessions" / "s" / "agent" / "runtime.json")
+        assert env.get("EXGENTIC_RUNTIME_FILE") == expected
 
     # -- init_tracing_from_env produces a working tracer --
 
@@ -1822,15 +1782,15 @@ class TestPerRunnerOtelContract:
     # -- Process runner: uses EXGENTIC_RUNTIME_FILE --
 
     def test_process_runner_sets_session_dir(self):
-        """PipeTransport.start() must propagate runtime env to the child."""
+        """PipeTransport.start() must write a per-service runtime.json when role is given."""
         import inspect
 
         from exgentic.adapters.runners.process import PipeTransport
 
         source = inspect.getsource(PipeTransport.start)
         assert (
-            "get_runtime_env" in source
-        ), "PipeTransport.start must call get_runtime_env() to propagate context to child"
+            "save_service_runtime" in source
+        ), "PipeTransport.start must call save_service_runtime() to propagate context to child"
 
     def test_process_worker_restores_context(self):
         """Process worker must call try_init_context to restore context."""
@@ -1923,13 +1883,15 @@ class TestPerRunnerOtelContract:
     # -- inject_exgentic_env: propagates all settings --
 
     def test_inject_exgentic_env_sets_runtime_env(self):
-        """inject_exgentic_env must call get_runtime_env for disk-based propagation."""
+        """inject_exgentic_env must write a per-service runtime.json when given a role."""
         import inspect
 
         from exgentic.adapters.runners._utils import inject_exgentic_env
 
         source = inspect.getsource(inject_exgentic_env)
-        assert "get_runtime_env" in source, "inject_exgentic_env must call get_runtime_env() for disk-based propagation"
+        assert (
+            "save_service_runtime" in source or "get_runtime_env" in source
+        ), "inject_exgentic_env must propagate context via disk (save_service_runtime or get_runtime_env)"
 
     # -- init_context: restores OTEL context --
 
@@ -1953,3 +1915,1039 @@ class TestPerRunnerOtelContract:
         assert ctx.otel_context is not None
         assert ctx.otel_context.trace_id == "restored-trace"
         assert ctx.otel_context.span_id == "restored-span"
+
+
+# ===================================================================
+# SEMANTIC CONVENTIONS VERIFICATION TESTS
+# ===================================================================
+#
+# These tests verify that every attribute documented in
+# docs/observability/semantic-conventions.md is actually emitted
+# on the correct span type, with correct values, names, and kinds.
+# ===================================================================
+
+
+def _full_lifecycle_spans(
+    ctx,
+    tmp_path,
+    *,
+    record_content=False,
+    run_config=None,
+    score=None,
+    agent=None,
+    session=None,
+    add_react_step=False,
+):
+    """Run full observer lifecycle and return (session_span, tool_spans, all_spans).
+
+    Creates a TracerProvider + InMemorySpanExporter, runs on_run_start through
+    on_session_success, and returns the finished spans for assertion.
+    """
+    from exgentic.observers.handlers.otel import OtelTracingObserver, SessionSpanManager
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    t = provider.get_tracer("test")
+
+    session = session or MockSession()
+    run_config = run_config or MockRunConfig()
+    score = score or MockScore()
+    agent = agent or MockAgent()
+    settings = MagicMock(otel_record_content=record_content)
+
+    obs = OtelTracingObserver()
+    original_init = SessionSpanManager.__init__
+
+    def patched_init(self, session_id, session_root_path, tracer=t):
+        original_init(self, session_id, session_root_path, tracer=tracer)
+
+    with (
+        patch("exgentic.observers.handlers.otel.get_benchmark_entries", return_value={}),
+        patch("exgentic.observers.handlers.otel.get_agent_entries", return_value={}),
+        patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
+        patch(
+            "exgentic.observers.handlers.otel.to_otel_attribute_value",
+            side_effect=lambda v: str(v) if v is not None else None,
+        ),
+        patch("exgentic.observers.handlers.otel.flush_traces"),
+        patch.object(SessionSpanManager, "__init__", patched_init),
+    ):
+        obs.on_run_start(run_config)
+        obs.on_session_creation(session)
+        obs.on_session_start(session, agent, MockObservation())
+
+        if add_react_step:
+            mock_action = MagicMock()
+            action_item = MagicMock()
+            action_item.name = "browse"
+            action_item.id = "act-1"
+            action_item.arguments = MagicMock()
+            action_item.arguments.model_dump_json.return_value = '{"url": "http://example.com"}'
+            mock_action.to_action_list.return_value = [action_item]
+            obs.on_react_success(session, mock_action)
+            obs.on_step_success(session, MockObservation())
+
+        obs.on_session_success(session, score, agent)
+
+    spans = exporter.get_finished_spans()
+    session_span = next((s for s in spans if "session" in s.name), None)
+    tool_spans = [s for s in spans if "execute_tool" in s.name]
+    return session_span, tool_spans, spans
+
+
+def _invoke_write_otel(
+    *,
+    kwargs=None,
+    response_obj=None,
+    status="success",
+    record_content=False,
+    session_id="sess-001",
+    otel_trace_id="00000000000000000000000000000001",
+    otel_span_id="0000000000000001",
+):
+    """Invoke TraceLogger._write_otel with a real tracer+exporter, return finished spans."""
+    from exgentic.integrations.litellm.trace_logger import TraceLogger
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    t = provider.get_tracer("test")
+
+    logger = TraceLogger()
+    logger._tracer = t
+    logger._otel_logger = MagicMock()
+
+    mock_ctx = MagicMock()
+    mock_ctx.session_id = session_id
+    mock_ctx.otel_context = MagicMock()
+    mock_ctx.otel_context.trace_id = otel_trace_id
+    mock_ctx.otel_context.span_id = otel_span_id
+
+    if kwargs is None:
+        kwargs = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "hello"}],
+            "optional_params": {},
+            "litellm_params": {"custom_llm_provider": "openai"},
+        }
+    if response_obj is None:
+        response_obj = {
+            "id": "chatcmpl-123",
+            "model": "gpt-4o-2024-05-13",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+            "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "hi"}}],
+        }
+
+    with (
+        patch("exgentic.integrations.litellm.trace_logger._otel_enabled", return_value=True),
+        patch("exgentic.integrations.litellm.trace_logger._otel_record_content", return_value=record_content),
+        patch.object(logger, "get_context", return_value=mock_ctx),
+    ):
+        logger._write_otel(kwargs, response_obj, status)
+
+    return exporter.get_finished_spans()
+
+
+# ===================================================================
+# 1. Session ROOT span semantic conventions
+# ===================================================================
+
+
+class TestSessionSpanSemanticConventions:
+    """Verify every attribute documented for the Session (ROOT) span type."""
+
+    def test_session_span_name_exact_format(self, ctx, tmp_path):
+        """Span name is '{benchmark} {subset} session' per docs."""
+        rc = MockRunConfig()
+        rc.benchmark = "tau2"
+        rc.subset = "retail"
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, run_config=rc)
+        assert session_span.name == "tau2 retail session"
+
+    def test_session_span_name_empty_subset(self, ctx, tmp_path):
+        """When subset is None, name uses empty string."""
+        rc = MockRunConfig()
+        rc.benchmark = "tau2"
+        rc.subset = None
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, run_config=rc)
+        assert session_span.name == "tau2  session"
+
+    def test_session_span_kind_is_internal(self, ctx, tmp_path):
+        """Session span has SpanKind.INTERNAL (default) per docs."""
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
+        # INTERNAL is the default span kind (value 0)
+        assert session_span.kind == SpanKind.INTERNAL
+
+    def test_session_span_benchmark_slug_name(self, ctx, tmp_path):
+        rc = MockRunConfig()
+        rc.benchmark = "tau2"
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, run_config=rc)
+        assert session_span.attributes["exgentic.benchmark.slug_name"] == "tau2"
+
+    def test_session_span_benchmark_subset(self, ctx, tmp_path):
+        rc = MockRunConfig()
+        rc.subset = "retail"
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, run_config=rc)
+        assert session_span.attributes["exgentic.benchmark.subset"] == "retail"
+
+    def test_session_span_agent_slug(self, ctx, tmp_path):
+        rc = MockRunConfig()
+        rc.agent = "tool_calling"
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, run_config=rc)
+        assert session_span.attributes["exgentic.agent.slug"] == "tool_calling"
+
+    def test_session_span_run_id(self, ctx, tmp_path):
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
+        assert "exgentic.run.id" in session_span.attributes
+
+    def test_session_span_conversation_id(self, ctx, tmp_path):
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
+        assert session_span.attributes["gen_ai.conversation.id"] == "sess-001"
+
+    def test_session_span_session_id(self, ctx, tmp_path):
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
+        assert session_span.attributes["exgentic.session.id"] == "sess-001"
+
+    def test_session_span_request_model(self, ctx, tmp_path):
+        rc = MockRunConfig()
+        rc.model = "gpt-4o"
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, run_config=rc)
+        assert session_span.attributes["gen_ai.request.model"] == "gpt-4o"
+
+    def test_session_span_model_from_agent_kwargs(self, ctx, tmp_path):
+        """gen_ai.request.model falls back to agent_kwargs['model']."""
+        rc = MockRunConfig()
+        rc.model = None
+        rc.agent_kwargs = {"model": "claude-3-opus"}
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, run_config=rc)
+        assert session_span.attributes["gen_ai.request.model"] == "claude-3-opus"
+
+    def test_session_span_no_model_when_absent(self, ctx, tmp_path):
+        """gen_ai.request.model absent when both model and agent_kwargs empty."""
+        rc = MockRunConfig()
+        rc.model = None
+        rc.agent_kwargs = {}
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, run_config=rc)
+        assert "gen_ai.request.model" not in session_span.attributes
+
+    def test_session_span_task_id(self, ctx, tmp_path):
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
+        assert session_span.attributes["exgentic.session.task_id"] == "task-001"
+
+    def test_session_span_action_attributes(self, ctx, tmp_path):
+        """Each action in session.actions produces name/description/is_message/is_finish attributes."""
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
+        assert session_span.attributes["exgentic.session.action.test_action.name"] == "test_action"
+        assert session_span.attributes["exgentic.session.action.test_action.description"] == "A test action"
+        assert session_span.attributes["exgentic.session.action.test_action.is_message"] is False
+        assert session_span.attributes["exgentic.session.action.test_action.is_finish"] is False
+
+    def test_session_span_context_attributes(self, ctx, tmp_path):
+        """exgentic.context.{key} emitted for each context key."""
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
+        assert session_span.attributes["exgentic.context.key"] == "value"
+
+    def test_session_span_agent_id(self, ctx, tmp_path):
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
+        assert session_span.attributes["exgentic.session.agent.id"] == "agent-001"
+
+    def test_session_span_agent_path(self, ctx, tmp_path):
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
+        assert session_span.attributes["exgentic.session.agent.path"] == "/tmp/agent"
+
+    def test_session_span_score_success(self, ctx, tmp_path):
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
+        assert session_span.attributes["exgentic.score.success"] is True
+
+    def test_session_span_score_value(self, ctx, tmp_path):
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
+        assert session_span.attributes["exgentic.score"] == 0.95
+
+    def test_session_span_score_is_finished(self, ctx, tmp_path):
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
+        assert session_span.attributes["exgentic.score.is_finished"] is True
+
+    def test_session_span_steps(self, ctx, tmp_path):
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
+        assert isinstance(session_span.attributes["exgentic.session.steps"], int)
+        assert session_span.attributes["exgentic.session.steps"] >= 1
+
+    def test_session_span_agent_cost_json(self, ctx, tmp_path):
+        """exgentic.agent.agent_cost is a parseable JSON string."""
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
+        cost_str = session_span.attributes["exgentic.agent.agent_cost"]
+        parsed = json.loads(cost_str)
+        assert isinstance(parsed, dict)
+        assert parsed["total"] == 0.5
+
+    def test_session_span_session_cost_json(self, ctx, tmp_path):
+        """exgentic.session.cost is a parseable JSON string."""
+
+        class CostSession(MockSession):
+            def get_cost(self):
+                return {"total": 1.0}
+
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, session=CostSession())
+        cost_str = session_span.attributes["exgentic.session.cost"]
+        parsed = json.loads(cost_str)
+        assert isinstance(parsed, dict)
+
+    def test_session_span_task_filtered_when_disabled(self, ctx, tmp_path):
+        """exgentic.session.task absent when record_content=False."""
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, record_content=False)
+        assert "exgentic.session.task" not in session_span.attributes
+
+    def test_session_span_task_present_when_enabled(self, ctx, tmp_path):
+        """exgentic.session.task present when record_content=True."""
+        session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, record_content=True)
+        assert session_span.attributes["exgentic.session.task"] == "Test task"
+
+
+# ===================================================================
+# 2. execute_tool span semantic conventions
+# ===================================================================
+
+
+class TestExecuteToolSpanSemanticConventions:
+    """Verify every attribute documented for execute_tool spans."""
+
+    def test_initial_observation_span_name(self, ctx, tmp_path):
+        """First tool span named 'execute_tool initial_observation'."""
+        _, tool_spans, _ = _full_lifecycle_spans(ctx, tmp_path)
+        assert any(s.name == "execute_tool initial_observation" for s in tool_spans)
+
+    def test_execute_tool_span_name_format(self, ctx, tmp_path):
+        """Tool span named 'execute_tool {tool_name}' using action.name."""
+        _, tool_spans, _ = _full_lifecycle_spans(ctx, tmp_path, add_react_step=True)
+        assert any(s.name == "execute_tool browse" for s in tool_spans)
+
+    def test_execute_tool_span_kind_client(self, ctx, tmp_path):
+        """All execute_tool spans have SpanKind.CLIENT per docs."""
+        _, tool_spans, _ = _full_lifecycle_spans(ctx, tmp_path, add_react_step=True)
+        for ts in tool_spans:
+            assert ts.kind == SpanKind.CLIENT
+
+    def test_execute_tool_operation_name(self, ctx, tmp_path):
+        """gen_ai.operation.name == 'execute_tool' on all tool spans."""
+        _, tool_spans, _ = _full_lifecycle_spans(ctx, tmp_path, add_react_step=True)
+        for ts in tool_spans:
+            assert ts.attributes["gen_ai.operation.name"] == "execute_tool"
+
+    def test_execute_tool_tool_name(self, ctx, tmp_path):
+        """gen_ai.tool.name matches action name."""
+        _, tool_spans, _ = _full_lifecycle_spans(ctx, tmp_path, add_react_step=True)
+        browse_span = next(s for s in tool_spans if "browse" in s.name)
+        assert browse_span.attributes["gen_ai.tool.name"] == "browse"
+
+    def test_execute_tool_tool_id(self, ctx, tmp_path):
+        """gen_ai.tool.id set on tool spans from react_success."""
+        _, tool_spans, _ = _full_lifecycle_spans(ctx, tmp_path, add_react_step=True)
+        browse_span = next(s for s in tool_spans if "browse" in s.name)
+        assert browse_span.attributes["gen_ai.tool.id"] == "act-1"
+
+    def test_execute_tool_initial_observation_description(self, ctx, tmp_path):
+        """Initial observation span has gen_ai.tool.description."""
+        _, tool_spans, _ = _full_lifecycle_spans(ctx, tmp_path)
+        initial_span = next(s for s in tool_spans if "initial_observation" in s.name)
+        assert initial_span.attributes["gen_ai.tool.description"] == "Initial observation from benchmark"
+
+    def test_execute_tool_tool_description_from_session_actions(self, ctx, tmp_path):
+        """gen_ai.tool.description looked up from session.actions by name."""
+
+        class ActionWithDesc:
+            name = "browse"
+            description = "Browse the web"
+            is_message = False
+            is_finish = False
+
+        class SessionWithActions(MockSession):
+            actions: ClassVar = [ActionWithDesc()]
+
+        _, tool_spans, _ = _full_lifecycle_spans(ctx, tmp_path, session=SessionWithActions(), add_react_step=True)
+        browse_span = next(s for s in tool_spans if "browse" in s.name)
+        assert browse_span.attributes["gen_ai.tool.description"] == "Browse the web"
+
+    def test_execute_tool_parameters_filtered_when_disabled(self, ctx, tmp_path):
+        """gen_ai.tool.parameters absent when record_content=False."""
+        _, tool_spans, _ = _full_lifecycle_spans(ctx, tmp_path, record_content=False, add_react_step=True)
+        browse_span = next(s for s in tool_spans if "browse" in s.name)
+        assert "gen_ai.tool.parameters" not in browse_span.attributes
+
+    def test_execute_tool_parameters_present_when_enabled(self, ctx, tmp_path):
+        """gen_ai.tool.parameters present as JSON when record_content=True."""
+        _, tool_spans, _ = _full_lifecycle_spans(ctx, tmp_path, record_content=True, add_react_step=True)
+        browse_span = next(s for s in tool_spans if "browse" in s.name)
+        assert "gen_ai.tool.parameters" in browse_span.attributes
+        params = json.loads(browse_span.attributes["gen_ai.tool.parameters"])
+        assert params["url"] == "http://example.com"
+
+    def test_execute_tool_result_filtered_when_disabled(self, ctx, tmp_path):
+        """gen_ai.tool.result absent when record_content=False."""
+        _, tool_spans, _ = _full_lifecycle_spans(ctx, tmp_path, record_content=False, add_react_step=True)
+        browse_span = next(s for s in tool_spans if "browse" in s.name)
+        assert "gen_ai.tool.result" not in browse_span.attributes
+
+    def test_execute_tool_result_present_when_enabled(self, ctx, tmp_path):
+        """gen_ai.tool.result present when record_content=True."""
+        _, tool_spans, _ = _full_lifecycle_spans(ctx, tmp_path, record_content=True, add_react_step=True)
+        browse_span = next(s for s in tool_spans if "browse" in s.name)
+        assert "gen_ai.tool.result" in browse_span.attributes
+
+    def test_execute_tool_inherits_conversation_id(self, ctx, tmp_path):
+        """execute_tool spans inherit gen_ai.conversation.id from session."""
+        _, tool_spans, _ = _full_lifecycle_spans(ctx, tmp_path)
+        for ts in tool_spans:
+            assert ts.attributes["gen_ai.conversation.id"] == "sess-001"
+
+
+# ===================================================================
+# 3. LLM inference span semantic conventions
+# ===================================================================
+
+
+class TestLLMInferenceSpanSemanticConventions:
+    """Verify every attribute documented for LLM inference spans."""
+
+    def test_llm_span_name_chat(self):
+        """Span name is 'chat {model}' for chat operations."""
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            }
+        )
+        assert len(spans) == 1
+        assert spans[0].name == "chat gpt-4o"
+
+    def test_llm_span_name_text_completion(self):
+        """Span name is 'text_completion {model}' when no messages key."""
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "text-davinci-003",
+                "optional_params": {},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            }
+        )
+        assert spans[0].name == "text_completion text-davinci-003"
+
+    def test_llm_span_kind_client(self):
+        """LLM inference spans have SpanKind.CLIENT per docs."""
+        spans = _invoke_write_otel()
+        assert spans[0].kind == SpanKind.CLIENT
+
+    def test_llm_span_operation_name_chat(self):
+        spans = _invoke_write_otel()
+        assert spans[0].attributes["gen_ai.operation.name"] == "chat"
+
+    def test_llm_span_operation_name_text_completion(self):
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "text-davinci-003",
+                "optional_params": {},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            }
+        )
+        assert spans[0].attributes["gen_ai.operation.name"] == "text_completion"
+
+    def test_llm_span_provider_name_openai(self):
+        spans = _invoke_write_otel()
+        assert spans[0].attributes["gen_ai.provider.name"] == "openai"
+
+    @pytest.mark.parametrize(
+        "litellm_provider,expected",
+        [
+            ("openai", "openai"),
+            ("azure", "azure.ai.openai"),
+            ("anthropic", "anthropic"),
+            ("bedrock", "aws.bedrock"),
+            ("vertex_ai", "gcp.vertex_ai"),
+            ("gemini", "gcp.gemini"),
+            ("cohere", "cohere"),
+            ("groq", "groq"),
+            ("mistral", "mistral_ai"),
+            ("deepseek", "deepseek"),
+            ("perplexity", "perplexity"),
+            ("watsonx", "ibm.watsonx.ai"),
+            ("xai", "x_ai"),
+        ],
+    )
+    def test_llm_span_provider_mapping(self, litellm_provider, expected):
+        """All documented provider mappings produce correct gen_ai.provider.name."""
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "test-model",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {},
+                "litellm_params": {"custom_llm_provider": litellm_provider},
+            }
+        )
+        assert spans[0].attributes["gen_ai.provider.name"] == expected
+
+    def test_llm_span_provider_unknown_passthrough(self):
+        """Unknown provider name passes through unchanged."""
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "m",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {},
+                "litellm_params": {"custom_llm_provider": "custom_provider"},
+            }
+        )
+        assert spans[0].attributes["gen_ai.provider.name"] == "custom_provider"
+
+    def test_llm_span_provider_none_becomes_unknown(self):
+        """None provider becomes 'unknown'."""
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "m",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {},
+                "litellm_params": {"custom_llm_provider": None},
+            }
+        )
+        assert spans[0].attributes["gen_ai.provider.name"] == "unknown"
+
+    def test_llm_span_request_model(self):
+        spans = _invoke_write_otel()
+        assert spans[0].attributes["gen_ai.request.model"] == "gpt-4o"
+
+    def test_llm_span_conversation_id(self):
+        spans = _invoke_write_otel(session_id="sess-xyz")
+        assert spans[0].attributes["gen_ai.conversation.id"] == "sess-xyz"
+
+    def test_llm_span_request_max_tokens(self):
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {"max_tokens": 100},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            }
+        )
+        assert spans[0].attributes["gen_ai.request.max_tokens"] == 100
+
+    def test_llm_span_request_temperature(self):
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {"temperature": 0.7},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            }
+        )
+        assert spans[0].attributes["gen_ai.request.temperature"] == 0.7
+
+    def test_llm_span_request_top_p(self):
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {"top_p": 0.9},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            }
+        )
+        assert spans[0].attributes["gen_ai.request.top_p"] == 0.9
+
+    def test_llm_span_request_top_k(self):
+        """top_k is cast to float per implementation."""
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {"top_k": 40},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            }
+        )
+        assert spans[0].attributes["gen_ai.request.top_k"] == 40.0
+
+    def test_llm_span_request_frequency_penalty(self):
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {"frequency_penalty": 0.5},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            }
+        )
+        assert spans[0].attributes["gen_ai.request.frequency_penalty"] == 0.5
+
+    def test_llm_span_request_presence_penalty(self):
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {"presence_penalty": 0.3},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            }
+        )
+        assert spans[0].attributes["gen_ai.request.presence_penalty"] == 0.3
+
+    def test_llm_span_request_stop_sequences_list(self):
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {"stop": ["END", "STOP"]},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            }
+        )
+        assert spans[0].attributes["gen_ai.request.stop_sequences"] == ("END", "STOP")
+
+    def test_llm_span_request_stop_sequences_string(self):
+        """Single string stop is wrapped in a list."""
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {"stop": "END"},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            }
+        )
+        assert spans[0].attributes["gen_ai.request.stop_sequences"] == ("END",)
+
+    def test_llm_span_choice_count_when_not_one(self):
+        """gen_ai.request.choice.count set only when n != 1."""
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {"n": 3},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            }
+        )
+        assert spans[0].attributes["gen_ai.request.choice.count"] == 3
+
+    def test_llm_span_no_choice_count_when_one(self):
+        """gen_ai.request.choice.count absent when n == 1."""
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {"n": 1},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            }
+        )
+        assert "gen_ai.request.choice.count" not in spans[0].attributes
+
+    def test_llm_span_seed(self):
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {"seed": 42},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            }
+        )
+        assert spans[0].attributes["gen_ai.request.seed"] == 42
+
+    def test_llm_span_response_id(self):
+        spans = _invoke_write_otel()
+        assert spans[0].attributes["gen_ai.response.id"] == "chatcmpl-123"
+
+    def test_llm_span_response_model(self):
+        spans = _invoke_write_otel()
+        assert spans[0].attributes["gen_ai.response.model"] == "gpt-4o-2024-05-13"
+
+    def test_llm_span_usage_input_tokens(self):
+        spans = _invoke_write_otel()
+        assert spans[0].attributes["gen_ai.usage.input_tokens"] == 10
+
+    def test_llm_span_usage_output_tokens(self):
+        spans = _invoke_write_otel()
+        assert spans[0].attributes["gen_ai.usage.output_tokens"] == 20
+
+    def test_llm_span_finish_reasons(self):
+        spans = _invoke_write_otel()
+        assert spans[0].attributes["gen_ai.response.finish_reasons"] == ("stop",)
+
+    def test_llm_span_error_type_on_failure(self):
+        """error.type set to exception class name on failure."""
+        spans = _invoke_write_otel(
+            status="failure",
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {},
+                "litellm_params": {"custom_llm_provider": "openai"},
+                "exception": ValueError("bad request"),
+            },
+            response_obj={},
+        )
+        assert spans[0].attributes["error.type"] == "ValueError"
+
+    def test_llm_span_error_type_from_dict(self):
+        """error.type extracted from dict error info."""
+        spans = _invoke_write_otel(
+            status="failure",
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            },
+            response_obj={"error": {"type": "rate_limit_error"}},
+        )
+        assert spans[0].attributes["error.type"] == "rate_limit_error"
+
+    def test_llm_span_status_ok_on_success(self):
+        from opentelemetry.trace.status import StatusCode
+
+        spans = _invoke_write_otel(status="success")
+        assert spans[0].status.status_code == StatusCode.OK
+
+    def test_llm_span_status_error_on_failure(self):
+        from opentelemetry.trace.status import StatusCode
+
+        spans = _invoke_write_otel(
+            status="failure",
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            },
+            response_obj={},
+        )
+        assert spans[0].status.status_code == StatusCode.ERROR
+
+    def test_llm_span_optional_params_absent_when_not_set(self):
+        """Empty optional_params don't produce request attributes."""
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            }
+        )
+        for attr in [
+            "gen_ai.request.max_tokens",
+            "gen_ai.request.temperature",
+            "gen_ai.request.top_p",
+            "gen_ai.request.top_k",
+            "gen_ai.request.frequency_penalty",
+            "gen_ai.request.presence_penalty",
+            "gen_ai.request.stop_sequences",
+            "gen_ai.request.choice.count",
+            "gen_ai.request.seed",
+        ]:
+            assert attr not in spans[0].attributes, f"{attr} should be absent"
+
+
+# ===================================================================
+# 4. LLM inference content filtering
+# ===================================================================
+
+
+class TestLLMInferenceContentFiltering:
+    """Verify content-filtered attributes on LLM inference spans."""
+
+    def _kwargs_with_tools(self):
+        return {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "hello"}],
+            "tools": [{"type": "function", "function": {"name": "search", "parameters": {}}}],
+            "optional_params": {},
+            "litellm_params": {"custom_llm_provider": "openai"},
+        }
+
+    def _response_with_choices(self):
+        return {
+            "id": "chatcmpl-123",
+            "model": "gpt-4o",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+            "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "result"}}],
+        }
+
+    def test_tool_definitions_present_when_enabled(self):
+        spans = _invoke_write_otel(
+            record_content=True,
+            kwargs=self._kwargs_with_tools(),
+            response_obj=self._response_with_choices(),
+        )
+        assert "gen_ai.tool.definitions" in spans[0].attributes
+        parsed = json.loads(spans[0].attributes["gen_ai.tool.definitions"])
+        assert parsed[0]["function"]["name"] == "search"
+
+    def test_tool_definitions_absent_when_disabled(self):
+        spans = _invoke_write_otel(
+            record_content=False,
+            kwargs=self._kwargs_with_tools(),
+            response_obj=self._response_with_choices(),
+        )
+        assert "gen_ai.tool.definitions" not in spans[0].attributes
+
+    def test_input_messages_present_when_enabled(self):
+        spans = _invoke_write_otel(record_content=True)
+        assert "gen_ai.input.messages" in spans[0].attributes
+        parsed = json.loads(spans[0].attributes["gen_ai.input.messages"])
+        assert parsed[0]["role"] == "user"
+
+    def test_input_messages_absent_when_disabled(self):
+        spans = _invoke_write_otel(record_content=False)
+        assert "gen_ai.input.messages" not in spans[0].attributes
+
+    def test_output_messages_present_when_enabled(self):
+        spans = _invoke_write_otel(record_content=True)
+        assert "gen_ai.output.messages" in spans[0].attributes
+        parsed = json.loads(spans[0].attributes["gen_ai.output.messages"])
+        assert parsed[0]["role"] == "assistant"
+
+    def test_output_messages_absent_when_disabled(self):
+        spans = _invoke_write_otel(record_content=False)
+        assert "gen_ai.output.messages" not in spans[0].attributes
+
+
+# ===================================================================
+# 5. TraceLogger silent failure behavior
+# ===================================================================
+
+
+class TestTraceLoggerSilentFailure:
+    """Verify TraceLogger._write_otel swallows exceptions silently."""
+
+    def test_write_otel_emits_warning_on_tracer_error(self):
+        """Exception in start_span emits warning but doesn't propagate."""
+        from exgentic.integrations.litellm.trace_logger import TraceLogger
+
+        logger = TraceLogger()
+        logger._tracer = MagicMock()
+        logger._tracer.start_span.side_effect = RuntimeError("tracer broken")
+        logger._otel_logger = MagicMock()
+
+        mock_ctx = MagicMock()
+        mock_ctx.session_id = "s"
+        mock_ctx.otel_context = MagicMock()
+        mock_ctx.otel_context.trace_id = "0" * 32
+        mock_ctx.otel_context.span_id = "0" * 16
+
+        with (
+            patch("exgentic.integrations.litellm.trace_logger._otel_enabled", return_value=True),
+            patch.object(logger, "get_context", return_value=mock_ctx),
+            pytest.warns(UserWarning, match="TraceLogger._write_otel failed.*tracer broken"),
+        ):
+            logger._write_otel(
+                {"model": "m", "messages": [], "optional_params": {}, "litellm_params": {}},
+                {},
+                "success",
+            )
+
+    def test_write_otel_emits_warning_on_context_error(self):
+        """Exception in get_context emits warning but doesn't propagate."""
+        from exgentic.integrations.litellm.trace_logger import TraceLogger
+
+        logger = TraceLogger()
+        logger._tracer = MagicMock()
+        logger._otel_logger = MagicMock()
+
+        with (
+            patch("exgentic.integrations.litellm.trace_logger._otel_enabled", return_value=True),
+            patch.object(logger, "get_context", side_effect=RuntimeError("context broken")),
+            pytest.warns(UserWarning, match="TraceLogger._write_otel failed.*context broken"),
+        ):
+            logger._write_otel(
+                {"model": "m", "messages": [], "optional_params": {}, "litellm_params": {}},
+                {},
+                "success",
+            )
+
+    def test_write_otel_noop_when_init_otel_fails_to_set_tracer(self):
+        """If _init_otel fails (context missing), subsequent _write_otel calls silently skip."""
+        from exgentic.integrations.litellm.trace_logger import TraceLogger
+
+        logger = TraceLogger()
+        # _tracer is None and _init_otel won't set it because context is None
+        with (
+            patch("exgentic.integrations.litellm.trace_logger._otel_enabled", return_value=True),
+            patch.object(logger, "get_context", return_value=None),
+        ):
+            # First call: _tracer is None → calls _init_otel → context=None → warns, tracer stays None
+            logger._write_otel(
+                {"model": "m", "messages": [], "optional_params": {}, "litellm_params": {}},
+                {},
+                "success",
+            )
+            assert logger._tracer is None  # tracer was never set
+
+            # Second call: _tracer is still None → calls _init_otel again → same result
+            logger._write_otel(
+                {"model": "m", "messages": [], "optional_params": {}, "litellm_params": {}},
+                {},
+                "success",
+            )
+            assert logger._tracer is None
+
+    def test_init_otel_skips_when_session_id_none(self):
+        """_init_otel returns without setting tracer if context.session_id is None."""
+        from exgentic.integrations.litellm.trace_logger import TraceLogger
+
+        logger = TraceLogger()
+        mock_ctx = MagicMock()
+        mock_ctx.session_id = None
+        mock_ctx.otel_context = MagicMock()
+
+        with patch.object(logger, "get_context", return_value=mock_ctx):
+            logger._init_otel({"model": "m", "litellm_params": {}})
+        assert logger._tracer is None
+
+    def test_init_otel_skips_when_otel_context_none(self):
+        """_init_otel returns without setting tracer if context.otel_context is None."""
+        from exgentic.integrations.litellm.trace_logger import TraceLogger
+
+        logger = TraceLogger()
+        mock_ctx = MagicMock()
+        mock_ctx.session_id = "sess-001"
+        mock_ctx.otel_context = None
+
+        with patch.object(logger, "get_context", return_value=mock_ctx):
+            logger._init_otel({"model": "m", "litellm_params": {}})
+        assert logger._tracer is None
+
+    def test_init_otel_skips_when_get_context_returns_none(self):
+        """_init_otel returns without setting tracer if get_context returns None entirely."""
+        from exgentic.integrations.litellm.trace_logger import TraceLogger
+
+        logger = TraceLogger()
+        with patch.object(logger, "get_context", return_value=None):
+            logger._init_otel({"model": "m", "litellm_params": {}})
+        assert logger._tracer is None
+
+    def test_log_success_event_calls_write_otel(self):
+        """log_success_event must invoke _write_otel — if this path is broken, no LLM spans."""
+        from exgentic.integrations.litellm.trace_logger import TraceLogger
+
+        logger = TraceLogger()
+        with patch.object(logger, "_write_otel") as mock_write, patch.object(logger, "_write_row"):
+            logger.log_success_event(
+                kwargs={"model": "gpt-4"},
+                response_obj={"id": "r1"},
+                start_time=None,
+                end_time=None,
+            )
+            mock_write.assert_called_once()
+            call_kwargs = mock_write.call_args
+            # status is passed as a keyword or positional arg
+            assert call_kwargs.kwargs.get("status") == "success" or call_kwargs.args[2] == "success"
+
+    def test_init_tracing_from_env_returns_tracer_even_without_endpoint(self, monkeypatch):
+        """init_tracing_from_env always returns a Tracer (never None), even if no collector is reachable.
+
+        This means the failure mode is silent: spans are created but lost to an unreachable exporter.
+        """
+        # Reset the global tracer provider to simulate a fresh subprocess
+        from exgentic.utils.otel import init_tracing_from_env
+        from opentelemetry import trace as trace_api
+
+        trace_api._TRACER_PROVIDER = None
+        trace_api._TRACER_PROVIDER_SET_ONCE._done = False
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+        monkeypatch.delenv("OTEL_EXPORTER_FILE", raising=False)
+
+        try:
+            tracer = init_tracing_from_env(service_name="test-no-endpoint")
+            assert tracer is not None  # This is the silent failure: tracer exists, but spans go nowhere reachable
+        finally:
+            # Cleanup: reset provider so we don't pollute other tests
+            trace_api._TRACER_PROVIDER = None
+            trace_api._TRACER_PROVIDER_SET_ONCE._done = False
+
+
+# ===================================================================
+# 6. prepare_subprocess_env OTEL var forwarding
+# ===================================================================
+
+
+class TestPrepareSubprocessEnvOtelVars:
+    """Verify OTEL_* env vars pass through prepare_subprocess_env blocklist."""
+
+    def test_otel_endpoint_forwarded(self, monkeypatch):
+        from exgentic.adapters.runners._utils import prepare_subprocess_env
+
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
+        env = prepare_subprocess_env()
+        assert env.get("OTEL_EXPORTER_OTLP_ENDPOINT") == "http://localhost:4318"
+
+    def test_otel_service_name_forwarded(self, monkeypatch):
+        from exgentic.adapters.runners._utils import prepare_subprocess_env
+
+        monkeypatch.setenv("OTEL_SERVICE_NAME", "exgentic")
+        env = prepare_subprocess_env()
+        assert env.get("OTEL_SERVICE_NAME") == "exgentic"
+
+    def test_otel_traces_endpoint_forwarded(self, monkeypatch):
+        from exgentic.adapters.runners._utils import prepare_subprocess_env
+
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://localhost:4318/v1/traces")
+        env = prepare_subprocess_env()
+        assert env.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") == "http://localhost:4318/v1/traces"
+
+    def test_exgentic_otel_vars_forwarded(self, monkeypatch):
+        from exgentic.adapters.runners._utils import prepare_subprocess_env
+
+        monkeypatch.setenv("EXGENTIC_OTEL_ENABLED", "true")
+        monkeypatch.setenv("EXGENTIC_OTEL_RECORD_CONTENT", "true")
+        env = prepare_subprocess_env()
+        assert env.get("EXGENTIC_OTEL_ENABLED") == "true"
+        assert env.get("EXGENTIC_OTEL_RECORD_CONTENT") == "true"
+
+    def test_system_vars_blocked(self, monkeypatch):
+        from exgentic.adapters.runners._utils import prepare_subprocess_env
+
+        # These should always be blocked
+        env = prepare_subprocess_env()
+        assert "PATH" not in env
+        assert "HOME" not in env
+        assert "VIRTUAL_ENV" not in env
+
+    def test_vscode_prefix_blocked(self, monkeypatch):
+        from exgentic.adapters.runners._utils import prepare_subprocess_env
+
+        monkeypatch.setenv("VSCODE_PID", "12345")
+        env = prepare_subprocess_env()
+        assert "VSCODE_PID" not in env
+
+
+# ===================================================================
+# 7. Heritable attribute completeness
+# ===================================================================
+
+
+class TestHeritableAttributeCompleteness:
+    """Verify the exact set of heritable attributes matches docs."""
+
+    DOCUMENTED_HERITABLE: ClassVar = {
+        "gen_ai.conversation.id",
+        "exgentic.session.id",
+        "gen_ai.request.model",
+        "exgentic.run.id",
+        "exgentic.benchmark.slug_name",
+        "exgentic.benchmark.subset",
+        "exgentic.benchmark.agent.name",
+        "exgentic.agent.slug",
+    }
+
+    def test_all_heritable_attributes_on_child_span(self, ctx, tmp_path):
+        """All 8 documented heritable attributes appear on execute_tool child spans."""
+        rc = MockRunConfig()
+        rc.model = "gpt-4o"  # Ensure model is set so gen_ai.request.model is heritable
+        _, tool_spans, _ = _full_lifecycle_spans(ctx, tmp_path, run_config=rc)
+        assert len(tool_spans) >= 1
+        child = tool_spans[0]
+        for attr in self.DOCUMENTED_HERITABLE:
+            assert attr in child.attributes, f"Heritable attribute {attr} missing from child span"
+
+    def test_non_heritable_not_on_child_span(self, ctx, tmp_path):
+        """Session-only attributes do NOT appear on child spans."""
+        _, tool_spans, _ = _full_lifecycle_spans(ctx, tmp_path)
+        child = tool_spans[0]
+        non_heritable = [
+            "exgentic.session.task_id",
+            "exgentic.score.success",
+            "exgentic.score",
+            "exgentic.session.steps",
+        ]
+        for attr in non_heritable:
+            assert attr not in child.attributes, f"Non-heritable {attr} should not be on child span"

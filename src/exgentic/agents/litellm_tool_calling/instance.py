@@ -16,7 +16,6 @@ from litellm import (
 )
 
 from ...core.agent_instance import AgentInstance
-from ...core.context import get_context
 from ...core.types import (
     Action,
     ActionType,
@@ -365,8 +364,6 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
             exclude={"num_retries", "retry_after", "retry_strategy"},
         )
         call_kwargs.update(kwargs)
-        # Use 'metadata' parameter instead of 'litellm_metadata' - LiteLLM passes this to callbacks
-        call_kwargs.setdefault("metadata", {})["context"] = get_context()
         return self._completion_with_retries(call_kwargs)
 
     def _completion_with_retries(self, call_kwargs: dict[str, Any]):

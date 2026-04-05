@@ -7,7 +7,7 @@ import contextvars
 import os
 import shutil
 from collections.abc import Iterator
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
@@ -112,17 +112,23 @@ class RuntimeConfig(BaseModel):
         )
 
     @classmethod
-    def from_current(cls) -> RuntimeConfig:
-        """Snapshot the current context + settings into a RuntimeConfig."""
+    def from_current(cls, role: Role | None = None) -> RuntimeConfig:
+        """Snapshot the current context + settings into a RuntimeConfig.
+
+        If *role* is provided it overrides the role on the current context.
+        This is the path runners take: they know the role of the service
+        they're spawning regardless of what's on the in-process ContextVar.
+        """
         ctx = get_context()
         settings = get_settings()
+        effective_role = role if role is not None else ctx.role
         return cls(
             run_id=ctx.run_id,
             output_dir=ctx.output_dir,
             cache_dir=ctx.cache_dir,
             session_id=ctx.session_id,
             task_id=ctx.task_id,
-            role=ctx.role.value,
+            role=effective_role.value,
             otel_trace_id=ctx.otel_context.trace_id if ctx.otel_context else None,
             otel_span_id=ctx.otel_context.span_id if ctx.otel_context else None,
             settings=settings.get_overrides(),
@@ -217,43 +223,16 @@ def run_scope(
 def session_scope(session_id: str, task_id: str | None = None) -> Iterator[Context]:
     """Derive a session-scoped context from the current run context.
 
-    Automatically writes ``runtime.json`` so child processes and
-    third-party threads can discover the session context.
+    runtime.json is not written here — each runner writes its own
+    per-service file at spawn time via :func:`save_service_runtime`.
     """
     parent = get_context()
     ctx = parent.with_session(session_id, task_id)
     token = _CONTEXT.set(ctx)
     try:
-        save_runtime()
         yield ctx
     finally:
         _CONTEXT.reset(token)
-
-
-@contextmanager
-def _role_scope(role: Role) -> Iterator[Context]:
-    """Switch the context role, updating the process-wide fallback too."""
-    global _SUBPROCESS_CONTEXT
-    parent = get_context()
-    ctx = parent.with_role(role)
-    token = _CONTEXT.set(ctx)
-    prev_fallback = _SUBPROCESS_CONTEXT
-    _SUBPROCESS_CONTEXT = ctx
-    try:
-        yield ctx
-    finally:
-        _CONTEXT.reset(token)
-        _SUBPROCESS_CONTEXT = prev_fallback
-
-
-def agent_scope() -> AbstractContextManager[Context]:
-    """Set role=AGENT for the duration of the block, restore on exit."""
-    return _role_scope(Role.AGENT)
-
-
-def benchmark_scope() -> AbstractContextManager[Context]:
-    """Set role=BENCHMARK for the duration of the block, restore on exit."""
-    return _role_scope(Role.BENCHMARK)
 
 
 # ---------------------------------------------------------------------------
@@ -261,23 +240,25 @@ def benchmark_scope() -> AbstractContextManager[Context]:
 # ---------------------------------------------------------------------------
 
 
-def _derive_runtime_path(ctx: Context | None) -> Path | None:
-    """Return the path to ``runtime.json`` for the given context.
+def _derive_runtime_path(ctx: Context | None, role: Role | None = None) -> Path | None:
+    """Return the path to a service's ``runtime.json``.
 
-    - With a session_id -> ``{output_dir}/{run_id}/sessions/{session_id}/runtime.json``
-    - Without session_id -> ``{output_dir}/{run_id}/runtime.json``
-    - If output_dir is empty/missing -> ``None``
+    - With session_id: ``{output_dir}/{run_id}/sessions/{session_id}/{role}/runtime.json``
+    - Without session_id (run-level services, e.g. aggregation):
+      ``{output_dir}/{run_id}/{role}/runtime.json``
+
+    Returns ``None`` when the context is missing output_dir or run_id.
     """
     if ctx is None or not ctx.output_dir or not ctx.run_id:
         return None
+    effective_role = role if role is not None else ctx.role
     base = Path(ctx.output_dir) / ctx.run_id
     if ctx.session_id:
-        return base / "sessions" / ctx.session_id / "runtime.json"
-    return base / "runtime.json"
+        base = base / "sessions" / ctx.session_id
+    return base / effective_role.value / "runtime.json"
 
 
 _RUNTIME_FILE_ENV = "EXGENTIC_RUNTIME_FILE"
-_RUNTIME_ROLE_ENV = "EXGENTIC_RUNTIME_ROLE"
 
 
 def get_runtime_env() -> dict[str, str]:
@@ -289,45 +270,27 @@ def get_runtime_env() -> dict[str, str]:
     path = os.environ.get(_RUNTIME_FILE_ENV)
     if path:
         return {_RUNTIME_FILE_ENV: path}
-    # Fallback: derive from current context (before first save_runtime call).
-    ctx = try_get_context()
-    runtime_path = _derive_runtime_path(ctx) if ctx else None
-    if runtime_path is not None:
-        return {_RUNTIME_FILE_ENV: str(runtime_path)}
     return {}
 
 
-def save_runtime(target_dir: Path | None = None) -> None:
-    """Write ``runtime.json`` containing context + settings.
+def save_service_runtime(role: Role) -> Path:
+    """Write a per-service ``runtime.json`` for *role* and return its path.
 
-    If *target_dir* is ``None`` the path is derived from the current
-    context via :func:`_derive_runtime_path`.  When a *target_dir* is
-    given explicitly the file is written to ``target_dir / runtime.json``.
+    The file is written to
+    ``{output_dir}/{run_id}/sessions/{session_id}/{role}/runtime.json``
+    (or the run-level fallback ``{output_dir}/{run_id}/{role}/runtime.json``
+    when no session_id is on the context, e.g. aggregation).
 
-    Also sets ``EXGENTIC_RUNTIME_FILE`` in the current process's
-    environment and the process-wide ``_SUBPROCESS_CONTEXT`` fallback so
-    that threads spawned by third-party code (e.g. tau2 user simulator)
-    can discover context via :func:`try_init_context`.
+    Called by runners before spawning a service subprocess.  Does NOT
+    mutate the current process's env vars — the caller puts the returned
+    path into the child's env via ``EXGENTIC_RUNTIME_FILE``.
     """
-    global _SUBPROCESS_CONTEXT
-
-    config = RuntimeConfig.from_current()
-    if target_dir is not None:
-        path = Path(target_dir) / "runtime.json"
-    else:
-        path = _derive_runtime_path(get_context())
-        if path is None:
-            raise RuntimeError(
-                "Cannot derive runtime.json path from current context. "
-                "Pass target_dir explicitly or ensure output_dir and run_id are set."
-            )
+    path = _derive_runtime_path(get_context(), role=role)
+    if path is None:
+        raise RuntimeError("Cannot derive runtime.json path: current context must have " "output_dir and run_id set.")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(config.model_dump_json(indent=2))
-
-    # Make context discoverable by threads that don't inherit ContextVar
-    # (e.g. tau2 user simulator, third-party thread pools).
-    os.environ[_RUNTIME_FILE_ENV] = str(path)
-    _SUBPROCESS_CONTEXT = get_context()
+    path.write_text(RuntimeConfig.from_current(role=role).model_dump_json(indent=2))
+    return path
 
 
 def _load_runtime(runtime_file: Path) -> Context | None:
@@ -359,16 +322,13 @@ def init_context() -> Context:
     if ctx is None:
         raise RuntimeError(
             f"runtime.json not found at {runtime_file}. "
-            "The orchestrator must call save_runtime() before spawning children."
+            "The spawning runner must write runtime.json before spawning children."
         )
-    role_override = os.environ.get(_RUNTIME_ROLE_ENV)
-    if role_override:
-        try:
-            ctx = ctx.with_role(Role(role_override))
-        except ValueError:
-            pass
     _CONTEXT.set(ctx)
     _SUBPROCESS_CONTEXT = ctx
+    # Keep the env var set so worker threads spawned by this process
+    # (uvicorn workers, tau2 thread pools) can bootstrap via try_init_context.
+    os.environ[_RUNTIME_FILE_ENV] = runtime_file
     return ctx
 
 

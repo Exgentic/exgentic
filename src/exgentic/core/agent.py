@@ -69,10 +69,12 @@ class Agent(BaseModel, RunnerMixin, ABC):
     def get_instance(self, session_id: str) -> AgentInstance:
         """Create an ``AgentInstance`` wrapped in the configured runner."""
         from ..adapters.runners import with_runner
+        from .context import Role
 
         return with_runner(
             self._get_instance_class_ref(),
             runner=self.resolve_runner(),
+            role=Role.AGENT,
             **self._get_instance_kwargs(session_id=session_id),
             **self.runner_kwargs(),
         )

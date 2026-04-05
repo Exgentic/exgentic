@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import weakref
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import cloudpickle as cp
 
 from .transport import ObjectHost, Transport, deserialize_error, serialize_error
+
+if TYPE_CHECKING:
+    from ...core.context import Role
 
 # ── worker process ───────────────────────────────────────────────────
 
@@ -19,14 +22,21 @@ from .transport import ObjectHost, Transport, deserialize_error, serialize_error
 def _worker(q_in: mp.Queue, q_out: mp.Queue) -> None:
     """Subprocess entry point: create the object and serve RPC requests."""
     # Late imports — these run in the child process.
+    import os
+
     from ...core.context import set_context, try_get_context, try_init_context
     from ...observers.logging import configure_warnings_logging
 
     configure_warnings_logging(replace_existing_file_handlers=False)
 
     try:
-        tag, target_cls, args, kwargs, ctx = cp.loads(q_in.get())
+        tag, target_cls, args, kwargs, ctx, runtime_path = cp.loads(q_in.get())
         assert tag == "init"
+
+        # Point this process at its per-service runtime.json (so that
+        # nested workers / third-party threads can call try_init_context).
+        if runtime_path is not None:
+            os.environ["EXGENTIC_RUNTIME_FILE"] = str(runtime_path)
 
         # Restore context in child process.
         if ctx is not None:
@@ -74,10 +84,17 @@ class PipeTransport(Transport):
     for communication. Propagates the exgentic Context to the child.
     """
 
-    def __init__(self, target_cls: type, *args: Any, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        target_cls: type,
+        *args: Any,
+        role: Role | None = None,
+        **kwargs: Any,
+    ) -> None:
         self._target_cls = target_cls
         self._args = args
         self._kwargs = kwargs
+        self._role = role
         self._ctx = mp.get_context("spawn")
         self._q_in: mp.Queue | None = None
         self._q_out: mp.Queue | None = None
@@ -87,7 +104,7 @@ class PipeTransport(Transport):
         if self._proc is not None and self._proc.is_alive():
             return
 
-        from ...core.context import get_runtime_env, try_get_context
+        from ...core.context import save_service_runtime, try_get_context
 
         self._q_in = self._ctx.Queue()
         self._q_out = self._ctx.Queue()
@@ -96,25 +113,19 @@ class PipeTransport(Transport):
             args=(self._q_in, self._q_out),
             daemon=True,
         )
-        # Ensure runtime env vars are set for the spawned process.
-        import os
-
-        runtime_env = get_runtime_env()
-        old_vals = {k: os.environ.get(k) for k in runtime_env}
-        os.environ.update(runtime_env)
-        try:
-            self._proc.start()
-        finally:
-            for k, v in old_vals.items():
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
+        # Write per-service runtime.json up-front when a role is given.
+        # The path is passed to the child via the init payload (not via
+        # os.environ) so concurrent PipeTransport.start() calls from
+        # parallel workers don't race on a shared env var.
+        runtime_path = save_service_runtime(self._role) if self._role is not None else None
+        self._proc.start()
         self._finalizer = weakref.finalize(self, _terminate, self._q_in, self._proc)
 
-        # Send init payload with context.
+        # Send init payload with context (role-adjusted if applicable).
         ctx = try_get_context()
-        self._q_in.put(cp.dumps(("init", self._target_cls, self._args, self._kwargs, ctx)))
+        if ctx is not None and self._role is not None:
+            ctx = ctx.with_role(self._role)
+        self._q_in.put(cp.dumps(("init", self._target_cls, self._args, self._kwargs, ctx, runtime_path)))
         status, payload = self._recv()
         if status == "error":
             self.close()

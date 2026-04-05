@@ -74,10 +74,12 @@ class Benchmark(BaseModel, RunnerMixin, ABC):
     def get_evaluator(self) -> Evaluator:
         """Create an ``Evaluator`` wrapped in the configured runner."""
         from ..adapters.runners import with_runner
+        from .context import Role
 
         return with_runner(
             self._get_evaluator_class(),
             runner=self.resolve_runner(),
+            role=Role.BENCHMARK,
             **self._get_evaluator_kwargs(),
             **self.runner_kwargs(),
         )
@@ -85,10 +87,12 @@ class Benchmark(BaseModel, RunnerMixin, ABC):
     def get_session(self, **session_kwargs: Any) -> Session:
         """Create a ``Session`` wrapped in the configured runner."""
         from ..adapters.runners import with_runner
+        from .context import Role
 
         return with_runner(
             self._get_session_class(),
             runner=self.resolve_runner(),
+            role=Role.BENCHMARK,
             **session_kwargs,
             **self.runner_kwargs(),
         )
