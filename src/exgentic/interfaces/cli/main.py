@@ -6,6 +6,7 @@ from __future__ import annotations
 import rich_click as click
 
 from ... import __version__
+from .commands.a2a import a2a_cmd
 from .commands.analyze import analyse_cmd
 from .commands.batch import batch_cmd
 from .commands.compare import compare_cmd
@@ -55,7 +56,7 @@ click.rich_click.COMMAND_GROUPS = {
         },
         {
             "name": "Tools",
-            "commands": ["mcp"],
+            "commands": ["mcp", "a2a"],
         },
         {
             "name": "Infrastructure",
@@ -105,6 +106,7 @@ cli.add_command(setup_cmd)
 cli.add_command(install_cmd)
 cli.add_command(uninstall_cmd)
 cli.add_command(mcp_cmd)
+cli.add_command(a2a_cmd)
 cli.add_command(serve_cmd)
 
 
@@ -115,6 +117,7 @@ def main() -> None:
 
 
 __all__ = [
+    "a2a_cmd",
     "batch_cmd",
     "cli",
     "compare_cmd",
