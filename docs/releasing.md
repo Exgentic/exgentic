@@ -1,5 +1,8 @@
 # Releasing Exgentic
 
+**Related docs:**
+[docs/](./README.md) · [DEVELOPMENT.md](../DEVELOPMENT.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
+
 ## Release model
 
 Exgentic uses Git tags as the single source of truth for released versions.
@@ -9,6 +12,7 @@ There is no manually maintained version string in the source tree.
 - Package versions are derived from Git tags via `hatch-vcs`
 - PyPI publishing runs from GitHub Actions only for pushed `v*` tags
 - The publishing workflow verifies that the tagged commit is reachable from `main`
+- GitHub Releases are created manually after PyPI publish succeeds
 
 ## One-time repository setup
 
@@ -48,6 +52,39 @@ Or do steps 3 and 4 in one command:
 scripts/release.sh 0.2.0 --push
 ```
 
+5. After the PyPI workflow succeeds, create the GitHub Release manually:
+   ```bash
+   gh release create v0.2.0 --generate-notes --title "v0.2.0"
+   ```
+
+## GitHub Release notes
+
+Use generated notes as the base, then edit the release text to keep it short and useful.
+
+The release description should include:
+
+- What changed for users
+- Any packaging, CLI, or behavior changes worth calling out
+- Any migration or upgrade note if behavior changed
+- A short verification note when helpful, for example that the version is on PyPI
+
+Good default structure:
+
+```md
+## Summary
+- Short user-facing change 1
+- Short user-facing change 2
+
+## Notes
+- Optional upgrade or compatibility note
+```
+
+Avoid:
+
+- Raw internal implementation details unless they affect users
+- Huge changelogs pasted into the release body
+- Empty releases with only the tag name when there was a meaningful change
+
 ## What happens after the tag is pushed
 
 1. GitHub Actions checks out the tagged commit.
@@ -55,6 +92,7 @@ scripts/release.sh 0.2.0 --push
 3. The package is built from that exact tag.
 4. GitHub exchanges its OIDC identity with PyPI using Trusted Publishing.
 5. The distribution is uploaded to PyPI.
+6. After that succeeds, create the GitHub Release page for the same tag.
 
 ## Verifying the release locally
 
@@ -71,3 +109,11 @@ If you created a test tag by mistake, delete it locally before pushing:
 ```bash
 git tag -d v0.2.0
 ```
+
+---
+
+## See also
+
+- [DEVELOPMENT.md](../DEVELOPMENT.md) — local setup and testing
+- [CONTRIBUTING.md](../CONTRIBUTING.md) — PR workflow and legal requirements
+- [docs/](./README.md) — documentation index

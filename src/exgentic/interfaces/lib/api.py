@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import inspect
 import json
-import subprocess
-from importlib import resources
 from typing import Any
 
 from ...core.agent import Agent
@@ -17,10 +15,6 @@ from ...core.orchestrator.run import (
     core_execute,
 )
 from ...core.types import RunConfig, RunPlan, RunResults, RunStatus, SessionConfig
-from ...utils.installation_tracker import (
-    get_all_installations,
-    record_installation,
-)
 from ..registry import (
     apply_subset_kwargs,
     get_agent_entries,
@@ -32,44 +26,68 @@ from ..registry import (
 
 
 def list_benchmarks() -> list[dict[str, Any]]:
+    from ...environment.instance import get_manager
+
+    mgr = get_manager()
     entries = get_benchmark_entries()
-    installations = get_all_installations("benchmark")
-    return [
-        {
-            "slug_name": slug,
-            "display_name": entry.display_name,
-            "installed": slug in installations,
-            "installed_at": installations.get(slug, {}).get("installed_at"),
-        }
-        for slug, entry in sorted(entries.items())
-    ]
+    result = []
+    for slug_name, entry in entries.items():
+        name = f"benchmarks/{slug_name}"
+        info = mgr.get_info(name)
+        installed = info is not None
+        installed_at = None
+        if info:
+            envs = info["environments"]
+            timestamps = [e["installed_at"] for e in envs.values() if "installed_at" in e]
+            installed_at = min(timestamps) if timestamps else None
+        result.append(
+            {
+                "slug_name": slug_name,
+                "display_name": entry.display_name,
+                "installed": installed,
+                "installed_at": installed_at,
+            }
+        )
+    return result
 
 
 def list_agents() -> list[dict[str, Any]]:
+    from ...environment.instance import get_manager
+
+    mgr = get_manager()
     entries = get_agent_entries()
-    installations = get_all_installations("agent")
-    return [
-        {
-            "slug_name": slug,
-            "display_name": entry.display_name,
-            "installed": slug in installations,
-            "installed_at": installations.get(slug, {}).get("installed_at"),
-        }
-        for slug, entry in sorted(entries.items())
-    ]
+    result = []
+    for slug_name, entry in entries.items():
+        name = f"agents/{slug_name}"
+        info = mgr.get_info(name)
+        installed = info is not None
+        installed_at = None
+        if info:
+            envs = info["environments"]
+            timestamps = [e["installed_at"] for e in envs.values() if "installed_at" in e]
+            installed_at = min(timestamps) if timestamps else None
+        result.append(
+            {
+                "slug_name": slug_name,
+                "display_name": entry.display_name,
+                "installed": installed,
+                "installed_at": installed_at,
+            }
+        )
+    return result
 
 
 def load_benchmark_class(benchmark: str) -> type[Benchmark]:
     entries = get_benchmark_entries()
     if benchmark not in entries:
-        raise ValueError(f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(entries.keys()))}")
+        raise ValueError(f"Unknown benchmark slug '{benchmark}'. Available: {', '.join(sorted(entries.keys()))}")
     return load_benchmark(benchmark)
 
 
 def load_agent_class(agent: str) -> type[Agent]:
     entries = get_agent_entries()
     if agent not in entries:
-        raise ValueError(f"Unknown agent slug '{agent}'. " f"Available: {', '.join(sorted(entries.keys()))}")
+        raise ValueError(f"Unknown agent slug '{agent}'. Available: {', '.join(sorted(entries.keys()))}")
     return load_agent(agent)
 
 
@@ -478,7 +496,7 @@ def get_benchmark_info(benchmark: str) -> dict[str, Any]:
     entries = get_benchmark_entries()
     entry = entries.get(benchmark)
     if entry is None:
-        raise ValueError(f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(entries.keys()))}")
+        raise ValueError(f"Unknown benchmark slug '{benchmark}'. Available: {', '.join(sorted(entries.keys()))}")
     bench_cls = load_benchmark_class(benchmark)
     return {
         "slug_name": entry.slug_name,
@@ -495,7 +513,7 @@ def get_agent_info(agent: str) -> dict[str, Any]:
     entries = get_agent_entries()
     entry = entries.get(agent)
     if entry is None:
-        raise ValueError(f"Unknown agent slug '{agent}'. " f"Available: {', '.join(sorted(entries.keys()))}")
+        raise ValueError(f"Unknown agent slug '{agent}'. Available: {', '.join(sorted(entries.keys()))}")
     agent_cls = load_agent_class(agent)
     return {
         "slug_name": entry.slug_name,
@@ -508,7 +526,7 @@ def list_subsets(benchmark: str) -> list[str]:
     benchmark_entries = get_benchmark_entries()
     if benchmark not in benchmark_entries:
         raise ValueError(
-            f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(benchmark_entries.keys()))}"
+            f"Unknown benchmark slug '{benchmark}'. Available: {', '.join(sorted(benchmark_entries.keys()))}"
         )
     return get_benchmark_subsets(benchmark)
 
@@ -522,122 +540,39 @@ def list_tasks(
     benchmark_entries = get_benchmark_entries()
     if benchmark not in benchmark_entries:
         raise ValueError(
-            f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(benchmark_entries.keys()))}"
+            f"Unknown benchmark slug '{benchmark}'. Available: {', '.join(sorted(benchmark_entries.keys()))}"
         )
     bench_kwargs = dict(benchmark_kwargs or {})
     if subset is not None:
         bench_kwargs = apply_subset_kwargs(benchmark, subset, bench_kwargs)
     bench_cls = load_benchmark_class(benchmark)
     benchmark_obj: Benchmark = bench_cls(**bench_kwargs)
+    evaluator = benchmark_obj.get_evaluator()
     try:
         try:
-            return benchmark_obj.list_tasks()
+            return evaluator.list_tasks()
         except NotImplementedError as exc:
             raise ValueError(str(exc)) from exc
     finally:
+        try:
+            evaluator.close()
+        except Exception:
+            pass
         benchmark_obj.close()
 
 
-def get_setup_script_path(benchmark: str) -> str:
-    entries = get_benchmark_entries()
-    entry = entries.get(benchmark)
+def needs_setup(name: str, kind: str) -> bool:
+    """Return True if a benchmark/agent has a setup.sh or requirements.txt."""
+    from ...environment.helpers import find_package_file
+
+    entries = get_benchmark_entries() if kind == "benchmark" else get_agent_entries()
+    entry = entries.get(name)
     if entry is None:
-        raise ValueError(f"Unknown benchmark slug '{benchmark}'. " f"Available: {', '.join(sorted(entries.keys()))}")
-    parts = entry.module.split(".")
-    if len(parts) < 3:
-        raise ValueError(f"Invalid module path for benchmark '{benchmark}'.")
-    package = ".".join(parts[:3])
-    try:
-        setup_path = resources.files(package) / "setup.sh"
-    except Exception as exc:
-        raise ValueError(f"Unable to locate setup.sh for benchmark '{benchmark}'.") from exc
-    if not setup_path.is_file():
-        raise ValueError(f"setup.sh not found for benchmark '{benchmark}'.")
-    return str(setup_path)
-
-
-def setup_benchmark(benchmark: str, force: bool = False, extra_args: list[str] | None = None) -> None:
-    """Setup a benchmark by running its setup.sh script.
-
-    Args:
-        benchmark: Benchmark slug name
-        force: Force reinstall even if already installed
-        extra_args: Additional arguments to pass to the setup script
-    """
-    from ...utils.installation_tracker import get_installations_dir, is_installed
-
-    # Check if already installed
-    if not force and is_installed(benchmark, "benchmark"):
-        print(f"Benchmark '{benchmark}' is already installed. Use --force to reinstall.")
-        return
-
-    # Remove installation marker before starting
-    if is_installed(benchmark, "benchmark"):
-        install_file = get_installations_dir() / "benchmark" / f"{benchmark}.json"
-        install_file.unlink(missing_ok=True)
-
-    # Run setup script with extra arguments
-    setup_path = get_setup_script_path(benchmark)
-    cmd = ["bash", setup_path]
-    if extra_args:
-        cmd.extend(extra_args)
-    subprocess.run(cmd, check=True)
-
-    # Record successful installation
-    record_installation(benchmark, "benchmark")
-
-
-def get_agent_setup_script_path(agent: str) -> str:
-    entries = get_agent_entries()
-    entry = entries.get(agent)
-    if entry is None:
-        raise ValueError(f"Unknown agent slug '{agent}'. " f"Available: {', '.join(sorted(entries.keys()))}")
-    parts = entry.module.split(".")
-    if len(parts) < 3:
-        raise ValueError(f"Invalid module path for agent '{agent}'.")
-
-    # For CLI agents with nested structure (e.g., exgentic.agents.cli.claude.agent),
-    # use 4 parts to get the specific CLI agent directory
-    # For other agents (e.g., exgentic.agents.openai.openai_mcp_agent), use 3 parts
-    if len(parts) >= 4 and parts[2] == "cli":
-        package = ".".join(parts[:4])
-    else:
-        package = ".".join(parts[:3])
-
-    try:
-        setup_path = resources.files(package) / "setup.sh"
-    except Exception as exc:
-        raise ValueError(f"Unable to locate setup.sh for agent '{agent}'.") from exc
-    if not setup_path.is_file():
-        raise ValueError(f"setup.sh not found for agent '{agent}'.")
-    return str(setup_path)
-
-
-def setup_agent(agent: str, force: bool = False) -> None:
-    """Setup an agent by running its setup.sh script.
-
-    Args:
-        agent: Agent slug name
-        force: Force reinstall even if already installed
-    """
-    from ...utils.installation_tracker import get_installations_dir, is_installed
-
-    # Check if already installed
-    if not force and is_installed(agent, "agent"):
-        print(f"Agent '{agent}' is already installed. Use --force to reinstall.")
-        return
-
-    # Remove installation marker before starting
-    if is_installed(agent, "agent"):
-        install_file = get_installations_dir() / "agent" / f"{agent}.json"
-        install_file.unlink(missing_ok=True)
-
-    # Run setup script
-    setup_path = get_agent_setup_script_path(agent)
-    subprocess.run(["bash", setup_path], check=True)
-
-    # Record successful installation
-    record_installation(agent, "agent")
+        return False
+    return (
+        find_package_file(entry.module, "setup.sh") is not None
+        or find_package_file(entry.module, "requirements.txt") is not None
+    )
 
 
 def _describe_init_args(cls: type) -> list[str]:
@@ -665,18 +600,14 @@ def _describe_init_args(cls: type) -> list[str]:
 
 
 __all__ = [
+    "aggregate",
     "evaluate",
     "execute",
-    "aggregate",
-    "list_benchmarks",
     "list_agents",
+    "list_benchmarks",
     "list_subsets",
     "list_tasks",
-    "status",
     "preview",
     "results",
-    "setup_benchmark",
-    "setup_agent",
-    "get_setup_script_path",
-    "get_agent_setup_script_path",
+    "status",
 ]

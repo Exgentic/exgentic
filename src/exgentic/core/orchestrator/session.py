@@ -2,7 +2,7 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 from ..context import agent_scope, benchmark_scope, session_scope
-from ..types import SessionConfig, SessionIndex
+from ..types import SessionConfig
 from .controller import Controller
 from .observer import Observer
 from .termination import (
@@ -24,34 +24,33 @@ def _close_session_agent(session, agent_instance) -> None:
 
 def run_session(
     session_config: SessionConfig,
-    benchmark,
+    session,
     agent,
     observers: list[Observer] | None = None,
     controllers: list[Controller] | None = None,
     *,
     tracker: Tracker | None = None,
 ) -> None:
-    """Process a single session."""
+    """Process a single session.
+
+    The *agent_instance* is created via ``agent.get_instance()`` for
+    runner isolation.
+    """
     if tracker is None:
         tracker = Tracker(observers=observers, controllers=controllers)
 
-    session_id = session_config.get_session_id()
-    session = benchmark.create_session(SessionIndex(task_id=str(session_config.task_id), session_id=session_id))
     with session_scope(session.session_id, task_id=session.task_id):
-        tracker.on_session_creation(session)
-
-        agent_instance = agent.assign(
-            task=session.task,
-            context=session.context,
-            actions=session.actions,
-            session_id=session.session_id,
-        )
+        agent_instance = agent.get_instance(session_id=session.session_id)
 
         with benchmark_scope():
             observation = session.start()
 
         with agent_scope():
-            agent_instance.start()
+            agent_instance.start(
+                task=session.task,
+                context=session.context,
+                actions=session.actions,
+            )
 
         try:
             tracker.on_session_start(session, agent_instance, observation)
@@ -86,16 +85,15 @@ def run_session(
             raise AgentTerminationError()
 
         except KeyboardInterrupt:
-            _close_session_agent(session, agent_instance)
             tracker.on_session_error(session, RunCancelError())
+            _close_session_agent(session, agent_instance)
             raise
         except AgentError as exc:
-            _close_session_agent(session, agent_instance)
             tracker.on_session_error(session, exc)
+            _close_session_agent(session, agent_instance)
         except SessionLimitReachedError as exc:
             with benchmark_scope():
                 tracker.on_session_scoring(session)
-            _close_session_agent(session, agent_instance)
             with benchmark_scope():
                 score = session.score()
             score.is_finished = False
@@ -109,22 +107,23 @@ def run_session(
                 "actions": exc.actions,
             }
             tracker.on_session_success(session, score, agent_instance)
+            _close_session_agent(session, agent_instance)
         except (AgentTerminationError, BenchmarkTerminationError):
             with benchmark_scope():
                 tracker.on_session_scoring(session)
-            _close_session_agent(session, agent_instance)
             with benchmark_scope():
                 score = session.score()
             if score.is_finished is None:
                 score.is_finished = True
             tracker.on_session_success(session, score, agent_instance)
+            _close_session_agent(session, agent_instance)
         except BenchmarkError as exc:
+            tracker.on_session_error(session, exc)
             agent_instance.close()
-            tracker.on_session_error(session, exc)
         except SessionCancelError as exc:
-            _close_session_agent(session, agent_instance)
             tracker.on_session_error(session, exc)
+            _close_session_agent(session, agent_instance)
         except RunCancelError as exc:
-            _close_session_agent(session, agent_instance)
             tracker.on_session_error(session, exc)
+            _close_session_agent(session, agent_instance)
             raise

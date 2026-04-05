@@ -17,14 +17,14 @@ def register_test_components() -> Iterator[None]:
     registry.BENCHMARKS["test_benchmark"] = RegistryEntry(
         slug_name="test_benchmark",
         display_name="Test Benchmark",
-        module="tests.api.fixtures.test_benchmark",
+        module="exgentic.testing.benchmark",
         attr="TestBenchmark",
         kind="benchmark",
     )
     registry.AGENTS["test_agent"] = RegistryEntry(
         slug_name="test_agent",
         display_name="Test Agent",
-        module="tests.api.fixtures.test_agent",
+        module="exgentic.testing.agent",
         attr="TestAgent",
         kind="agent",
     )

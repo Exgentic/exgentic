@@ -28,7 +28,7 @@ def action_type_to_function(
 
     function.__name__ = action_type.name.replace(".", "__")
 
-    docstring_parts = [action_type.description]
+    docstring_parts = [action_type.description or action_type.name.replace("_", " ")]
 
     arguments_type = action_type.arguments
     if not isinstance(arguments_type, type) or not issubclass(arguments_type, BaseModel):
@@ -58,8 +58,8 @@ def action_type_to_function(
             annotations[field_name] = anno
 
             # Description and Google-style formatting
-            desc = field_info.description
-            type_name = str(anno).replace("typing.", "")
+            desc = field_info.description or field_name.replace("_", " ")
+            type_name = getattr(anno, "__name__", None) or str(anno).replace("typing.", "")
             docstring_parts.append(f"    {field_name} ({type_name}): {desc}")
 
         function.__signature__ = inspect.Signature(parameters=params)

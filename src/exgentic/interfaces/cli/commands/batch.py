@@ -862,6 +862,162 @@ def batch_extract_cmd(
         raise click.ClickException("Batch extract completed with errors in " + ", ".join(path for path, _ in failures))
 
 
+# Fields to exclude when publishing to HuggingFace (internal/bulky data).
+_PUBLISH_EXCLUDE_FIELDS: set[str] = {
+    "config_path",
+    "results_path",
+    "run_id",
+    "aggregated_session_ids",
+    "executed_session_ids",
+    "planned_session_ids",
+    "skipped_session_ids",
+    "skipped_session_reasons",
+    "missing_result_files",
+    "session_results",
+    "accumulated_agent_report",
+    "accumulated_benchmark_report",
+    "aggregation_mode",
+    "max_workers",
+    "running_sessions",
+    "model_names",
+    "agent_slug_name",
+    "benchmark_slug_name",
+    "planned_sessions",
+}
+
+
+def _collect_results_rows(
+    config_paths: list[str],
+) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
+    """Load results from config paths and return clean rows for publishing.
+
+    Uses lightweight JSON loading to find results.json without importing
+    benchmark or agent modules, so it works even when those aren't installed.
+    """
+    failures: list[tuple[str, str]] = []
+    rows: list[dict[str, Any]] = []
+
+    for config_path in config_paths:
+        try:
+            # Read config as raw JSON to get run_id without importing modules
+            raw_config = _load_config_file(config_path)
+            run_id = raw_config.get("run_id")
+            if not run_id:
+                raise click.ClickException(f"Missing run_id in config: {config_path}")
+            output_dir = Path(config_path).parent
+            results_path = (output_dir / run_id / "results.json").resolve()
+            if not results_path.is_file():
+                raise click.ClickException(f"Results not found: {results_path}")
+            payload = _load_config_file(str(results_path))
+            if not isinstance(payload, dict):
+                raise click.ClickException(f"Results JSON is not an object: {results_path}")
+            if "benchmark_score" not in payload:
+                raise click.ClickException(f"Missing benchmark_score in results: {results_path}")
+            row: dict[str, Any] = {}
+            for key, value in payload.items():
+                if key not in _PUBLISH_EXCLUDE_FIELDS:
+                    row[key] = value
+            rows.append(row)
+        except Exception as exc:
+            failures.append((config_path, str(exc)))
+
+    return rows, failures
+
+
+@batch_cmd.command(
+    "publish",
+    context_settings={"allow_extra_args": True},
+)
+@click.option(
+    "--config",
+    "config_values",
+    multiple=True,
+    help="RunConfig/SessionConfig path or glob pattern (repeatable).",
+)
+@click.option(
+    "--repo",
+    "repo_id",
+    required=True,
+    help="HuggingFace dataset repo ID (e.g. 'Exgentic/open-agent-leaderboard-results').",
+)
+@click.option(
+    "--private/--public",
+    "private",
+    default=True,
+    show_default=True,
+    help="Whether the dataset should be private.",
+)
+@click.option(
+    "--append/--overwrite",
+    "append",
+    default=True,
+    show_default=True,
+    help="Append to existing dataset or overwrite it.",
+)
+@click.pass_context
+def batch_publish_cmd(
+    ctx: click.Context,
+    config_values: tuple[str, ...],
+    repo_id: str,
+    private: bool,
+    append: bool,
+) -> None:
+    """Publish run results to a HuggingFace dataset."""
+    try:
+        from datasets import Dataset, load_dataset
+    except ImportError as err:
+        raise click.ClickException(
+            "The 'datasets' package is required for publishing. Install it with: pip install datasets"
+        ) from err
+
+    config_paths = _expand_config_inputs(config_values, list(ctx.args))
+    rows, failures = _collect_results_rows(config_paths)
+
+    if not rows:
+        raise click.ClickException("No valid results to publish.")
+
+    if append:
+        try:
+            existing_ds = load_dataset(repo_id, split="train")
+            existing_rows = list(existing_ds)
+            click.echo(f"Loaded {len(existing_rows)} existing row(s) from {repo_id}.")
+
+            # Deduplicate by (benchmark, agent, model) triple
+            existing_keys = set()
+            for r in existing_rows:
+                key = (r.get("benchmark"), r.get("agent"), r.get("model"))
+                existing_keys.add(key)
+
+            new_rows = []
+            updated = 0
+            for row in rows:
+                key = (row.get("benchmark"), row.get("agent"), row.get("model"))
+                if key in existing_keys:
+                    # Replace existing row with updated one
+                    existing_rows = [
+                        r for r in existing_rows if (r.get("benchmark"), r.get("agent"), r.get("model")) != key
+                    ]
+                    updated += 1
+                new_rows.append(row)
+
+            all_rows = existing_rows + new_rows
+            click.echo(f"Publishing {len(all_rows)} row(s) " f"({len(new_rows) - updated} new, {updated} updated).")
+        except Exception:
+            click.echo("No existing dataset found, creating new one.")
+            all_rows = rows
+    else:
+        all_rows = rows
+
+    ds = Dataset.from_list(all_rows)
+    ds.push_to_hub(repo_id, private=private)
+    click.echo(f"Published {len(all_rows)} row(s) to https://huggingface.co/datasets/{repo_id}")
+
+    if failures:
+        click.echo(f"Warning: {len(failures)} config(s) had errors and were skipped:")
+        for path, err in failures:
+            click.echo(f"  {path}: {err}")
+
+
 __all__ = [
     "batch_cmd",
     "batch_status_cmd",
@@ -871,4 +1027,5 @@ __all__ = [
     "batch_aggregate_cmd",
     "batch_patch_cmd",
     "batch_extract_cmd",
+    "batch_publish_cmd",
 ]

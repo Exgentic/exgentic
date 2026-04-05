@@ -1,0 +1,77 @@
+{
+  "session_id": "9b03dde8",
+  "success": true,
+  "score": 1.0,
+  "is_finished": true,
+  "steps": 8,
+  "action_count": 8,
+  "invalid_action_count": 0,
+  "agent_cost": 0.34320500000000004,
+  "benchmark_cost": 0.015026,
+  "execution_time": 46.77257513999939,
+  "details": {
+    "score": 1.0,
+    "success": true,
+    "is_finished": true,
+    "session_metrics": {
+      "reward": 1.0,
+      "db_check_db_match": true,
+      "db_check_db_reward": 1.0
+    },
+    "session_metadata": {
+      "reward_info": {
+        "reward": 1.0,
+        "db_check": {
+          "db_match": true,
+          "db_reward": 1.0
+        },
+        "env_assertions": [],
+        "action_checks": [
+          {
+            "action": {
+              "action_id": "47_0",
+              "requestor": "assistant",
+              "name": "get_reservation_details",
+              "arguments": {
+                "reservation_id": "H8Q05L"
+              },
+              "info": null,
+              "compare_args": null
+            },
+            "action_match": true,
+            "action_reward": 1.0
+          }
+        ],
+        "nl_assertions": null,
+        "communicate_checks": null,
+        "reward_basis": [
+          "DB",
+          "COMMUNICATE"
+        ],
+        "reward_breakdown": {
+          "DB": 1.0,
+          "COMMUNICATE": 1.0
+        },
+        "info": {
+          "env": null,
+          "nl": null,
+          "communicate": {
+            "note": "No communicate_info to evaluate"
+          },
+          "action": null
+        }
+      }
+    }
+  },
+  "cost_reports": {
+    "agent": {
+      "model_name": "openai/aws/claude-opus-4-5",
+      "total_cost": 0.34320500000000004
+    },
+    "benchmark": {
+      "model_name": "openai/Azure/gpt-4.1",
+      "total_cost": 0.015026
+    }
+  },
+  "task_key": "47"
+}

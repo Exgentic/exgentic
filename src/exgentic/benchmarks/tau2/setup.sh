@@ -1,32 +1,24 @@
-#!/bin/bash
-# Install TAU-2-bench - least intrusive approach
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026, The Exgentic organization and its contributors.
+set -euo pipefail
 
-# Install directly from GitHub using pip
-cd src/exgentic/benchmarks/tau2
-orig_cwd=$CWD
-if [ $? -ne 0 ]; then
-    echo "TAU-2-bench setup script must be run from root directory of Exgentic project"
-    exit 1
-fi
-rm -fr installation
-mkdir -p installation
-cd installation
-git clone --branch v0.1.3 --depth 1 https://github.com/sierra-research/tau2-bench.git
-cd tau2-bench
-
-if command -v uv >/dev/null 2>&1; then
-    uv pip install -e .
-else
-    python -m pip install -e .
+TAU2_REPO="https://github.com/sierra-research/tau2-bench.git"
+TAU2_REF="v0.1.3"
+if [ -d "tau2/domains" ]; then
+    echo "tau2 data already present — skipping download."
+    exit 0
 fi
 
-cd $orig_cwd
+TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT
 
-# Verify installation
-tau2 --help > /dev/null 2>&1
-if [ $? -eq 0 ]; then
-    echo "TAU-2-bench installed successfully"
-else
-    echo "TAU-2-bench installation failed or tau2 command not found"
-    exit 1
-fi
+echo "Cloning tau2-bench data files..."
+git clone --depth 1 --branch "$TAU2_REF" --filter=blob:none --sparse "$TAU2_REPO" "$TMPDIR/tau2-bench"
+cd "$TMPDIR/tau2-bench"
+git sparse-checkout set data
+cd - >/dev/null 2>&1
+
+cp -r "$TMPDIR/tau2-bench/data/." "./"
+
+echo "tau2 data installed to env_dir"

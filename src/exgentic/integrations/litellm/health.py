@@ -9,20 +9,19 @@ import logging
 
 
 async def acheck_model_accessible(model: str) -> None:
-    """Raise if LiteLLM cannot access the configured model."""
+    """Raise if LiteLLM cannot access the configured model.
+
+    Uses a minimal ``acompletion`` call instead of ``ahealth_check`` because
+    the latter pulls in ``litellm.proxy`` internals that require the optional
+    ``backoff`` package (only declared under ``litellm[proxy]``).
+    """
     import litellm
 
-    result = await litellm.ahealth_check(
-        {
-            "model": model,
-            "messages": [{"role": "user", "content": "test from litellm"}],
-            "max_tokens": 5,
-            "no-log": True,
-        },
-        mode="chat",
+    await litellm.acompletion(
+        model=model,
+        messages=[{"role": "user", "content": "hi"}],
+        max_tokens=1,
     )
-    if isinstance(result, dict) and result.get("error"):
-        raise RuntimeError(f"LiteLLM health check failed: {result['error']}")
 
 
 def check_model_accessible_sync(
@@ -47,5 +46,6 @@ def check_model_accessible_sync(
         run_sync(acheck_model_accessible(model), timeout=timeout)
         logger.info("Model health check passed for %s", model)
     except Exception as exc:
-        logger.error("Model health check failed for %s: %s", model, exc)
-        raise RuntimeError(f"Model {model} is not accessible: {exc}") from exc
+        error_msg = getattr(exc, "message", "") or str(exc) or repr(exc)
+        logger.error("Model health check failed for %s: %s", model, error_msg)
+        raise RuntimeError(f"Model {model} is not accessible: {error_msg}") from exc

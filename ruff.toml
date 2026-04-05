@@ -11,7 +11,7 @@ extend-exclude = [
     ".git",
     "__pycache__",
     ".pytest_cache",
-    ".exgentic_cache",
+    ".exgentic",
 ]
 
 [lint]

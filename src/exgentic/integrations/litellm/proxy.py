@@ -174,6 +174,10 @@ class LitellmProxy:
             "litellm_settings": {
                 "success_callback": [trace_cb, async_cb],
                 "failure_callback": [trace_cb, async_cb],
+                # Force chat/completions instead of /responses for Anthropic
+                # message translation — many backends (Azure proxies, etc.)
+                # don't expose the newer Responses API endpoint.
+                "use_chat_completions_url_for_anthropic_messages": True,
             },
         }
         router_settings: dict[str, object] = {}

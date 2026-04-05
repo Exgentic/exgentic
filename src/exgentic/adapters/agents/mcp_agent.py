@@ -3,9 +3,8 @@
 
 import abc
 from abc import abstractmethod
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, List, Optional
 
-from ...core.types import ActionType
 from ..actions.functions import action_type_to_function
 from .code_agent import CodeAgentInstance
 from .mcp_server import MCPServer
@@ -18,16 +17,9 @@ class MCPAgentInstance(CodeAgentInstance, abc.ABC):
     - run_mcp_agent(): ABSTRACT SYNC (subclass decides implementation strategy)
     """
 
-    def __init__(
-        self,
-        session_id: str,
-        task: str,
-        context: Dict[str, Any],
-        actions: List[ActionType],
-    ):
+    def __init__(self, session_id: str):
         self._mcp_server: Optional[MCPServer] = None
-
-        super().__init__(session_id, task, context, actions)
+        super().__init__(session_id)
 
     def run(self, adapter) -> None:
         functions: List[Callable[..., Any]] = []

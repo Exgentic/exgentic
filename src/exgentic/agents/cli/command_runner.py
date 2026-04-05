@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import shutil
 import subprocess
 from dataclasses import dataclass
 from enum import Enum
@@ -21,6 +22,16 @@ class ExecutionBackend(str, Enum):
     PROCESS = "process"
     PODMAN = "podman"
     DOCKER = "docker"
+    AUTO = "auto"
+
+
+def resolve_container_backend() -> ExecutionBackend:
+    """Auto-detect container runtime: prefer podman, fallback to docker."""
+    if shutil.which("podman"):
+        return ExecutionBackend.PODMAN
+    if shutil.which("docker"):
+        return ExecutionBackend.DOCKER
+    raise RuntimeError("Neither podman nor docker found")
 
 
 @dataclass
@@ -51,6 +62,14 @@ class CLIExecutionError(RuntimeError):
         self.stdout = stdout
         self.stderr = stderr
         self.cmd = cmd
+
+    def __str__(self) -> str:
+        parts = [super().__str__()]
+        if self.stderr:
+            parts.append(f"STDERR:\n{self.stderr.rstrip()}")
+        if self.stdout:
+            parts.append(f"STDOUT:\n{self.stdout.rstrip()}")
+        return "\n".join(parts)
 
 
 class BaseCLIConfig(BaseModel):
@@ -187,11 +206,7 @@ class ProcessRunner:
 class ContainerRunner(ProcessRunner):
     """Shared helpers for container-based runners."""
 
-    def _normalize_inner_cmd(self, cmd: list[str]) -> list[str]:
-        # Host cmd is typically: ["npx","claude", ...]
-        if len(cmd) >= 2 and cmd[0] == "npx" and cmd[1] == "claude":
-            return ["claude"] + cmd[2:]
-        return cmd
+    host_gateway: str = "host.docker.internal"
 
     def _rewrite_mcp_config_path(self, inner_cmd: list[str], workdir: str) -> list[str]:
         if "--mcp-config" in inner_cmd:
@@ -208,7 +223,18 @@ class ContainerRunner(ProcessRunner):
     ) -> dict[str, str]:
         forwarded: dict[str, str] = {}
 
-        for k in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        for k in (
+            # Anthropic (Claude Code)
+            "ANTHROPIC_BASE_URL",
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            # OpenAI (Codex)
+            "OPENAI_API_KEY",
+            "OPENAI_API_BASE",
+            # Google (Gemini)
+            "GEMINI_API_KEY",
+            "GOOGLE_GEMINI_BASE_URL",
+        ):
             if k in env:
                 forwarded[k] = env[k]
         for k, v in env.items():
@@ -268,6 +294,8 @@ class ContainerRunner(ProcessRunner):
 class PodmanRunner(ContainerRunner):
     """Run the inner command inside a container via Podman."""
 
+    host_gateway = "host.containers.internal"
+
     def __init__(self, log_path, logger):
         super().__init__(log_path, logger)
 
@@ -287,18 +315,26 @@ class PodmanRunner(ContainerRunner):
         # Patch mcp.json so container uses host gateway (not 127.0.0.1/localhost)
         self._patch_mcp_json(cfg_root=cfg_root, host_gateway=host_gateway)
 
-        inner_cmd = self._normalize_inner_cmd(cmd)
-        inner_cmd = self._rewrite_mcp_config_path(inner_cmd, workdir=config.image_workdir)
+        inner_cmd = self._rewrite_mcp_config_path(list(cmd), workdir=config.image_workdir)
 
         # Minimal env forwarding into container (encoded via podman -e flags)
         container_env = self._container_env_from(env, host_gateway=host_gateway, config=config)
         container_env["HOME"] = config.image_workdir
         connection_args = self._resolve_podman_connection_args()
+        user_args: list[str] = []
+        uid = getattr(os, "getuid", None)
+        gid = getattr(os, "getgid", None)
+        if callable(uid) and callable(gid):
+            try:
+                user_args = ["--user", f"{uid()}:{gid()}"]
+            except Exception:
+                user_args = []
         wrapped_cmd: list[str] = [
             runtime,
             *connection_args,
             "run",
             "--rm",
+            *user_args,
             "-v",
             f"{host_cfg_root}:{config.image_workdir}:Z",
             "-w",
@@ -387,8 +423,7 @@ class DockerRunner(ContainerRunner):
         # Patch mcp.json so container uses host gateway (not 127.0.0.1/localhost)
         self._patch_mcp_json(cfg_root=cfg_root, host_gateway=host_gateway)
 
-        inner_cmd = self._normalize_inner_cmd(cmd)
-        inner_cmd = self._rewrite_mcp_config_path(inner_cmd, workdir=config.image_workdir)
+        inner_cmd = self._rewrite_mcp_config_path(list(cmd), workdir=config.image_workdir)
 
         # Minimal env forwarding into container (encoded via docker -e flags)
         container_env = self._container_env_from(env, host_gateway=host_gateway, config=config)

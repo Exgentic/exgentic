@@ -2,8 +2,7 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 ## CLI usage:
-# exgentic evaluate --benchmark gsm8k --agent tool_calling --num-tasks 3 \
-#   --model gpt-4o
+# exgentic evaluate --benchmark gsm8k --agent tool_calling --num-tasks 3 --model gpt-4o
 ## Python API usage:
 # from exgentic import RunConfig, evaluate
 # evaluate(RunConfig(benchmark="gsm8k", agent="tool_calling", num_tasks=3,

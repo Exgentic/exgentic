@@ -1,0 +1,79 @@
+{
+  "session_id": "9e993ba4",
+  "success": true,
+  "score": 1.0,
+  "is_finished": true,
+  "status": "success",
+  "steps": 31,
+  "action_count": 31,
+  "invalid_action_count": 7,
+  "agent_cost": 4.379010000000001,
+  "benchmark_cost": 0.0,
+  "execution_time": 92.7417664527893,
+  "details": {
+    "score": 1.0,
+    "success": true,
+    "is_finished": true,
+    "session_metrics": {
+      "pass_percentage": 100.0,
+      "pass_count": 8,
+      "fail_count": 0,
+      "num_tests": 8,
+      "difficulty": 1,
+      "success": true
+    },
+    "session_metadata": {
+      "test_tracker": {
+        "success": true,
+        "difficulty": 1,
+        "num_tests": 8,
+        "passes": [
+          {
+            "requirement": "assert answers match.",
+            "label": "no_op_fail"
+          },
+          {
+            "requirement": "assert model changes match spotify.Song, spotify.SongLike, spotify.Album, spotify.AlbumLike.",
+            "label": "no_op_fail"
+          },
+          {
+            "requirement": "assert all newly liked songs are in my library via models.changed_records",
+            "label": "no_op_fail"
+          },
+          {
+            "requirement": "assure none of the updated or removed song likes are from outside of song library.",
+            "label": "no_op_pass"
+          },
+          {
+            "requirement": "assure everything in main_user's song library is liked now.",
+            "label": "no_op_fail"
+          },
+          {
+            "requirement": "assert all newly liked albums are in my library via models.changed_records",
+            "label": "no_op_fail"
+          },
+          {
+            "requirement": "assure none of the updated or removed album likes are from outside of album library.",
+            "label": "no_op_pass"
+          },
+          {
+            "requirement": "assure everything in main_user's album library is liked now.",
+            "label": "no_op_fail"
+          }
+        ],
+        "failures": []
+      }
+    }
+  },
+  "cost_reports": {
+    "agent": {
+      "model_name": "openai/aws/claude-opus-4-5",
+      "total_cost": 4.379010000000001
+    },
+    "benchmark": {
+      "model_name": "",
+      "total_cost": 0
+    }
+  },
+  "task_id": "f3f60f0_3"
+}

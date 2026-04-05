@@ -16,6 +16,7 @@ except ImportError:
     except PackageNotFoundError:
         __version__ = "0+unknown"
 
+from .environment.manager import EnvironmentManager, EnvType
 from .interfaces.registry import get_agent_entries, get_benchmark_entries
 
 _API_EXPORTS = {
@@ -33,6 +34,8 @@ _API_EXPORTS = {
 
 __all__ = [
     "__version__",
+    "EnvironmentManager",
+    "EnvType",
     "aggregate",
     "evaluate",
     "execute",

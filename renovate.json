@@ -1,0 +1,13 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "matchManagers": ["uv"],
+      "minimumReleaseAge": "14 days",
+      "groupName": "python dependencies",
+      "rangeStrategy": "bump"
+    }
+  ],
+  "schedule": ["every weekend"]
+}

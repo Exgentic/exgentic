@@ -8,6 +8,7 @@ provides re-exports for Tau2 symbols used by Exgentic. It also disables
 propagation on the stdlib logger for Tau2 so library logs don't bubble to
 the application's console. Session code can add file sinks as needed.
 """
+
 from __future__ import annotations
 
 import logging
@@ -31,7 +32,13 @@ try:
 except Exception:
     _loguru = None  # type: ignore
 
-# 3) Re-export Tau2 modules used by Exgentic
+# 3) Resolve TAU2_DATA_DIR *before* importing tau2 so that
+#    tau2.utils.utils.DATA_DIR picks up the correct path at import time.
+from . import get_tau2_data_dir  # noqa: E402
+
+get_tau2_data_dir()
+
+# 4) Re-export Tau2 modules used by Exgentic
 from rich.console import Console  # noqa: E402
 from tau2.agent.llm_agent import LLMAgent  # noqa: E402
 from tau2.data_model.message import (  # noqa: E402
@@ -55,21 +62,21 @@ from ...utils.settings import get_settings  # noqa: E402
 configure_litellm(config=get_settings().to_litellm_config(), cache_only=True)
 
 __all__ = [
+    "AssistantMessage",
+    "Console",
+    "ConsoleDisplay",
+    "LLMAgent",
+    "MultiToolMessage",
     "Results",
     "RunConfig",
     "TerminationReason",
-    "compute_metrics",
-    "is_successful",
     "Tool",
-    "registry",
-    "load_tasks",
-    "run_domain",
-    "ConsoleDisplay",
-    "Console",
-    "LLMAgent",
-    "AssistantMessage",
-    "MultiToolMessage",
     "ToolCall",
     "ToolMessage",
     "UserMessage",
+    "compute_metrics",
+    "is_successful",
+    "load_tasks",
+    "registry",
+    "run_domain",
 ]

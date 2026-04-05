@@ -10,11 +10,11 @@ from exgentic.utils.settings import ExgenticSettings, resolve_cache_path
 
 
 def test_resolve_cache_path_uses_base_dir_for_relative_paths() -> None:
-    assert resolve_cache_path(".exgentic_cache", ".litellm_cache") == ".exgentic_cache/.litellm_cache"
+    assert resolve_cache_path(".exgentic", ".litellm_cache") == ".exgentic/.litellm_cache"
 
 
 def test_resolve_cache_path_keeps_absolute_paths() -> None:
-    assert resolve_cache_path(".exgentic_cache", "/tmp/litellm") == "/tmp/litellm"
+    assert resolve_cache_path(".exgentic", "/tmp/litellm") == "/tmp/litellm"
 
 
 def test_build_litellm_cache_resolves_relative_path_under_cache_dir(tmp_path) -> None:
@@ -29,7 +29,7 @@ def test_build_litellm_cache_resolves_relative_path_under_cache_dir(tmp_path) ->
 
 def test_run_config_to_session_config_preserves_cache_dir() -> None:
     run_config = RunConfig(
-        benchmark="tau2",
+        benchmark="gsm8k",
         agent="tool_calling",
         cache_dir="/tmp/exgentic-cache",
     )
@@ -46,4 +46,6 @@ def test_run_context_sets_and_restores_cache_env(monkeypatch) -> None:
     ):
         ctx = try_get_context()
         assert ctx is not None
-        assert ctx.cache_dir == "./cache"
+        # Context resolves relative paths to absolute.
+        assert ctx.cache_dir.endswith("/cache")
+        assert not ctx.cache_dir.startswith(".")

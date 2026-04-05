@@ -2,9 +2,24 @@
 
 Thank you for your interest in contributing!
 
+## Development Setup
+
+```bash
+# Install dependencies using the pinned lock file — never plain `uv sync`
+uv sync --frozen --extra dev --extra analysis
+
+# To intentionally upgrade a specific package:
+uv lock --upgrade-package <package-name>
+# Review the uv.lock diff carefully before committing
+```
+
+> **Security note:** Always use `uv sync --frozen` locally. Running plain `uv sync` may silently
+> upgrade packages and introduce untested or malicious versions. Dependency upgrades should be
+> explicit, reviewed, and go through a PR.
+
 ## How to Contribute
 
-1. Fork the [repository](https://github.com/exgentic/exgentic). 
+1. Fork the [repository](https://github.com/exgentic/exgentic).
 2. Create a new branch for your changes.
 3. Sign your commits using the `-s` flag (see [Legal](#legal))
 4. Submit a pull request to the `main` branch with a clear title and description.

@@ -25,7 +25,8 @@ share/python-wheels/
 MANIFEST
 src/exgentic/_version.py
 
-# Installation tracking
+# Exgentic local data (venvs, caches, installations)
+.exgentic/
 .exgentic_installations/
 
 # Virtual environments
@@ -36,6 +37,14 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+
+# AI/CLI agent metadata
+.bob/
+.claude/
+.cursor/
+.aider*
+.copilot/
+.continue/
 
 # VS Code settings
 .vscode/
@@ -101,6 +110,7 @@ old_outputs2/
 outputs
 *outputs*
 .litellm_cache
+trace.jsonl
 
 t.*
 node_modules

@@ -241,7 +241,13 @@ class CacheKeyBuilder:
         raw_key, included_fields = self._build_raw_key(kwargs)
 
         hashed = Cache._get_hashed_cache_key(raw_key)
-        hashed = self._cache._add_namespace_to_cache_key(hashed, **kwargs)
+        # Ensure metadata is a dict — litellm's _add_namespace_to_cache_key
+        # does metadata.get(...) which crashes when metadata is None
+        # (happens on the Responses API path used by Claude Code).
+        safe_kwargs = kwargs
+        if kwargs.get("metadata") is None and "metadata" in kwargs:
+            safe_kwargs = {**kwargs, "metadata": {}}
+        hashed = self._cache._add_namespace_to_cache_key(hashed, **safe_kwargs)
         self._cache._set_preset_cache_key_in_kwargs(preset_cache_key=hashed, **kwargs)
 
         return hashed, raw_key, "generated", included_fields

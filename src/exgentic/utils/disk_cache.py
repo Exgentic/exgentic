@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Any, ClassVar, Optional
 
@@ -21,7 +22,7 @@ class DiskCacheSessionMixin:
     """
 
     CACHE_DIR: ClassVar[str] = "./exgentic_session_cache"
-    _cache_instance: ClassVar[Optional[Cache]] = None
+    _cache_local: ClassVar[threading.local] = threading.local()
     logger: Any | None = None
     use_cache: bool = True
     _cache_hit: bool = False
@@ -52,11 +53,16 @@ class DiskCacheSessionMixin:
     # --- Cache internals -------------------------------------------------
     @classmethod
     def _cache(cls) -> Cache:
-        cache = cls._cache_instance
+        # Use thread-local storage so each thread gets its own Cache instance.
+        # diskcache supports concurrent access from separate Cache objects but
+        # a single Cache (wrapping one SQLite connection) cannot be shared
+        # across threads.
+        attr = f"_cache_{cls.__name__}"
+        cache = getattr(cls._cache_local, attr, None)
         if cache is None:
             Path(cls.CACHE_DIR).mkdir(parents=True, exist_ok=True)
             cache = Cache(cls.CACHE_DIR, disk=JSONDisk)
-            cls._cache_instance = cache
+            setattr(cls._cache_local, attr, cache)
         return cache
 
     def build_cache_key_payload(self) -> dict[str, Any]:

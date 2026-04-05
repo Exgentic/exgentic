@@ -1,0 +1,19 @@
+.venv/
+.git/
+outputs/
+__pycache__/
+*.pyc
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.exgentic/
+tests/
+
+# Large benchmark data/assets — not needed in the base Docker image.
+# Benchmarks that need these should use setup_script or volumes instead.
+src/exgentic/benchmarks/browsecompplus/assets/
+# Tau2: exclude large pre-computed results and figures but keep domain
+# data files (tasks.json, policy.md, db.json) which the session needs.
+src/exgentic/benchmarks/tau2/installation/tau2-bench/data/tau2/results/
+src/exgentic/benchmarks/tau2/installation/tau2-bench/figs/
+src/exgentic/benchmarks/tau2/installation/tau2-bench/tests/

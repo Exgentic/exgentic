@@ -10,7 +10,6 @@ import logging
 import os
 import threading
 import time
-from typing import Optional
 
 import psutil
 
@@ -65,7 +64,7 @@ class SearchService:
         self,
         searcher_type: str,
         searcher_class: type,
-        logger: Optional[logging.Logger] = None,
+        logger: logging.Logger | None = None,
         **searcher_args,
     ):
         """Get or create a searcher instance with thread-safe access."""

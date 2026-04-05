@@ -30,6 +30,7 @@ class FakeMCPServer:
         self.stopped = False
         self.stop_calls = []
         self.host = "127.0.0.1"
+        self.connect_host = "127.0.0.1"
         self.port = 12345
 
     def start(self, timeout: float = 5.0) -> None:
@@ -86,7 +87,10 @@ def env(tmp_path):
 
 def test_run_code_agent_success_stops_server(env, monkeypatch):
     _patch_mcp(monkeypatch)
-    agent = DummyMCPAgent("session", "task", {}, [])
+    agent = DummyMCPAgent("session")
+    agent.task = "task"
+    agent.context = {}
+    agent.actions = []
 
     result = agent.run_code_agent([lambda: None])
 
@@ -100,7 +104,10 @@ def test_run_code_agent_success_stops_server(env, monkeypatch):
 
 def test_run_code_agent_propagates_error_and_cleans_up(env, monkeypatch):
     _patch_mcp(monkeypatch)
-    agent = ErrorMCPAgent("session", "task", {}, [])
+    agent = ErrorMCPAgent("session")
+    agent.task = "task"
+    agent.context = {}
+    agent.actions = []
 
     with pytest.raises(ValueError, match="boom"):
         agent.run_code_agent([lambda: None])
@@ -117,7 +124,10 @@ def test_run_code_agent_ping_timeout_still_cleans_up(env, monkeypatch):
         raise TimeoutError("ping timeout")
 
     monkeypatch.setattr(FakeMCPServer, "start", _raise_timeout)
-    agent = DummyMCPAgent("session", "task", {}, [])
+    agent = DummyMCPAgent("session")
+    agent.task = "task"
+    agent.context = {}
+    agent.actions = []
 
     with pytest.raises(TimeoutError, match="ping timeout"):
         agent.run_code_agent([lambda: None])
@@ -172,7 +182,10 @@ def test_mcp_agent_parallel_tool_calls_return_parallel_action(env, monkeypatch):
         ActionType(name="tool.a", description="tool a", cls=ToolA),
         ActionType(name="tool.b", description="tool b", cls=ToolB),
     ]
-    agent = ParallelToolMCPAgent("session", "task", {}, actions)
+    agent = ParallelToolMCPAgent("session")
+    agent.task = "task"
+    agent.context = {}
+    agent.actions = actions
     functions = [action_type_to_function(act, agent.execute) for act in actions]
 
     worker = threading.Thread(target=agent.run_code_agent, args=(functions,))

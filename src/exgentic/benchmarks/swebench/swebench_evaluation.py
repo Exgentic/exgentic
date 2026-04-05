@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from logging import Logger
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ...utils.logging import capture_stdio_to_session
 from ...utils.paths import SessionPaths
@@ -15,11 +15,11 @@ from ...utils.paths import SessionPaths
 
 @dataclass
 class HarnessResult:
-    harness_report: Dict[str, Any]
+    harness_report: dict[str, Any]
     patch: str
     patch_valid: bool
     harness_ran: bool
-    error: Optional[str] = None
+    error: str | None = None
 
 
 def is_patch_valid(patch: str) -> bool:
@@ -43,7 +43,7 @@ def run_harness(
     instance_id: str,
     subset: str,
     paths: SessionPaths,
-    eval_config: Dict[str, Any],
+    eval_config: dict[str, Any],
     logger: Logger,
 ) -> HarnessResult:
     patch = patch or ""
