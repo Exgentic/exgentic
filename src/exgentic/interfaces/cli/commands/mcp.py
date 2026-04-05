@@ -137,9 +137,10 @@ def mcp_cmd(
         sessions_lock = threading.Lock()
         action_types = None  # Will be populated when first session is created
 
-        # Get available tasks from benchmark
+        # Get available tasks from benchmark evaluator
         try:
-            task_ids = benchmark_instance.list_tasks()
+            evaluator = benchmark_instance.get_evaluator()
+            task_ids = evaluator.list_tasks()
             click.echo(f"✓ Loaded benchmark '{benchmark}' with {len(task_ids)} tasks")
         except Exception as exc:
             raise click.ClickException(f"Failed to get tasks from benchmark: {exc}") from exc
@@ -163,7 +164,10 @@ def mcp_cmd(
                         task_id=task_id,
                         session_id=session_id,
                     )
-                    session = benchmark_instance.create_session(session_index)
+                    # Get session kwargs from evaluator
+                    session_kwargs = evaluator.get_session_kwargs(session_index)
+                    # Create session using benchmark
+                    session = benchmark_instance.get_session(**session_kwargs)
 
                     # Start the session to get initial observation
                     _ = session.start()
