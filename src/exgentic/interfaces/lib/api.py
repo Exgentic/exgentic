@@ -183,6 +183,12 @@ def _normalize_run_config(
         agent_slug = agent
         agent_cfg = dict(agent_kwargs or {})
 
+    optional = {}
+    if max_steps is not None:
+        optional["max_steps"] = max_steps
+    if max_actions is not None:
+        optional["max_actions"] = max_actions
+
     return RunConfig(
         benchmark=bench_slug,
         agent=agent_slug,
@@ -194,9 +200,8 @@ def _normalize_run_config(
         run_id=run_id,
         model=model,
         max_workers=max_workers,
-        **({"max_steps": max_steps} if max_steps is not None else {}),
-        **({"max_actions": max_actions} if max_actions is not None else {}),
         overwrite_sessions=overwrite_sessions,
+        **optional,
         benchmark_kwargs=bench_kwargs,
         agent_kwargs=agent_cfg,
     )
@@ -267,8 +272,8 @@ def evaluate(
         run_id=run_id,
         model=model,
         max_workers=max_workers,
-        **({"max_steps": max_steps} if max_steps is not None else {}),
-        **({"max_actions": max_actions} if max_actions is not None else {}),
+        max_steps=max_steps,
+        max_actions=max_actions,
         overwrite_sessions=overwrite_sessions,
         benchmark_kwargs=benchmark_kwargs,
         agent_kwargs=agent_kwargs,
@@ -345,8 +350,8 @@ def execute(
         run_id=run_id,
         model=model,
         max_workers=max_workers,
-        **({"max_steps": max_steps} if max_steps is not None else {}),
-        **({"max_actions": max_actions} if max_actions is not None else {}),
+        max_steps=max_steps,
+        max_actions=max_actions,
         overwrite_sessions=overwrite_sessions,
         benchmark_kwargs=benchmark_kwargs,
         agent_kwargs=agent_kwargs,
@@ -423,8 +428,8 @@ def aggregate(
         run_id=run_id,
         model=model,
         max_workers=max_workers,
-        **({"max_steps": max_steps} if max_steps is not None else {}),
-        **({"max_actions": max_actions} if max_actions is not None else {}),
+        max_steps=max_steps,
+        max_actions=max_actions,
         overwrite_sessions=overwrite_sessions,
         benchmark_kwargs=benchmark_kwargs,
         agent_kwargs=agent_kwargs,
@@ -467,8 +472,8 @@ def status(
         run_id=run_id,
         model=model,
         max_workers=max_workers,
-        **({"max_steps": max_steps} if max_steps is not None else {}),
-        **({"max_actions": max_actions} if max_actions is not None else {}),
+        max_steps=max_steps,
+        max_actions=max_actions,
         overwrite_sessions=overwrite_sessions,
         benchmark_kwargs=benchmark_kwargs,
         agent_kwargs=agent_kwargs,
