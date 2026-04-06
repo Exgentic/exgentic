@@ -79,9 +79,30 @@ EXAMPLE_MODELS = [
                 total_cost=9.8e-05,
             ),
         ),
+        (
+            "openai/azure/DeepSeek-V3.2",
+            TokensCost(
+                input_cost=2.8000000000000003e-05,
+                output_cost=3.9999999999999996e-05,
+                total_cost=6.8e-05,
+            ),
+        ),
+        (
+            "openai/azure/Kimi-K2.5",
+            TokensCost(
+                input_cost=5.9999999999999995e-05,
+                output_cost=0.00030000000000000003,
+                total_cost=0.00036,
+            ),
+        ),
     ],
 )
 def test_cost_per_token(name, expected):
     cost = litellm_tokens_cost(model_name=name, input_tokens=100, output_tokens=100)
     print(name, cost)
     assert cost == expected
+
+
+def test_unknown_model_raises():
+    with pytest.raises(ValueError, match="No pricing info found"):
+        litellm_tokens_cost(model_name="openai/azure/totally-fake-model", input_tokens=100, output_tokens=100)
