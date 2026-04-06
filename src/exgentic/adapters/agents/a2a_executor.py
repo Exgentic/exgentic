@@ -85,6 +85,11 @@ class ExgenticAgentExecutor:
         
         # Use the existing function that creates picklable ActionTypes
         self.action_types = openai_tools_to_action_types(openai_tools)
+        
+        # Mark the message action as is_message=True so agents handle it correctly
+        for action_type in self.action_types:
+            if action_type.name == "message":
+                action_type.is_message = True
     
     async def execute(self, context: RequestContext, event_queue: EventQueue):
         """Execute a task using the exgentic agent."""
@@ -141,8 +146,16 @@ class ExgenticAgentExecutor:
             
             await event_emitter.emit_event(f"✓ Connected to MCP server")
             
-            # Generate a unique session ID for this task execution
-            session_id = str(uuid.uuid4())
+            # Extract session_id from user_input (must be present in task context)
+            import re
+            session_id_match = re.search(r'session[_ ]id["\s:]+([a-f0-9-]{36})', user_input, re.IGNORECASE)
+            if not session_id_match:
+                error_msg = "No session_id found in task context. Task must include session_id."
+                await event_emitter.emit_event(f"❌ {error_msg}", failed=True)
+                raise ValueError(error_msg)
+            
+            session_id = session_id_match.group(1)
+            await event_emitter.emit_event(f"✓ Using session_id from task: {session_id}")
             
             # Create agent instance
             agent_instance = self.agent_cls(**self.agent_kwargs).get_instance(session_id=session_id)
@@ -188,23 +201,27 @@ class ExgenticAgentExecutor:
                     results = []
                     for single_action in actions_to_execute:
                         # Check if this is a message action (agent's final response)
-                        if single_action.name == "message":
-                            # Extract the message content
-                            from ...core.types.action import MessageAction
-                            if isinstance(single_action, MessageAction):
-                                message_content = single_action.arguments.content
-                                await event_emitter.emit_event(f"💬 Agent response: {message_content}")
-                                # This is the final answer, break the loop
-                                final_result = message_content
-                                break
-                            else:
-                                # Fallback: treat as string
-                                final_result = str(single_action.arguments)
-                                break
+#                        if single_action.name == "message":
+#                            # Extract the message content
+#                            from ...core.types.action import MessageAction
+#                            if isinstance(single_action, MessageAction):
+#                                message_content = single_action.arguments.content
+#                                await event_emitter.emit_event(f"💬 Agent response: {message_content}")
+#                                # This is the final answer, break the loop
+#                                final_result = message_content
+#                                break
+#                            else:
+#                                # Fallback: treat as string
+#                                final_result = str(single_action.arguments)
+#                                break
                         
                         # Execute the action by calling MCP directly
                         tool_name = single_action.name
                         args_dict = single_action.arguments.model_dump()
+                        
+                        # If this is the message tool, inject the session_id
+                        if tool_name == "message" and "session_id" not in args_dict:
+                            args_dict["session_id"] = session_id
                         
                         try:
                             # Call MCP server directly without storing in adapter
@@ -230,10 +247,27 @@ class ExgenticAgentExecutor:
                             result_str = str(result_text)[:200]
                             await event_emitter.emit_event(f"📊 Result ({tool_name}): {result_str}")
                             
+                            # Check if session is completed
+                            try:
+                                import json
+                                result_json = json.loads(result_text)
+                                if result_json.get("status") == "completed":
+                                    await event_emitter.emit_event("✓ Session completed successfully")
+                                    final_result = "Session completed"
+                                    break
+                            except (json.JSONDecodeError, AttributeError):
+                                pass
+                            
                         except Exception as e:
                             error_msg = f"Error executing {tool_name}: {e}"
                             results.append(error_msg)
                             await event_emitter.emit_event(f"❌ {error_msg}")
+                            
+                            # Check if this is a timeout error indicating completion
+                            if "timed out" in str(e).lower() or "timeout" in str(e).lower():
+                                await event_emitter.emit_event("⚠️  Timeout detected, assuming session completed")
+                                final_result = "Session completed (timeout)"
+                                break
                         
                         # Check if this is a finish action
                         if hasattr(single_action, 'name') and 'finish' in single_action.name.lower():

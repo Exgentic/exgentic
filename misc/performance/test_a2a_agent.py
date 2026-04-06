@@ -480,6 +480,7 @@ async def test_a2a_agent(
     limit: int = 0,
     server_pid: Optional[int] = None,
     timeout: float = 300.0,
+    debug: bool = False,
 ):
     """Test A2A agent by solving tasks from MCP server.
 
@@ -491,6 +492,7 @@ async def test_a2a_agent(
         limit: Limit number of tasks to test (0 = all tasks)
         server_pid: PID of A2A server process to monitor (None = auto-detect)
         timeout: Timeout for each task execution in seconds
+        debug: Enable debug output
     """
     try:
         from mcp.client.session import ClientSession
@@ -639,6 +641,13 @@ When calling any benchmark-related tools or APIs, you MUST include the session_i
 If you are asked to submit an answer, make sure you call the submit MCP tool.""")
                         
                         enhanced_task_input = "\n".join(prompt_parts)
+                        
+                        # Print the enhanced task input
+                        print(f"   📝 Enhanced task input:")
+                        print("   " + "-" * 70)
+                        for line in enhanced_task_input.split("\n"):
+                            print(f"   {line}")
+                        print("   " + "-" * 70)
 
                         # Call A2A agent to solve the task
                         print(f"   🤖 Calling A2A agent...")
@@ -658,7 +667,12 @@ If you are asked to submit an answer, make sure you call the submit MCP tool."""
                                     print(f"   ⚠️  Evaluation error: {eval_result.content}")
                                     eval_data = None
                                 else:
-                                    eval_data = json.loads(eval_result.content[0].text)
+                                    eval_text = eval_result.content[0].text
+                                    if debug:
+                                        print(f"   [DEBUG] Raw evaluation response: {eval_text}")
+                                    eval_data = json.loads(eval_text)
+                                    if debug:
+                                        print(f"   [DEBUG] Parsed evaluation data: {json.dumps(eval_data, indent=2)}")
                                     print(f"   Evaluation Results:")
                                     print(f"     Success: {eval_data.get('success', 'N/A')}")
                                     print(f"     Score: {eval_data.get('score', 'N/A')}")
@@ -667,6 +681,9 @@ If you are asked to submit an answer, make sure you call the submit MCP tool."""
                                         print(f"     Metrics: {eval_data['session_metrics']}")
                             except Exception as e:
                                 print(f"   ⚠️  Evaluation exception: {e}")
+                                if debug:
+                                    import traceback
+                                    traceback.print_exc()
                                 eval_data = None
                         else:
                             print(f"   ❌ Task failed: {result['error']}")
@@ -813,6 +830,9 @@ def main():
     parser.add_argument(
         "--timeout", type=float, default=300.0, help="Timeout for each task execution in seconds (default: 300)"
     )
+    parser.add_argument(
+        "--debug", action="store_true", help="Enable debug output"
+    )
 
     args = parser.parse_args()
 
@@ -825,6 +845,7 @@ def main():
             args.limit,
             args.server_pid,
             args.timeout,
+            args.debug,
         )
     )
 

@@ -206,9 +206,14 @@ async def _extract_mcp_tool_metadata_async(mcp_url: str, timeout: float = 30.0) 
         if not tools_result.tools:
             raise ValueError(f"No tools found on MCP server at {mcp_url}")
         
-        # Convert tools to plain dictionaries
+        # Convert tools to plain dictionaries, excluding admin tools
+        admin_tools = {"create_session", "delete_session", "list_tasks", "evaluate_session"}
         tool_metadata = []
         for tool in tools_result.tools:
+            # Skip admin tools
+            if tool.name in admin_tools:
+                continue
+            
             metadata = {
                 "name": tool.name,
                 "description": tool.description or f"Execute {tool.name}",
