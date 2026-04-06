@@ -175,69 +175,93 @@ class ExgenticAgentExecutor:
                         await event_emitter.emit_event("✓ Agent completed execution")
                         break
                     
-                    # Log action
-                    await event_emitter.emit_event(f"🔧 Action: {action.name}")
+                    # Convert action to list of SingleActions (works for all action types)
+                    actions_to_execute = action.to_action_list()
                     
-                    # Check if this is a message action (agent's final response)
-                    if action.name == "message":
-                        # Extract the message content
-                        from ...core.types.action import MessageAction
-                        if isinstance(action, MessageAction):
-                            message_content = action.arguments.content
-                            await event_emitter.emit_event(f"💬 Agent response: {message_content}")
-                            # This is the final answer, break the loop
-                            final_result = message_content
-                            break
-                        else:
-                            # Fallback: treat as string
-                            final_result = str(action.arguments)
-                            break
+                    # Log action(s)
+                    if len(actions_to_execute) > 1:
+                        await event_emitter.emit_event(f"🔧 Parallel Action: {len(actions_to_execute)} actions")
+                    else:
+                        await event_emitter.emit_event(f"🔧 Action: {actions_to_execute[0].name}")
                     
-                    # Execute the action by calling MCP directly
-                    tool_name = action.name
-                    args_dict = action.arguments.model_dump()
-                    
-                    try:
-                        # Call MCP server directly without storing in adapter
-                        result = await mcp_session.call_tool(tool_name, args_dict)
+                    # Execute all actions
+                    results = []
+                    for single_action in actions_to_execute:
+                        # Check if this is a message action (agent's final response)
+                        if single_action.name == "message":
+                            # Extract the message content
+                            from ...core.types.action import MessageAction
+                            if isinstance(single_action, MessageAction):
+                                message_content = single_action.arguments.content
+                                await event_emitter.emit_event(f"💬 Agent response: {message_content}")
+                                # This is the final answer, break the loop
+                                final_result = message_content
+                                break
+                            else:
+                                # Fallback: treat as string
+                                final_result = str(single_action.arguments)
+                                break
                         
-                        # Extract the result content
-                        result_text = ""
-                        if hasattr(result, "content") and result.content:
-                            if len(result.content) > 0:
-                                first_content = result.content[0]
-                                if hasattr(first_content, "text"):
-                                    result_text = first_content.text
+                        # Execute the action by calling MCP directly
+                        tool_name = single_action.name
+                        args_dict = single_action.arguments.model_dump()
+                        
+                        try:
+                            # Call MCP server directly without storing in adapter
+                            result = await mcp_session.call_tool(tool_name, args_dict)
+                            
+                            # Extract the result content
+                            result_text = ""
+                            if hasattr(result, "content") and result.content:
+                                if len(result.content) > 0:
+                                    first_content = result.content[0]
+                                    if hasattr(first_content, "text"):
+                                        result_text = first_content.text
+                                    else:
+                                        result_text = str(first_content)
                                 else:
-                                    result_text = str(first_content)
+                                    result_text = str(result)
                             else:
                                 result_text = str(result)
-                        else:
-                            result_text = str(result)
+                            
+                            results.append(result_text)
+                            
+                            # Log result
+                            result_str = str(result_text)[:200]
+                            await event_emitter.emit_event(f"📊 Result ({tool_name}): {result_str}")
+                            
+                        except Exception as e:
+                            error_msg = f"Error executing {tool_name}: {e}"
+                            results.append(error_msg)
+                            await event_emitter.emit_event(f"❌ {error_msg}")
                         
-                        # Create proper Observation object
-                        from ...core.types.observation import SingleObservation
-                        current_observation = SingleObservation(
-                            result=result_text,
-                            invoking_actions=[action]
-                        )
-                        
-                        # Log result
-                        result_str = str(result_text)[:200]
-                        await event_emitter.emit_event(f"📊 Result: {result_str}")
-                        
-                    except Exception as e:
-                        error_msg = f"Error executing {tool_name}: {e}"
-                        from ...core.types.observation import SingleObservation
-                        current_observation = SingleObservation(
-                            result=error_msg,
-                            invoking_actions=[action]
-                        )
-                        await event_emitter.emit_event(f"❌ {error_msg}")
+                        # Check if this is a finish action
+                        if hasattr(single_action, 'name') and 'finish' in single_action.name.lower():
+                            break
                     
-                    # Check if this is a finish action
-                    if hasattr(action, 'name') and 'finish' in action.name.lower():
+                    # If we got a final result from a message action, break outer loop
+                    if final_result is not None:
                         break
+                    
+                    # Create proper Observation object
+                    if len(actions_to_execute) == 1:
+                        # Single action - use SingleObservation
+                        from ...core.types.observation import SingleObservation
+                        current_observation = SingleObservation(
+                            result=results[0] if results else "",
+                            invoking_actions=actions_to_execute
+                        )
+                    else:
+                        # Multiple actions - use MultiObservation with one SingleObservation per action
+                        from ...core.types.observation import SingleObservation, MultiObservation
+                        observations = []
+                        for idx, single_action in enumerate(actions_to_execute):
+                            obs = SingleObservation(
+                                result=results[idx] if idx < len(results) else "",
+                                invoking_actions=[single_action]
+                            )
+                            observations.append(obs)
+                        current_observation = MultiObservation(observations=observations)
             finally:
                 executor.shutdown(wait=False)
             

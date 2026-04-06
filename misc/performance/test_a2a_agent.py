@@ -617,9 +617,18 @@ async def test_a2a_agent(
                         print(f"   ✓ Session created: {session_id}")
                         print(f"   Task: {task_input}")
 
+                        # Enhance task input with session_id instructions
+                        enhanced_task_input = f"""{task_input}
+
+IMPORTANT: Use session id "{session_id}" in all your interactions with the benchmark tools.
+
+When calling any benchmark-related tools or APIs, you MUST include the session_id parameter with the value "{session_id}". This ensures your actions are properly tracked and evaluated within the correct benchmark session.
+
+If you are asked to submit an answer, make sure you call the submit MCP tool."""
+
                         # Call A2A agent to solve the task
                         print(f"   🤖 Calling A2A agent...")
-                        result = await call_a2a_agent(a2a_url, task_input, timeout=timeout,debug=True)
+                        result = await call_a2a_agent(a2a_url, enhanced_task_input, timeout=timeout, debug=True)
 
                         if result["success"]:
                             print(f"   ✓ Task completed in {result['elapsed_time']:.2f}s")
