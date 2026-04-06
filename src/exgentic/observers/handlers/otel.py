@@ -437,6 +437,7 @@ class OtelTracingObserver(Observer):
 
         # Flush traces to ensure they are exported
         flush_traces()
+        self._sort_session_spans(session.session_id)
 
         # Clean up
         del self._span_managers[session.session_id]
@@ -467,6 +468,7 @@ class OtelTracingObserver(Observer):
 
         # Flush traces to ensure they are exported
         flush_traces()
+        self._sort_session_spans(session.session_id)
 
         # Clean up
         del self._span_managers[session.session_id]
@@ -475,6 +477,21 @@ class OtelTracingObserver(Observer):
             del self._session_agents[session.session_id]
         if session.session_id in self._session_actions:
             del self._session_actions[session.session_id]
+
+    def _sort_session_spans(self, session_id: str) -> None:
+        """Sort otel_spans.jsonl by start_time so output matches Jaeger ordering."""
+        path = self.paths.session(session_id).root / "otel_spans.jsonl"
+        if not path.exists():
+            return
+        try:
+            with open(path) as f:
+                spans = [json.loads(line) for line in f if line.strip()]
+            spans.sort(key=lambda s: s.get("start_time", ""))
+            with open(path, "w") as f:
+                for span in spans:
+                    f.write(json.dumps(span, separators=(",", ":")) + "\n")
+        except Exception:
+            pass  # Non-critical — unsorted file is still valid
 
 
 # Made with Bob
