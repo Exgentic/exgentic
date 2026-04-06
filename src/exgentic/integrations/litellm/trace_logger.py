@@ -67,10 +67,25 @@ class TraceLogger(CustomLogger):
             )
             return
 
-        # Initialize the TracerProvider (use simple processor for subprocess)
+        # Initialize the TracerProvider (use simple processor for subprocess).
+        # Check if this is a fresh provider (subprocess) so we can add the
+        # per-session file exporter for local span capture.
+        from opentelemetry import trace as trace_api
+
+        is_new_provider = type(trace_api.get_tracer_provider()).__name__ == "ProxyTracerProvider"
         self._tracer = init_tracing_from_env()
 
         base = Path(ctx.output_dir) / ctx.run_id
+
+        if is_new_provider:
+            from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+
+            from ...utils.otel import PerSessionFileExporter
+
+            provider = trace_api.get_tracer_provider()
+            if hasattr(provider, "add_span_processor"):
+                provider.add_span_processor(SimpleSpanProcessor(PerSessionFileExporter(base)))
+
         session_root = base / "sessions" / ctx.session_id
         self._otel_logger = get_session_logger(
             session_root,
@@ -312,6 +327,7 @@ class TraceLogger(CustomLogger):
 
             # ===== RECOMMENDED REQUEST ATTRIBUTES =====
             self._set_attribute(span, "gen_ai.conversation.id", ctx.session_id)
+            self._set_attribute(span, "exgentic.session.id", ctx.session_id)
 
             if optional_params.get("max_tokens") is not None:
                 self._set_attribute(span, "gen_ai.request.max_tokens", optional_params["max_tokens"])
