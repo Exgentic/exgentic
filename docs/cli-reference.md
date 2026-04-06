@@ -305,8 +305,10 @@ See [Custom Models](./custom-models.md) for full provider setup instructions.
 
 | Variable | Description |
 |----------|-------------|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector endpoint |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` or `grpc` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector endpoint (optional — omit for local-only file export) |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` or `grpc` (only needed with endpoint) |
+
+When `EXGENTIC_OTEL_ENABLED=true`, each session writes `otel_spans.jsonl` to its output directory regardless of whether a collector is configured. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to also send traces to Jaeger or another collector.
 
 See [Observability Quick Start](./observability/quickstart.md) for tracing setup.
 

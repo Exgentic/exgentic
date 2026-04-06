@@ -1,6 +1,6 @@
 # Observability Quick Start
 
-This guide gets you from zero to traces in five minutes using Jaeger as a local trace collector.
+This guide gets you from zero to traces in five minutes.
 
 For a full reference of every attribute Exgentic emits, see [Semantic Conventions](./semantic-conventions.md).
 
@@ -8,8 +8,8 @@ For a full reference of every attribute Exgentic emits, see [Semantic Convention
 
 ## Prerequisites
 
-- Docker or Podman installed and running
 - `exgentic` installed with the `otel` extra (see below)
+- Docker or Podman (optional — only needed for Jaeger UI)
 
 ---
 
@@ -21,7 +21,30 @@ uv sync --extra otel
 
 ---
 
-## Step 2 — Start Jaeger
+## Local-only mode (no Jaeger needed)
+
+Set `EXGENTIC_OTEL_ENABLED=true` and run an evaluation. Each session automatically gets an `otel_spans.jsonl` file with all spans (session lifecycle, tool executions, and LLM calls) as compact JSON lines, sorted by start time:
+
+```bash
+export EXGENTIC_OTEL_ENABLED=true
+
+exgentic evaluate --benchmark gsm8k --agent tool_calling --task 1
+```
+
+Spans are written to `outputs/<run_id>/sessions/<session_id>/otel_spans.jsonl`. Each line is a self-contained JSON span with trace_id, span_id, parent_id, attributes, timestamps, and status.
+
+```bash
+# Pretty-print the first span
+head -1 outputs/<run_id>/sessions/<session_id>/otel_spans.jsonl | python3 -m json.tool
+```
+
+To also send traces to a collector (Jaeger, Grafana Tempo, etc.), set `OTEL_EXPORTER_OTLP_ENDPOINT` — the local file is always written regardless.
+
+---
+
+## Using Jaeger (optional)
+
+### Step 2 — Start Jaeger
 
 ```bash
 # Using Docker (or replace 'docker' with 'podman')
@@ -84,12 +107,25 @@ Open [http://localhost:16686](http://localhost:16686), select the `exgentic` ser
 
 ## Exporting traces
 
+### Local files (always available when OTEL is enabled)
+
+Each session writes `otel_spans.jsonl` to its output directory. The file contains the same spans that Jaeger receives, sorted by start time. No collector needed.
+
+```bash
+# List all spans for a session
+cat outputs/<run_id>/sessions/<session_id>/otel_spans.jsonl | python3 -c "
+import json, sys
+for line in sys.stdin:
+    s = json.loads(line)
+    print(f'{s[\"name\"]:40s}  trace={s[\"context\"][\"trace_id\"]}')"
+```
+
 ### Via the Jaeger UI
 
 1. Open a trace.
 2. Click the **JSON** button in the top-right corner.
 
-### Via the API
+### Via the Jaeger API
 
 ```bash
 # All recent traces
