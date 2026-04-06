@@ -43,7 +43,37 @@ class FileSpanExporter(SpanExporter):
         try:
             with open(self._path, "a") as f:
                 for span in spans:
-                    f.write(span.to_json() + "\n")
+                    f.write(span.to_json(indent=None) + "\n")
+            return SpanExportResult.SUCCESS
+        except Exception:
+            return SpanExportResult.FAILURE
+
+    def shutdown(self) -> None:
+        pass
+
+
+class PerSessionFileExporter(SpanExporter):
+    """Routes finished spans to per-session ``otel_spans.jsonl`` files.
+
+    Each span is written to
+    ``{run_root}/sessions/{session_id}/otel_spans.jsonl`` based on the
+    ``exgentic.session.id`` attribute.  Spans without a session ID
+    (e.g. run-level spans) are silently skipped.
+    """
+
+    def __init__(self, run_root: Union[str, Path]) -> None:
+        self._run_root = Path(run_root)
+
+    def export(self, spans: Sequence) -> SpanExportResult:
+        try:
+            for span in spans:
+                sid = getattr(span, "attributes", {}).get("exgentic.session.id")
+                if not sid:
+                    continue
+                path = self._run_root / "sessions" / str(sid) / "otel_spans.jsonl"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with open(path, "a") as f:
+                    f.write(span.to_json(indent=None) + "\n")
             return SpanExportResult.SUCCESS
         except Exception:
             return SpanExportResult.FAILURE

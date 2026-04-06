@@ -18,6 +18,7 @@ from ...core.context import OtelContext, get_context, set_context
 from ...core.orchestrator.observer import Observer
 from ...interfaces.registry import get_agent_entries, get_benchmark_entries
 from ...utils.otel import (
+    PerSessionFileExporter,
     flush_traces,
     get_session_logger,
     init_tracing_from_env,
@@ -242,6 +243,14 @@ class OtelTracingObserver(Observer):
         model_name = run_config.model or (run_config.agent_kwargs or {}).get("model")
 
         from ...utils.paths import get_run_paths
+
+        # Write per-session otel_spans.jsonl files automatically.
+        run_root = get_run_paths().root
+        provider = trace.get_tracer_provider()
+        if hasattr(provider, "add_span_processor"):
+            from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+
+            provider.add_span_processor(SimpleSpanProcessor(PerSessionFileExporter(run_root)))
 
         self._run_attributes = {
             "exgentic.benchmark.slug_name": bench_entry.slug_name if bench_entry is not None else run_config.benchmark,
