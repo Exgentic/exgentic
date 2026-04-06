@@ -21,6 +21,7 @@ async def acheck_model_accessible(model: str) -> None:
         model=model,
         messages=[{"role": "user", "content": "hi"}],
         max_tokens=1,
+        caching=False,  # Must hit the real endpoint, not a cached response.
     )
 
 
