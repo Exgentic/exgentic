@@ -25,6 +25,7 @@ dependencies = [
     "python-dotenv>=1,<2",
     "rich>=13,<14",
     "rich-click>=1,<2",
+    "a2a-sdk>=0.2.16",
 ]
 
 [project.scripts]

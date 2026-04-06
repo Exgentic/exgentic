@@ -185,6 +185,63 @@ def extract_mcp_tools(mcp_url: str, timeout: float = 30.0) -> tuple[list[Callabl
     return run_sync(_extract_mcp_tools_async(mcp_url, timeout), timeout=timeout + 5.0)
 
 
-__all__ = ["extract_mcp_tools"]
+async def _extract_mcp_tool_metadata_async(mcp_url: str, timeout: float = 30.0) -> list[dict[str, Any]]:
+    """Extract only tool metadata (as plain dictionaries) from MCP server.
+    
+    This is used to get serializable tool information without creating function wrappers.
+    
+    Returns:
+        List of tool metadata dictionaries with keys: name, description, inputSchema
+    """
+    http_context = streamable_http_client(mcp_url)
+    read_stream, write_stream, _ = await http_context.__aenter__()
+    
+    session = ClientSession(read_stream, write_stream)
+    await session.__aenter__()
+    
+    try:
+        await session.initialize()
+        tools_result = await session.list_tools()
+        
+        if not tools_result.tools:
+            raise ValueError(f"No tools found on MCP server at {mcp_url}")
+        
+        # Convert tools to plain dictionaries
+        tool_metadata = []
+        for tool in tools_result.tools:
+            metadata = {
+                "name": tool.name,
+                "description": tool.description or f"Execute {tool.name}",
+                "inputSchema": tool.inputSchema if hasattr(tool, "inputSchema") else {},
+            }
+            tool_metadata.append(metadata)
+        
+        return tool_metadata
+    finally:
+        # Clean up
+        try:
+            await session.__aexit__(None, None, None)
+        except Exception:
+            pass
+        try:
+            await http_context.__aexit__(None, None, None)
+        except Exception:
+            pass
+
+
+def extract_mcp_tool_metadata(mcp_url: str, timeout: float = 30.0) -> list[dict[str, Any]]:
+    """Synchronous wrapper to extract tool metadata from an MCP server.
+    
+    Args:
+        mcp_url: URL of the MCP server (e.g., http://localhost:8000/mcp)
+        timeout: Connection timeout in seconds
+        
+    Returns:
+        List of tool metadata dictionaries
+    """
+    return run_sync(_extract_mcp_tool_metadata_async(mcp_url, timeout), timeout=timeout + 5.0)
+
+
+__all__ = ["extract_mcp_tools", "_extract_mcp_tools_async", "extract_mcp_tool_metadata"]
 
 # Made with Bob

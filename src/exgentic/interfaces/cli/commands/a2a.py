@@ -135,19 +135,16 @@ def a2a_cmd(
         click.echo(f"\n🔗 Connecting to external MCP server at {mcp}...")
         
         # Import here to avoid circular imports
-        from ....adapters.agents.mcp_wrapper import extract_mcp_tools
+        from ....adapters.agents.mcp_wrapper import extract_mcp_tool_metadata
         
-        # Connect to external MCP server and extract tools
+        # Extract tool metadata (plain dictionaries, serializable)
         try:
-            mcp_tools, mcp_session, http_context = extract_mcp_tools(mcp, timeout=30.0)
-            tool_names = [t.__name__ for t in mcp_tools]
+            tool_metadata = extract_mcp_tool_metadata(mcp, timeout=30.0)
+            tool_names = [t["name"] for t in tool_metadata]
             click.echo(f"✓ Connected to MCP server")
-            click.echo(f"✓ Extracted {len(mcp_tools)} tools: {', '.join(tool_names)}")
+            click.echo(f"✓ Extracted {len(tool_metadata)} tools: {', '.join(tool_names)}")
         except Exception as exc:
             raise click.ClickException(f"Failed to connect to MCP server at {mcp}: {exc}") from exc
-
-        # Store MCP session and HTTP context for cleanup
-        mcp_session_container = {"session": mcp_session, "http_context": http_context}
 
         # Get agent info for the card
         from ...registry import get_agent_entries
@@ -200,8 +197,9 @@ def a2a_cmd(
                 agent_executor=ExgenticAgentExecutor(
                     agent_cls=agent_cls,
                     agent_kwargs=agent_kwargs,
-                    mcp_tools=mcp_tools,
+                    mcp_address=mcp,
                     agent_display_name=agent_display_name,
+                    tool_metadata=tool_metadata,  # Pass serializable metadata
                 ),
                 task_store=InMemoryTaskStore(),
             )
@@ -240,27 +238,6 @@ def a2a_cmd(
         except Exception as exc:
             raise click.ClickException(f"Failed to start A2A server: {exc}") from exc
         finally:
-            # Cleanup MCP session and HTTP context
-            if mcp_session_container.get("session") or mcp_session_container.get("http_context"):
-                try:
-                    import asyncio
-                    
-                    async def cleanup():
-                        if mcp_session_container.get("session"):
-                            try:
-                                await mcp_session_container["session"].__aexit__(None, None, None)
-                            except Exception:
-                                pass
-                        if mcp_session_container.get("http_context"):
-                            try:
-                                await mcp_session_container["http_context"].__aexit__(None, None, None)
-                            except Exception:
-                                pass
-                    
-                    asyncio.run(cleanup())
-                except Exception:
-                    pass
-            
             click.echo("Server stopped.")
 
 
