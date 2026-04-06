@@ -135,23 +135,27 @@ def _normalize_run_config(
                     agent,
                     subset,
                     task_ids,
-                    num_tasks,
                     cache_dir,
                     run_id,
                     model,
-                    max_workers,
                     benchmark_kwargs,
                     agent_kwargs,
                 )
             )
             or overwrite_sessions
             or output_dir != "./outputs"
-            or max_steps != 100
-            or max_actions != 100
         ):
             raise ValueError("Do not pass run parameters together with config.")
         if isinstance(config, SessionConfig):
-            return _run_config_from_session(config)
+            config = _run_config_from_session(config)
+        if num_tasks is not None:
+            config.num_tasks = num_tasks
+        if max_workers is not None:
+            config.max_workers = max_workers
+        if max_steps != 100:
+            config.max_steps = max_steps
+        if max_actions != 100:
+            config.max_actions = max_actions
         return config
     if benchmark is None or agent is None:
         raise ValueError("benchmark and agent are required.")
