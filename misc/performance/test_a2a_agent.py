@@ -552,7 +552,11 @@ async def test_a2a_agent(
         print("CONNECTING TO MCP SERVER")
         print("-" * 80)
 
-        async with streamable_http_client(mcp_url) as (read_stream, write_stream, _):
+        # Create MCP client with extended timeout to handle long-running tasks
+        import httpx
+        mcp_http_client = httpx.AsyncClient(timeout=httpx.Timeout(timeout * 2, connect=30.0))
+        
+        async with streamable_http_client(mcp_url, http_client=mcp_http_client) as (read_stream, write_stream, _):
             async with ClientSession(read_stream, write_stream) as session:
                 # Initialize
                 print("Initializing session...")
@@ -651,7 +655,7 @@ If you are asked to submit an answer, make sure you call the submit MCP tool."""
 
                         # Call A2A agent to solve the task
                         print(f"   🤖 Calling A2A agent...")
-                        result = await call_a2a_agent(a2a_url, enhanced_task_input, timeout=timeout, debug=True)
+                        result = await call_a2a_agent(a2a_url, enhanced_task_input, timeout=timeout, debug=debug)
 
                         if result["success"]:
                             print(f"   ✓ Task completed in {result['elapsed_time']:.2f}s")
