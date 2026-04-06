@@ -227,6 +227,9 @@ def a2a_cmd(
             click.echo(f"  Port: {port}")
             click.echo(f"  URL: http://{host}:{port}/")
             click.echo(f"  Agent Card: http://{host}:{port}/.well-known/agent-card.json")
+            click.echo(f"\n📁 Logs:")
+            click.echo(f"  Log directory: {log_dir}")
+            click.echo(f"  Agent execution logs: {output_dir / run_id}")
             click.echo("\nOther agents can now discover and interact with this agent via A2A protocol.")
             click.echo("Press Ctrl+C to stop the server...")
 

@@ -96,9 +96,10 @@ class ExgenticAgentExecutor:
         # Create a context for this execution
         settings = get_settings()
         run_id = f"a2a_{datetime.now().isoformat().replace(':', '--')}"
+        output_dir_path = Path(settings.output_dir).resolve()
         ctx = Context(
             run_id=run_id,
-            output_dir=str(Path(settings.output_dir).resolve()),
+            output_dir=str(output_dir_path),
             cache_dir=str(Path(settings.cache_dir).resolve()),
         )
         set_context(ctx)
@@ -117,7 +118,11 @@ class ExgenticAgentExecutor:
             await event_emitter.emit_event("Error: Empty input provided", failed=True)
             return
 
+        # Print log location for this request
         logger.info(f"Processing task: {user_input}")
+        logger.info(f"📁 Task execution logs will be written to: {output_dir_path / run_id}")
+        print(f"\n📁 New request - Logs: {output_dir_path / run_id}")
+        
         await event_emitter.emit_event(f"🚀 Starting task execution with {self.agent_display_name}...")
 
         # Connect to MCP server for tool execution
