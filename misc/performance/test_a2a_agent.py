@@ -503,6 +503,7 @@ async def test_a2a_agent(
         return 1
 
     # Auto-detect or use provided server PID
+    monitor = None
     if server_pid is None:
         # Extract port from A2A URL
         parsed_url = urlparse(a2a_url)
@@ -511,19 +512,26 @@ async def test_a2a_agent(
         print(f"Auto-detecting A2A server process on port {port}...")
         server_pid = find_a2a_server_pid(port=port)
         if server_pid is None:
-            print(f"❌ Could not find A2A server process listening on port {port}")
-            print("   Please ensure the A2A server is running or provide --server-pid")
-            return 1
-        print(f"✓ Found A2A server process: PID {server_pid}")
+            print(f"⚠️  Could not find A2A server process listening on port {port}")
+            print("   Memory monitoring will be disabled (server may be in container)")
+            print("   Continuing without memory monitoring...")
+        else:
+            print(f"✓ Found A2A server process: PID {server_pid}")
     else:
         print(f"Using provided A2A server PID: {server_pid}")
 
-    # Initialize memory monitor for the server process
-    try:
-        monitor = MemoryMonitor(pid=server_pid)
-    except ValueError as e:
-        print(f"❌ Error: {e}")
-        return 1
+    # Initialize memory monitor for the server process (if PID available)
+    if server_pid is not None:
+        try:
+            monitor = MemoryMonitor(pid=server_pid)
+            print(f"✓ Memory monitoring enabled for PID {server_pid}")
+        except ValueError as e:
+            print(f"⚠️  Could not monitor PID {server_pid}: {e}")
+            print("   Memory monitoring will be disabled")
+            print("   Continuing without memory monitoring...")
+            monitor = None
+    else:
+        print("⚠️  Memory monitoring disabled (no PID available)")
 
     created_sessions: List[Dict[str, str]] = []
     task_results: List[Dict[str, Any]] = []
@@ -533,18 +541,22 @@ async def test_a2a_agent(
     print("=" * 80)
     print(f"\nMCP Server URL: {mcp_url}")
     print(f"A2A Agent URL: {a2a_url}")
-    print(f"Monitoring Process: PID {monitor.pid}")
+    if monitor:
+        print(f"Monitoring Process: PID {monitor.pid}")
+    else:
+        print(f"Monitoring Process: Disabled")
     print(f"Cleanup after completion: {cleanup}")
     print(f"Delay between executions: {delay}s")
     print(f"Task limit: {limit if limit > 0 else 'all tasks'}")
     print(f"Task timeout: {timeout}s")
 
     # Initial memory measurement
-    print("\n" + "-" * 80)
-    print("INITIAL STATE")
-    print("-" * 80)
-    initial_mem = monitor.measure("initial")
-    monitor.print_measurement(initial_mem)
+    if monitor:
+        print("\n" + "-" * 80)
+        print("INITIAL STATE")
+        print("-" * 80)
+        initial_mem = monitor.measure("initial")
+        monitor.print_measurement(initial_mem)
 
     try:
         # Connect to MCP server
@@ -563,8 +575,9 @@ async def test_a2a_agent(
                 await session.initialize()
                 print("✓ Session initialized")
 
-                connection_mem = monitor.measure("after_connection")
-                monitor.print_measurement(connection_mem)
+                if monitor:
+                    connection_mem = monitor.measure("after_connection")
+                    monitor.print_measurement(connection_mem)
 
                 # List available tasks
                 print("\n" + "-" * 80)
@@ -590,8 +603,9 @@ async def test_a2a_agent(
                     print(f"✓ Found {len(task_ids)} tasks")
                 print(f"   Task IDs: {task_ids[:10]}{'...' if len(task_ids) > 10 else ''}")
 
-                tasks_mem = monitor.measure("after_list_tasks")
-                monitor.print_measurement(tasks_mem)
+                if monitor:
+                    tasks_mem = monitor.measure("after_list_tasks")
+                    monitor.print_measurement(tasks_mem)
 
                 # Process tasks sequentially
                 print("\n" + "-" * 80)
@@ -701,8 +715,9 @@ If you are asked to submit an answer, make sure you call the submit MCP tool."""
                         })
 
                         # Measure memory after each task
-                        mem = monitor.measure(f"after_task_{i}")
-                        monitor.print_measurement(mem)
+                        if monitor:
+                            mem = monitor.measure(f"after_task_{i}")
+                            monitor.print_measurement(mem)
 
                         # Delay between tasks
                         if delay > 0 and i < len(task_ids):
@@ -749,11 +764,12 @@ If you are asked to submit an answer, make sure you call the submit MCP tool."""
                         print(f"  Score Range: {min(scores):.2f} - {max(scores):.2f}")
 
                 # Final memory measurement
-                print("\n" + "-" * 80)
-                print("FINAL STATE (All Tasks Processed)")
-                print("-" * 80)
-                final_mem = monitor.measure("final_all_processed")
-                monitor.print_measurement(final_mem)
+                if monitor:
+                    print("\n" + "-" * 80)
+                    print("FINAL STATE (All Tasks Processed)")
+                    print("-" * 80)
+                    final_mem = monitor.measure("final_all_processed")
+                    monitor.print_measurement(final_mem)
 
                 # Cleanup if requested
                 if cleanup and created_sessions:
@@ -775,7 +791,7 @@ If you are asked to submit an answer, make sure you call the submit MCP tool."""
                                 print("   ✓ Session deleted")
 
                             # Measure memory after every 10 deletions
-                            if i % 10 == 0 or i == len(created_sessions):
+                            if monitor and (i % 10 == 0 or i == len(created_sessions)):
                                 mem = monitor.measure(f"after_delete_{i}")
                                 monitor.print_measurement(mem)
 
@@ -783,11 +799,12 @@ If you are asked to submit an answer, make sure you call the submit MCP tool."""
                             print(f"   ❌ Exception deleting session: {e}")
 
                     # Final memory after cleanup
-                    print("\n" + "-" * 80)
-                    print("FINAL STATE (After Cleanup)")
-                    print("-" * 80)
-                    cleanup_mem = monitor.measure("final_after_cleanup")
-                    monitor.print_measurement(cleanup_mem)
+                    if monitor:
+                        print("\n" + "-" * 80)
+                        print("FINAL STATE (After Cleanup)")
+                        print("-" * 80)
+                        cleanup_mem = monitor.measure("final_after_cleanup")
+                        monitor.print_measurement(cleanup_mem)
 
     except Exception as e:
         print(f"\n❌ Error: {e}")
@@ -796,7 +813,8 @@ If you are asked to submit an answer, make sure you call the submit MCP tool."""
         return 1
 
     # Print summary
-    monitor.print_summary()
+    if monitor:
+        monitor.print_summary()
 
     print("\n" + "=" * 80)
     print("TEST COMPLETE")
