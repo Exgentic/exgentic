@@ -608,6 +608,7 @@ async def test_a2a_agent(
                         session_data = json.loads(create_result.content[0].text)
                         session_id = session_data.get("session_id")
                         task_input = session_data.get("task", "")
+                        context = session_data.get("context", {})
                         
                         created_sessions.append({
                             "session_id": session_id,
@@ -616,15 +617,28 @@ async def test_a2a_agent(
 
                         print(f"   ✓ Session created: {session_id}")
                         print(f"   Task: {task_input}")
+                        if context:
+                            print(f"   Context: {context}")
 
-                        # Enhance task input with session_id instructions
-                        enhanced_task_input = f"""{task_input}
+                        # Build enhanced task input with context and session_id instructions
+                        prompt_parts = [task_input]
+                        
+                        # Add context if available
+                        if context:
+                            prompt_parts.append("\nContext:")
+                            for key, value in context.items():
+                                prompt_parts.append(f"- {key}: {value}")
+                        
+                        # Add session_id instructions
+                        prompt_parts.append(f"""
 
 IMPORTANT: Use session id "{session_id}" in all your interactions with the benchmark tools.
 
 When calling any benchmark-related tools or APIs, you MUST include the session_id parameter with the value "{session_id}". This ensures your actions are properly tracked and evaluated within the correct benchmark session.
 
-If you are asked to submit an answer, make sure you call the submit MCP tool."""
+If you are asked to submit an answer, make sure you call the submit MCP tool.""")
+                        
+                        enhanced_task_input = "\n".join(prompt_parts)
 
                         # Call A2A agent to solve the task
                         print(f"   🤖 Calling A2A agent...")
