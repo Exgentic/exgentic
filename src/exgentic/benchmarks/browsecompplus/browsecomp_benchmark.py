@@ -696,9 +696,9 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
         }
 
     def _get_session_kwargs(self) -> dict[str, Any]:
-        # Auto-use a shared retriever service for Docker so that session
-        # containers don't each load the heavy search index (OOM).
-        if not self.retriever_runner and self.resolve_runner() == "docker":
+        # Auto-use a shared retriever service for isolated runners so that
+        # sessions don't each load the heavy search index (OOM / slow).
+        if not self.retriever_runner and self.resolve_runner() in ("docker", "venv"):
             self.retriever_runner = "service"
         kwargs: dict[str, Any] = {
             "searcher_params": self._searcher_params(),
