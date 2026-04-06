@@ -28,7 +28,7 @@ async def acheck_model_accessible(model: str) -> None:
 def check_model_accessible_sync(
     model: str,
     logger: logging.Logger,
-    timeout: float = 15.0,
+    timeout: float = 60.0,
 ) -> None:
     """Synchronous wrapper for model health check.
 
