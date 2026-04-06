@@ -57,7 +57,13 @@ class DockerSession:
 
     def write_output(self, filename: str, content: str) -> str:
         """Write a file to the output dir.  Used to verify volume mounts."""
-        out = self._output_dir or os.environ.get("EXGENTIC_OUTPUT_DIR", "/tmp")
+        if self._output_dir:
+            out = self._output_dir
+        else:
+            from ..core.context import try_get_context
+
+            ctx = try_get_context()
+            out = ctx.output_dir if ctx else os.environ.get("EXGENTIC_OUTPUT_DIR", "/tmp")
         path = os.path.join(out, filename)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:

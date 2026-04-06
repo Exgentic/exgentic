@@ -287,7 +287,17 @@ class OtelTracingObserver(Observer):
         if span_manager is None:
             # on_session_enter wasn't called first — start the span now
             # for backward compatibility (tests and observers that only
-            # hook on_session_creation).
+            # hook on_session_creation).  Note: child services spawned
+            # before this point will NOT have the OTEL trace_id in their
+            # runtime.json since the span didn't exist yet.
+            import warnings
+
+            warnings.warn(
+                f"on_session_enter was not called before on_session_creation "
+                f"for session {session.session_id}. OTEL trace propagation "
+                f"to child services may be incomplete.",
+                stacklevel=2,
+            )
             self.on_session_enter(session.session_id, session.task_id)
             span_manager = self._span_managers[session.session_id]
         self._session_actions[session.session_id] = session.actions  # Store actions for tool definitions

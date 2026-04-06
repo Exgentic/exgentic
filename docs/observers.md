@@ -42,6 +42,8 @@ class Observer:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
+| `session_id` | `str` | Session identifier (available in `on_session_enter`) |
+| `task_id` | `str \| None` | Task identifier (available in `on_session_enter`) |
 | `run_config` | `RunConfig` | The run configuration |
 | `results` | `RunResults` | Aggregated results (available in `on_run_success`) |
 | `session` | `Session` | Session object with `session_id`, `task_id`, `paths` |

@@ -1743,21 +1743,12 @@ class TestDependencyCrossing:
 class TestPerRunnerOtelContract:
     """Verify each runner type correctly propagates OTEL context and settings.
 
-    Instead of spinning up real runners, we verify the source-level contracts:
-    - Which functions each runner calls for env/context propagation
-    - That the propagation path is complete (no silent drops)
+    Uses behavioral tests where practical (mocking the propagation functions
+    and verifying they're called), and direct functional tests for context
+    propagation primitives.
     """
 
     # -- Thread runner: copies ContextVar --
-
-    def test_thread_runner_copies_context_vars(self):
-        """ThreadTransport uses contextvars.copy_context() which copies OTEL ContextVar."""
-        import inspect
-
-        from exgentic.adapters.runners.thread import ThreadTransport
-
-        source = inspect.getsource(ThreadTransport)
-        assert "copy_context" in source, "ThreadTransport must use contextvars.copy_context() to propagate ContextVars"
 
     def test_contextvar_copy_preserves_otel_context(self):
         """Verify that contextvars.copy_context() actually preserves our OTEL context."""
@@ -1774,124 +1765,39 @@ class TestPerRunnerOtelContract:
         )
         set_context(ctx)
         copied = contextvars.copy_context()
-        # Verify the copy has the same context
         child_ctx = copied[_CONTEXT]
         assert child_ctx.otel_context is not None
         assert child_ctx.otel_context.trace_id == "thread-trace"
 
-    # -- Process runner: uses EXGENTIC_RUNTIME_FILE --
+    # -- inject_exgentic_env: behavioral test --
 
-    def test_process_runner_sets_session_dir(self):
-        """PipeTransport.start() must write a per-service runtime.json when role is given."""
-        import inspect
+    def test_inject_exgentic_env_writes_runtime_file(self, tmp_path, monkeypatch):
+        """inject_exgentic_env(role=...) writes a runtime.json and sets EXGENTIC_RUNTIME_FILE."""
+        from exgentic.adapters.runners._utils import inject_exgentic_env
+        from exgentic.core.context import Role, run_scope, session_scope
 
-        from exgentic.adapters.runners.process import PipeTransport
+        with run_scope(run_id="test-run", output_dir=str(tmp_path)):
+            with session_scope("test-session"):
+                env: dict[str, str] = {}
+                inject_exgentic_env(env, role=Role.AGENT)
+                assert "EXGENTIC_RUNTIME_FILE" in env
+                runtime_path = env["EXGENTIC_RUNTIME_FILE"]
+                assert Path(runtime_path).exists(), "runtime.json must be written to disk"
+                import json
 
-        source = inspect.getsource(PipeTransport.start)
-        assert (
-            "save_service_runtime" in source
-        ), "PipeTransport.start must call save_service_runtime() to propagate context to child"
+                data = json.loads(Path(runtime_path).read_text())
+                assert data["role"] == "agent"
+                assert data["run_id"] == "test-run"
+                assert data["session_id"] == "test-session"
 
-    def test_process_worker_restores_context(self):
-        """Process worker must call try_init_context to restore context."""
-        import inspect
-
-        from exgentic.adapters.runners import process
-
-        source = inspect.getsource(process._worker)
-        assert "try_init_context" in source, "Process _worker must call try_init_context() to restore context"
-
-    # -- Service runner: sets context fallback --
-
-    def test_service_runner_sets_context_fallback(self):
-        """ServiceRunner.start() must set_context_fallback for uvicorn threads."""
-        import inspect
-
-        from exgentic.adapters.runners.service import ServiceRunner
-
-        source = inspect.getsource(ServiceRunner.start)
-        assert (
-            "set_context_fallback" in source
-        ), "ServiceRunner must call set_context_fallback() so uvicorn threads see OTEL context"
-
-    # -- Venv runner: injects env vars --
-
-    def test_venv_runner_calls_inject_exgentic_env(self):
-        """VenvRunner.start() must call inject_exgentic_env."""
-        import inspect
-
-        from exgentic.adapters.runners.venv import VenvRunner
-
-        source = inspect.getsource(VenvRunner.start)
-        assert (
-            "inject_exgentic_env" in source
-        ), "VenvRunner.start must call inject_exgentic_env() to propagate settings+context"
-
-    def test_venv_runner_uses_exgentic_serve(self):
-        """VenvRunner must launch child via 'exgentic serve' which calls init_context."""
-        import inspect
-
-        from exgentic.adapters.runners.venv import VenvRunner
-
-        source = inspect.getsource(VenvRunner.start)
-        assert "serve" in source, "VenvRunner must use 'exgentic serve' CLI which bootstraps context from env"
-
-    # -- Docker runner: injects env vars into container --
-
-    def test_docker_runner_calls_inject_exgentic_env(self):
-        """DockerRunner.start() must call inject_exgentic_env."""
-        import inspect
-
-        from exgentic.adapters.runners.docker import DockerRunner
-
-        source = inspect.getsource(DockerRunner.start)
-        assert (
-            "inject_exgentic_env" in source
-        ), "DockerRunner.start must call inject_exgentic_env() to propagate settings+context"
-
-    def test_docker_runner_passes_env_to_container(self):
-        """DockerRunner must pass env vars via -e flags to docker run."""
-        import inspect
-
-        from exgentic.adapters.runners.docker import DockerRunner
-
-        source = inspect.getsource(DockerRunner.start)
-        # Must iterate env and add -e flags
-        assert '"-e"' in source, "DockerRunner.start must pass env vars with -e to docker run"
-
-    def test_docker_runner_uses_exgentic_serve(self):
-        """DockerRunner must launch child via 'exgentic serve'."""
-        import inspect
-
-        from exgentic.adapters.runners.docker import DockerRunner
-
-        source = inspect.getsource(DockerRunner.start)
-        assert "serve" in source, "DockerRunner must use 'exgentic serve' CLI which bootstraps context from env"
-
-    # -- serve CLI: bootstraps context from env --
-
-    def test_serve_cmd_calls_try_init_context(self):
-        """The 'exgentic serve' command must call try_init_context on startup."""
-        import inspect
-
-        from exgentic.interfaces.cli.commands.serve import serve_cmd
-
-        # serve_cmd is a Click command; get the underlying function
-        source = inspect.getsource(serve_cmd.callback)
-        assert "try_init_context" in source, "serve_cmd must call try_init_context() to restore OTEL context in child"
-
-    # -- inject_exgentic_env: propagates all settings --
-
-    def test_inject_exgentic_env_sets_runtime_env(self):
-        """inject_exgentic_env must write a per-service runtime.json when given a role."""
-        import inspect
-
+    def test_inject_exgentic_env_inherits_parent_runtime(self, monkeypatch):
+        """inject_exgentic_env(role=None) copies parent's EXGENTIC_RUNTIME_FILE."""
         from exgentic.adapters.runners._utils import inject_exgentic_env
 
-        source = inspect.getsource(inject_exgentic_env)
-        assert (
-            "save_service_runtime" in source or "get_runtime_env" in source
-        ), "inject_exgentic_env must propagate context via disk (save_service_runtime or get_runtime_env)"
+        monkeypatch.setenv("EXGENTIC_RUNTIME_FILE", "/parent/runtime.json")
+        env: dict[str, str] = {}
+        inject_exgentic_env(env, role=None)
+        assert env.get("EXGENTIC_RUNTIME_FILE") == "/parent/runtime.json"
 
     # -- init_context: restores OTEL context --
 

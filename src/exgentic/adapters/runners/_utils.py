@@ -72,6 +72,7 @@ _FORWARD_SUFFIXES = (
     "_ACCESS_TOKEN",
     "_AUTH_TOKEN",
     "_SESSION_TOKEN",
+    "_TOKEN",
 )
 # Prefix patterns catch multi-variable providers that use keys without
 # the above suffixes (region names, credential file paths, model IDs).
@@ -80,7 +81,11 @@ _FORWARD_PREFIXES = (
     "AZURE_",
     "GOOGLE_",
     "GEMINI_",
+    "OPENAI_",
+    "ANTHROPIC_",
     "VERTEX_",
+    "VERTEXAI_",
+    "WATSONX_",
     "HF_",
     "HUGGINGFACE_",
     "LITELLM_",
