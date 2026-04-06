@@ -148,8 +148,10 @@ def init_tracing_from_env(
     if file_path:
         exporters.append(FileSpanExporter(file_path))
 
-    # OTLP exporter: send spans to a collector (skip if only file export is wanted)
-    if not file_path or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"):
+    # OTLP exporter: only when an endpoint is explicitly configured.
+    # This lets EXGENTIC_OTEL_ENABLED=true work for local file export
+    # (per-session otel_spans.jsonl) without requiring a running collector.
+    if os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"):
         protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf").strip().lower()
         exporters.append(GrpcOTLPSpanExporter() if protocol == "grpc" else HttpOTLPSpanExporter())
 
