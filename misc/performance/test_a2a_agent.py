@@ -300,15 +300,11 @@ async def call_a2a_agent(a2a_url: str, task_input: str, timeout: float = 300.0, 
     Returns:
         Dictionary with result information
     """
-    try:
-        from a2a.client import ClientFactory, create_text_message_object
-        from a2a.client.errors import A2AClientTimeoutError
-        from a2a.types import Role, TextPart
-        import json
-    except ImportError:
-        print("Error: a2a package not installed")
-        print("Install with: pip install a2a")
-        raise
+    from a2a.client import ClientFactory, create_text_message_object
+    from a2a.client.card_resolver import A2ACardResolver
+    from a2a.client.errors import A2AClientTimeoutError
+    from a2a.types import Role, TextPart
+    import json
 
     start_time = time.time()
     
@@ -321,10 +317,23 @@ async def call_a2a_agent(a2a_url: str, task_input: str, timeout: float = 300.0, 
         from a2a.client import ClientConfig
         client_config = ClientConfig(httpx_client=httpx_client)
         
-        # Connect to A2A agent
+        # Fetch the agent card manually and override the URL
         if debug:
-            print(f"   [DEBUG] Connecting to A2A agent at {a2a_url} (timeout={timeout}s)")
-        client = await ClientFactory.connect(a2a_url, client_config=client_config)
+            print(f"   [DEBUG] Resolving Agent Card at {a2a_url} (timeout={timeout}s)")
+        
+        resolver = A2ACardResolver(httpx_client=httpx_client, base_url=a2a_url)
+        card = await resolver.get_agent_card()
+        
+        # Override the URL in the card to use the actual server URL
+        if debug:
+            print(f"   [DEBUG] Agent card original URL: '{card.url}'")
+            print(f"   [DEBUG] Overriding agent card URL to: '{a2a_url}'")
+        card.url = a2a_url
+        
+        # Create the client using the modified card
+        if debug:
+            print(f"   [DEBUG] Creating client with overridden URL")
+        client = ClientFactory(client_config).create(card=card)
         
         # Create a text message with explicit role
         if debug:
@@ -558,21 +567,30 @@ async def test_a2a_agent(
         initial_mem = monitor.measure("initial")
         monitor.print_measurement(initial_mem)
 
+    # Create MCP client with extended timeout to handle long-running tasks
+    import httpx
+    # Use a very long timeout for the MCP client to prevent premature closure
+    # Set read timeout to None to prevent timeout during long-running operations
+    mcp_http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(
+            timeout=None,  # No timeout for read operations
+            connect=30.0,
+            write=30.0,
+            pool=5.0
+        )
+    )
+    
     try:
         # Connect to MCP server
         print("\n" + "-" * 80)
         print("CONNECTING TO MCP SERVER")
         print("-" * 80)
-
-        # Create MCP client with extended timeout to handle long-running tasks
-        import httpx
-        mcp_http_client = httpx.AsyncClient(timeout=httpx.Timeout(timeout * 2, connect=30.0))
         
         async with streamable_http_client(mcp_url, http_client=mcp_http_client) as (read_stream, write_stream, _):
-            async with ClientSession(read_stream, write_stream) as session:
+            async with ClientSession(read_stream, write_stream) as mcp_session:
                 # Initialize
                 print("Initializing session...")
-                await session.initialize()
+                await mcp_session.initialize()
                 print("✓ Session initialized")
 
                 if monitor:
@@ -584,7 +602,7 @@ async def test_a2a_agent(
                 print("FETCHING AVAILABLE TASKS")
                 print("-" * 80)
 
-                list_tasks_result = await session.call_tool("list_tasks", {})
+                list_tasks_result = await mcp_session.call_tool("list_tasks", {})
 
                 if list_tasks_result.isError:
                     print("❌ Error listing tasks")
@@ -617,7 +635,7 @@ async def test_a2a_agent(
 
                     try:
                         # Create session in MCP server
-                        create_result = await session.call_tool("create_session", {"task_id": str(task_id)})
+                        create_result = await mcp_session.call_tool("create_session", {"task_id": str(task_id)})
 
                         if create_result.isError:
                             print(f"   ❌ Error creating session for task {task_id}")
@@ -678,31 +696,48 @@ If you are asked to submit an answer, make sure you call the submit MCP tool."""
                             
                             # Evaluate the session
                             print(f"   📊 Evaluating session...")
+                            eval_data = None
                             try:
-                                eval_result = await session.call_tool("evaluate_session", {"session_id": session_id})
+                                # Add a small delay to ensure A2A agent has finished
+                                await asyncio.sleep(0.5)
+                                
+                                eval_result = await mcp_session.call_tool("evaluate_session", {"session_id": session_id})
                                 
                                 if eval_result.isError:
-                                    print(f"   ⚠️  Evaluation error: {eval_result.content}")
-                                    eval_data = None
+                                    error_content = eval_result.content[0].text if eval_result.content else "Unknown error"
+                                    print(f"   ⚠️  Evaluation error: {error_content}")
+                                    if debug:
+                                        print(f"   [DEBUG] Full error result: {eval_result}")
                                 else:
                                     eval_text = eval_result.content[0].text
                                     if debug:
                                         print(f"   [DEBUG] Raw evaluation response: {eval_text}")
-                                    eval_data = json.loads(eval_text)
-                                    if debug:
-                                        print(f"   [DEBUG] Parsed evaluation data: {json.dumps(eval_data, indent=2)}")
-                                    print(f"   Evaluation Results:")
-                                    print(f"     Success: {eval_data.get('success', 'N/A')}")
-                                    print(f"     Score: {eval_data.get('score', 'N/A')}")
-                                    print(f"     Finished: {eval_data.get('is_finished', 'N/A')}")
-                                    if eval_data.get('session_metrics'):
-                                        print(f"     Metrics: {eval_data['session_metrics']}")
+                                    
+                                    # Try to parse as JSON
+                                    try:
+                                        eval_data = json.loads(eval_text)
+                                        if debug:
+                                            print(f"   [DEBUG] Parsed evaluation data: {json.dumps(eval_data, indent=2)}")
+                                        
+                                        # Check if there's an error in the response
+                                        if "error" in eval_data:
+                                            print(f"   ⚠️  Evaluation returned error: {eval_data['error']}")
+                                        else:
+                                            print(f"   Evaluation Results:")
+                                            print(f"     Success: {eval_data.get('success', 'N/A')}")
+                                            print(f"     Score: {eval_data.get('score', 'N/A')}")
+                                            print(f"     Finished: {eval_data.get('is_finished', 'N/A')}")
+                                            if eval_data.get('session_metrics'):
+                                                print(f"     Metrics: {eval_data['session_metrics']}")
+                                    except json.JSONDecodeError as je:
+                                        print(f"   ⚠️  Failed to parse evaluation response as JSON: {je}")
+                                        if debug:
+                                            print(f"   [DEBUG] Raw response: {eval_text}")
                             except Exception as e:
-                                print(f"   ⚠️  Evaluation exception: {e}")
+                                print(f"   ⚠️  Evaluation exception: {type(e).__name__}: {e}")
                                 if debug:
                                     import traceback
                                     traceback.print_exc()
-                                eval_data = None
                         else:
                             print(f"   ❌ Task failed: {result['error']}")
                             eval_data = None
@@ -782,7 +817,7 @@ If you are asked to submit an answer, make sure you call the submit MCP tool."""
                         print(f"\n[{i}/{len(created_sessions)}] Deleting session {session_id}...")
 
                         try:
-                            delete_result = await session.call_tool("delete_session", {"session_id": session_id})
+                            delete_result = await mcp_session.call_tool("delete_session", {"session_id": session_id})
 
                             if delete_result.isError:
                                 print("   ❌ Error deleting session")
@@ -811,6 +846,12 @@ If you are asked to submit an answer, make sure you call the submit MCP tool."""
         import traceback
         traceback.print_exc()
         return 1
+    finally:
+        # Ensure HTTP client is closed
+        try:
+            await mcp_http_client.aclose()
+        except Exception:
+            pass
 
     # Print summary
     if monitor:

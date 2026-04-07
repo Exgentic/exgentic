@@ -254,8 +254,13 @@ def mcp_cmd(
                     sess = sessions[session_id]
 
                     # Close session if not done yet
+                    # Wrap in try-except to handle cases where the client is already closed
                     if not sess.done():
-                        sess.close()
+                        try:
+                            sess.close()
+                        except Exception as close_exc:
+                            # Log but don't fail - session might already be closed by agent
+                            logger.warning(f"Error closing session {session_id}: {close_exc}")
 
                     # Evaluate the session
                     score_result = sess.score()
@@ -270,7 +275,8 @@ def mcp_cmd(
                         "session_metadata": score_result.session_metadata,
                     }
                 except Exception as exc:
-                    return {"error": f"Failed to evaluate session {session_id}: {exc}"}
+                    import traceback
+                    return {"error": f"Failed to evaluate session {session_id}: {exc}\n{traceback.format_exc()}"}
 
         # Set up function signatures for management tools
         import inspect

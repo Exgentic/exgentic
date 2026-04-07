@@ -10,6 +10,12 @@ from pathlib import Path
 from textwrap import dedent
 
 import rich_click as click
+import uvicorn
+from a2a.server.apps.jsonrpc import A2AStarletteApplication
+from a2a.server.request_handlers.default_request_handler import DefaultRequestHandler
+from a2a.server.tasks.inmemory_task_store import InMemoryTaskStore
+from a2a.types import AgentCard, AgentCapabilities, AgentSkill
+from starlette.routing import Route
 
 from ....core.context import run_scope
 from ....observers.logging import get_logger
@@ -78,20 +84,6 @@ def a2a_cmd(
     """
     apply_debug_mode(debug)
     settings = get_settings()
-
-    # Check if a2a package is available
-    try:
-        from a2a.server.apps import A2AStarletteApplication
-        from a2a.server.request_handlers import DefaultRequestHandler
-        from a2a.server.tasks import InMemoryTaskStore
-        from a2a.types import AgentCapabilities, AgentCard, AgentSkill
-        from starlette.routing import Route
-        import uvicorn
-    except ImportError as e:
-        raise click.ClickException(
-            "The 'a2a' package is required for this command. "
-            "Install it with: pip install exgentic[a2a]"
-        ) from e
 
     # Load agent class
     try:
