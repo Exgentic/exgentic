@@ -25,9 +25,40 @@ class ExecutionBackend(str, Enum):
     AUTO = "auto"
 
 
+def _podman_works() -> bool:
+    """Check if podman is installed and its rootless runtime is functional."""
+    if not shutil.which("podman"):
+        return False
+    try:
+        subprocess.run(
+            ["podman", "info"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=30,
+        )
+        return True
+    except (subprocess.SubprocessError, FileNotFoundError, OSError):
+        return False
+
+
 def resolve_container_backend() -> ExecutionBackend:
-    """Auto-detect container runtime: prefer podman, fallback to docker."""
-    if shutil.which("podman"):
+    """Auto-detect container runtime: prefer podman, fallback to docker.
+
+    Honours the ``EXGENTIC_CONTAINER_CMD`` env-var (``podman`` or ``docker``)
+    to let users force a specific runtime.  When auto-detecting, podman is
+    validated with ``podman info`` so that broken rootless setups fall back
+    to docker automatically.
+    """
+    override = os.environ.get("EXGENTIC_CONTAINER_CMD", "").strip().lower()
+    if override:
+        mapping = {"podman": ExecutionBackend.PODMAN, "docker": ExecutionBackend.DOCKER}
+        if override not in mapping:
+            raise RuntimeError(f"EXGENTIC_CONTAINER_CMD={override!r} is not supported (use 'podman' or 'docker')")
+        if not shutil.which(override):
+            raise RuntimeError(f"EXGENTIC_CONTAINER_CMD={override!r} not found on PATH")
+        return mapping[override]
+
+    if _podman_works():
         return ExecutionBackend.PODMAN
     if shutil.which("docker"):
         return ExecutionBackend.DOCKER
