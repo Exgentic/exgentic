@@ -139,6 +139,10 @@ docker info   # should succeed
 | `docker_socket` | bool | false | Mount the host Docker socket into the container |
 | `dependencies` | list[string] | null | Extra packages to install at build time |
 
+### Using Podman instead of Docker
+
+On macOS you can use Podman as a drop-in replacement for Docker. See the [Podman on macOS](./podman-macos.md) guide.
+
 ### Docker-in-Docker
 
 Some benchmarks (e.g. SWE-bench) need to launch Docker containers themselves. Enable socket passthrough:

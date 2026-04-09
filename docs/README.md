@@ -13,6 +13,7 @@ Welcome to the Exgentic docs. Use the table below to find what you need.
 | [Custom Models](./custom-models.md) | Use any LLM provider (OpenAI, Anthropic, Azure, Bedrock, Ollama, and more) via LiteLLM |
 | [Batch Runs](./batch.md) | Run parameter sweeps, manage large evaluations, export to CSV, publish to HuggingFace |
 | [Runners](./runners.md) | `direct`, `venv`, `docker` — isolation levels, configuration, Docker-in-Docker |
+| [Podman on macOS](./podman-macos.md) | Use Podman as a Docker replacement on macOS, including Apple Silicon / Rosetta setup |
 | [Output Format](./output-format.md) | Schema for `results.json`, `trajectory.jsonl`, session results, and cost reports |
 | [Observers](./observers.md) | Hook into the evaluation lifecycle for custom logging, monitoring, and early stopping |
 
