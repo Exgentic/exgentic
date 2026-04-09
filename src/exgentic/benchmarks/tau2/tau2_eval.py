@@ -628,8 +628,10 @@ class TAU2Evaluator(Evaluator):
             r = Results.load(fp)
             if base is None:
                 base = r
-            assert len(r.simulations) <= 1  # At most one simulation per file.
-            assert len(r.tasks) == 1
+            if len(r.tasks) != 1:
+                raise ValueError(f"Expected exactly 1 task per result file, got {len(r.tasks)} in {fp}")
+            if len(r.simulations) > 1:
+                raise ValueError(f"Expected at most 1 simulation per result file, got {len(r.simulations)} in {fp}")
 
             if len(r.simulations) == 0:
                 errored_tasks += 1
@@ -641,9 +643,12 @@ class TAU2Evaluator(Evaluator):
 
         total_sessions = len(sessions)
 
-        # Minimal path: assume at least one simulation was produced for each planned session
-        assert len(all_sims) > 0
-        assert base is not None
+        if len(all_sims) == 0 or base is None:
+            raise RuntimeError(
+                f"All {total_sessions} tau2 sessions errored out with no simulations. "
+                f"Check session error logs for details."
+            )
+
         combined = Results(info=base.info, tasks=list(task_map.values()), simulations=all_sims)
         m = compute_metrics(combined)
 
