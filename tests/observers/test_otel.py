@@ -769,8 +769,8 @@ class TestTraceLoggerParentContext:
         assert logger._tracer is None
 
         with patch(
-            "exgentic.integrations.litellm.trace_logger._otel_enabled",
-            return_value=True,
+            "exgentic.integrations.litellm.trace_logger.get_settings",
+            return_value=MagicMock(otel_enabled=True, otel_record_content=False),
         ):
             logger._write_otel(
                 kwargs={"model": "test"},
@@ -788,8 +788,8 @@ class TestTraceLoggerParentContext:
         logger._tracer = MagicMock()  # Would fail if called
 
         with patch(
-            "exgentic.integrations.litellm.trace_logger._otel_enabled",
-            return_value=False,
+            "exgentic.integrations.litellm.trace_logger.get_settings",
+            return_value=MagicMock(otel_enabled=False, otel_record_content=False),
         ):
             logger._write_otel(
                 kwargs={"model": "test"},
@@ -1945,9 +1945,9 @@ def _invoke_write_otel(
             "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "hi"}}],
         }
 
+    settings = MagicMock(otel_enabled=True, otel_record_content=record_content)
     with (
-        patch("exgentic.integrations.litellm.trace_logger._otel_enabled", return_value=True),
-        patch("exgentic.integrations.litellm.trace_logger._otel_record_content", return_value=record_content),
+        patch("exgentic.integrations.litellm.trace_logger.get_settings", return_value=settings),
         patch.object(logger, "get_context", return_value=mock_ctx),
     ):
         logger._write_otel(kwargs, response_obj, status)
@@ -2633,7 +2633,10 @@ class TestTraceLoggerSilentFailure:
         mock_ctx.otel_context.span_id = "0" * 16
 
         with (
-            patch("exgentic.integrations.litellm.trace_logger._otel_enabled", return_value=True),
+            patch(
+                "exgentic.integrations.litellm.trace_logger.get_settings",
+                return_value=MagicMock(otel_enabled=True, otel_record_content=False),
+            ),
             patch.object(tl, "get_context", return_value=mock_ctx),
             caplog.at_level(logging.WARNING, logger="exgentic.integrations.litellm.trace_logger"),
         ):
@@ -2655,7 +2658,10 @@ class TestTraceLoggerSilentFailure:
         tl._otel_logger = MagicMock()
 
         with (
-            patch("exgentic.integrations.litellm.trace_logger._otel_enabled", return_value=True),
+            patch(
+                "exgentic.integrations.litellm.trace_logger.get_settings",
+                return_value=MagicMock(otel_enabled=True, otel_record_content=False),
+            ),
             patch.object(tl, "get_context", side_effect=RuntimeError("context broken")),
             caplog.at_level(logging.WARNING, logger="exgentic.integrations.litellm.trace_logger"),
         ):
@@ -2673,7 +2679,10 @@ class TestTraceLoggerSilentFailure:
         logger = TraceLogger()
         # _tracer is None and _init_otel won't set it because context is None
         with (
-            patch("exgentic.integrations.litellm.trace_logger._otel_enabled", return_value=True),
+            patch(
+                "exgentic.integrations.litellm.trace_logger.get_settings",
+                return_value=MagicMock(otel_enabled=True, otel_record_content=False),
+            ),
             patch.object(logger, "get_context", return_value=None),
         ):
             # First call: _tracer is None → calls _init_otel → context=None → warns, tracer stays None
@@ -3397,9 +3406,8 @@ class TestContentRecordingRobustness:
 
     def test_serialize_to_json_pydantic(self):
         """_serialize_to_json handles Pydantic models."""
-        from pydantic import BaseModel
-
         from exgentic.observers.handlers.otel import _serialize_to_json
+        from pydantic import BaseModel
 
         class MyModel(BaseModel):
             name: str

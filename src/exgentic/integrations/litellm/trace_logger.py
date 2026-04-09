@@ -22,14 +22,6 @@ FILE_ENV = "EXGENTIC_LLM_LOG_FILE"
 DEFAULT_FILE = "trace.jsonl"
 
 
-def _otel_enabled() -> bool:
-    return bool(get_settings().otel_enabled)
-
-
-def _otel_record_content() -> bool:
-    return get_settings().otel_record_content
-
-
 _PROVIDER_MAP = {
     "openai": "openai",
     "azure": "azure.ai.openai",
@@ -220,7 +212,7 @@ class TraceLogger(CustomLogger):
     # -- OTEL span writing ---------------------------------------------------
 
     def _write_otel(self, kwargs, response_obj, status, start_time=None, end_time=None) -> None:
-        if not _otel_enabled():
+        if not get_settings().otel_enabled:
             return
         if self._tracer is None:
             self._init_otel(kwargs)
@@ -281,7 +273,7 @@ class TraceLogger(CustomLogger):
         for k, v in attrs.items():
             span.set_attribute(k, v)
 
-        if _otel_record_content():
+        if get_settings().otel_record_content:
             self._set_content_attributes(span, kwargs, response_obj)
 
         # End span
