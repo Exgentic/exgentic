@@ -5,28 +5,67 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+
+_HEALTH_CHECK_NUM_RETRIES = 3
+_HEALTH_CHECK_INITIAL_DELAY = 2.0
+
+
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    """Return True if *exc* represents a 429 / rate-limit response."""
+    status = getattr(exc, "status_code", None)
+    if status == 429:
+        return True
+    # Some wrappers surface the code inside a nested ``original_exception``.
+    original = getattr(exc, "original_exception", None)
+    if original is not None and getattr(original, "status_code", None) == 429:
+        return True
+    return False
 
 
 class HealthCheckError(RuntimeError):
     """Raised when the model health check fails."""
 
 
-async def acheck_model_accessible(model: str) -> None:
+async def acheck_model_accessible(
+    model: str,
+    *,
+    num_retries: int = _HEALTH_CHECK_NUM_RETRIES,
+    initial_delay: float = _HEALTH_CHECK_INITIAL_DELAY,
+) -> None:
     """Raise if LiteLLM cannot access the configured model.
 
     Uses a minimal ``acompletion`` call instead of ``ahealth_check`` because
     the latter pulls in ``litellm.proxy`` internals that require the optional
     ``backoff`` package (only declared under ``litellm[proxy]``).
+
+    Rate-limit errors (HTTP 429) are retried up to *num_retries* times using
+    exponential back-off starting at *initial_delay* seconds.  Other errors
+    are raised immediately.
     """
     import litellm
 
-    await litellm.acompletion(
-        model=model,
-        messages=[{"role": "user", "content": "hi"}],
-        max_tokens=1,
-        caching=False,  # Must hit the real endpoint, not a cached response.
-    )
+    last_exc: BaseException | None = None
+    for attempt in range(1 + num_retries):
+        try:
+            await litellm.acompletion(
+                model=model,
+                messages=[{"role": "user", "content": "hi"}],
+                max_tokens=1,
+                caching=False,  # Must hit the real endpoint, not a cached response.
+            )
+            return
+        except Exception as exc:
+            last_exc = exc
+            if not _is_rate_limit_error(exc) or attempt >= num_retries:
+                raise
+            delay = initial_delay * (2**attempt)
+            await asyncio.sleep(delay)
+
+    # Should be unreachable, but satisfy type checkers.
+    if last_exc is not None:  # pragma: no cover
+        raise last_exc
 
 
 def check_model_accessible_sync(

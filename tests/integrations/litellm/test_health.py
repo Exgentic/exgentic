@@ -6,10 +6,15 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from exgentic.integrations.litellm.health import check_model_accessible_sync
+
+from exgentic.integrations.litellm.health import (
+    _is_rate_limit_error,
+    acheck_model_accessible,
+    check_model_accessible_sync,
+)
 
 
 class MockLiteLLMError(Exception):
@@ -83,3 +88,76 @@ def test_health_check_uses_repr_as_last_resort(caplog):
         error_msg = str(exc_info.value)
         assert "EmptyError" in error_msg
         assert "test-model" in error_msg
+
+
+# ---------------------------------------------------------------------------
+# Rate-limit detection helper
+# ---------------------------------------------------------------------------
+
+
+class _FakeRateLimitError(Exception):
+    def __init__(self):
+        self.status_code = 429
+        super().__init__("rate limited")
+
+
+class _FakeWrappedRateLimitError(Exception):
+    def __init__(self):
+        inner = Exception("inner")
+        inner.status_code = 429  # type: ignore[attr-defined]
+        self.original_exception = inner
+        super().__init__("wrapped rate limit")
+
+
+def test_is_rate_limit_error_direct_status_code():
+    assert _is_rate_limit_error(_FakeRateLimitError()) is True
+
+
+def test_is_rate_limit_error_wrapped():
+    assert _is_rate_limit_error(_FakeWrappedRateLimitError()) is True
+
+
+def test_is_rate_limit_error_not_rate_limit():
+    assert _is_rate_limit_error(ValueError("nope")) is False
+
+
+# ---------------------------------------------------------------------------
+# Async retry logic
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_acheck_retries_on_rate_limit_then_succeeds():
+    """Health check should retry on 429 and succeed when the next attempt works."""
+    mock = AsyncMock(side_effect=[_FakeRateLimitError(), None])
+
+    with patch("litellm.acompletion", mock):
+        await acheck_model_accessible("m", num_retries=2, initial_delay=0.01)
+
+    assert mock.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_acheck_raises_after_exhausting_retries():
+    """Health check should raise after all retries are exhausted."""
+    exc = _FakeRateLimitError()
+    mock = AsyncMock(side_effect=exc)
+
+    with patch("litellm.acompletion", mock):
+        with pytest.raises(type(exc)):
+            await acheck_model_accessible("m", num_retries=2, initial_delay=0.01)
+
+    # 1 initial + 2 retries = 3 calls
+    assert mock.call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_acheck_does_not_retry_non_rate_limit_errors():
+    """Non-rate-limit errors should propagate immediately without retry."""
+    mock = AsyncMock(side_effect=ValueError("bad key"))
+
+    with patch("litellm.acompletion", mock):
+        with pytest.raises(ValueError, match="bad key"):
+            await acheck_model_accessible("m", num_retries=3, initial_delay=0.01)
+
+    assert mock.call_count == 1
