@@ -216,7 +216,7 @@ def _run_option_specs(
         ),
         (("--subset",), {"help": "Benchmark subset name"}),
         (("--task", "tasks"), {"multiple": True, "help": "Task to run (repeatable)"}),
-        (("--num-tasks",), {"type": int, "help": "Number of tasks to run"}),
+        (("--num-tasks", "--limit"), {"type": int, "help": "Number of tasks to run"}),
         (("--max-steps",), {"type": int, "help": "Max steps per session"}),
         (("--max-actions",), {"type": int, "help": "Max actions per session"}),
         (("--model",), {"help": "Agent model (must be supported by the agent)"}),
