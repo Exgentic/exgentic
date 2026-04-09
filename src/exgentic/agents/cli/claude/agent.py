@@ -19,7 +19,7 @@ class ClaudeCodeAgentInstance(ProxyBackedMCPAgentInstance):
         session_id: str,
         model_id: str,
         max_steps: int = 150,
-        execution_backend: ExecutionBackend = ExecutionBackend.AUTO,
+        execution_backend: ExecutionBackend = ExecutionBackend.DOCKER,
         model_settings: ModelSettings | None = None,
     ):
         # The alias is what we ask Claude Code CLI for; the proxy maps it to the backend model.
@@ -80,7 +80,7 @@ class ClaudeCodeAgentInstance(ProxyBackedMCPAgentInstance):
 class ClaudeCodeAgent(ProxyBackedAgent):
     display_name: ClassVar[str] = "Claude Code CLI"
     slug_name: ClassVar[str] = "claude_code"
-    execution_backend: ExecutionBackend = ExecutionBackend.AUTO
+    execution_backend: ExecutionBackend = ExecutionBackend.DOCKER
 
     @classmethod
     def _get_instance_class(cls):

@@ -20,18 +20,7 @@ class ExecutionBackend(str, Enum):
     """Execution backend for CLI runs."""
 
     PROCESS = "process"
-    PODMAN = "podman"
     DOCKER = "docker"
-    AUTO = "auto"
-
-
-def resolve_container_backend() -> ExecutionBackend:
-    """Auto-detect container runtime: prefer podman, fallback to docker."""
-    if shutil.which("podman"):
-        return ExecutionBackend.PODMAN
-    if shutil.which("docker"):
-        return ExecutionBackend.DOCKER
-    raise RuntimeError("Neither podman nor docker found")
 
 
 @dataclass
@@ -291,10 +280,57 @@ class ContainerRunner(ProcessRunner):
             self._logger.warning("Failed to patch mcp.json (%s): %s", mcp_path, exc)
 
 
-class PodmanRunner(ContainerRunner):
-    """Run the inner command inside a container via Podman."""
+def _detect_container_runtime() -> tuple[str, list[str]]:
+    """Return ``(binary, extra_args)`` for the container CLI.
 
-    host_gateway = "host.containers.internal"
+    Prefer ``podman`` because on macOS it transparently resolves VM-internal
+    paths for ``-v`` mounts (e.g. ``/var/run/docker.sock``).  Fall back to
+    ``docker``.
+
+    For ``podman`` the extra_args may include ``--url`` / ``--identity`` so
+    the CLI can find its machine connection even when HOME or XDG_RUNTIME_DIR
+    differ from the interactive shell.
+    """
+    if shutil.which("podman"):
+        return "podman", _resolve_podman_connection_args()
+    if shutil.which("docker"):
+        return "docker", []
+    raise RuntimeError("Neither podman nor docker found on PATH")
+
+
+def _resolve_podman_connection_args() -> list[str]:
+    """Return extra ``podman`` CLI flags to select the default connection."""
+    env_name = os.environ.get("PODMAN_CONNECTION")
+    if env_name:
+        return ["--connection", env_name]
+
+    try:
+        proc = subprocess.run(
+            ["podman", "system", "connection", "list", "--format", "json"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if proc.returncode != 0:
+            return []
+        data = json.loads(proc.stdout or "[]")
+        default = next((x for x in data if x.get("Default") is True), None)
+        if default and default.get("URI"):
+            args = ["--url", str(default["URI"])]
+            identity = default.get("Identity")
+            if identity:
+                args += ["--identity", str(identity)]
+            return args
+    except Exception:
+        pass
+    return []
+
+
+class DockerRunner(ContainerRunner):
+    """Run the inner command inside a container (docker or podman)."""
+
+    host_gateway = "host.docker.internal"
 
     def __init__(self, log_path, logger):
         super().__init__(log_path, logger)
@@ -308,19 +344,16 @@ class PodmanRunner(ContainerRunner):
         config: BaseCLIConfig,
         spawn_error_message: str,
     ) -> CLIResult:
-        runtime = "podman"
-        host_gateway = "host.containers.internal"
+        runtime, connection_args = _detect_container_runtime()
+        host_gateway = self.host_gateway
         host_cfg_root = str(cfg_root.resolve())
 
-        # Patch mcp.json so container uses host gateway (not 127.0.0.1/localhost)
         self._patch_mcp_json(cfg_root=cfg_root, host_gateway=host_gateway)
 
         inner_cmd = self._rewrite_mcp_config_path(list(cmd), workdir=config.image_workdir)
 
-        # Minimal env forwarding into container (encoded via podman -e flags)
         container_env = self._container_env_from(env, host_gateway=host_gateway, config=config)
         container_env["HOME"] = config.image_workdir
-        connection_args = self._resolve_podman_connection_args()
         user_args: list[str] = []
         uid = getattr(os, "getuid", None)
         gid = getattr(os, "getgid", None)
@@ -334,117 +367,17 @@ class PodmanRunner(ContainerRunner):
             *connection_args,
             "run",
             "--rm",
-            *user_args,
-            "-v",
-            f"{host_cfg_root}:{config.image_workdir}:Z",
-            "-w",
-            config.image_workdir,
-        ]
-        for k, v in container_env.items():
-            wrapped_cmd.extend(["-e", f"{k}={v}"])
-        wrapped_cmd.append(str(config.image))
-        wrapped_cmd.extend(inner_cmd)
-
-        # Important: do NOT keep stdin open (avoids "podman run never ends")
-        return super().run(
-            cmd=wrapped_cmd,
-            env=env,
-            cfg_root=cfg_root,
-            config=config,
-            spawn_error_message=spawn_error_message,
-            stdin_devnull=True,
-        )
-
-    def _resolve_podman_connection_args(self) -> list[str]:
-        """Return extra args for the `podman` CLI to select a connection.
-
-        Priority:
-        1) PODMAN_CONNECTION env var
-        2) auto-detect default connection from `podman system connection list --format json`
-        3) fallback: no args (let Podman decide; works on native Linux / preconfigured env)
-        """
-        # 1) environment override (nice for CI/users)
-        env_name = os.environ.get("PODMAN_CONNECTION")
-        if env_name:
-            return ["--connection", env_name]
-
-        # 2) auto-detect default connection
-        try:
-            proc = subprocess.run(
-                ["podman", "system", "connection", "list", "--format", "json"],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-            if proc.returncode != 0:
-                self._logger.info(
-                    "podman system connection list failed (rc=%s): %s",
-                    proc.returncode,
-                    (proc.stderr or "").strip(),
-                )
-                return []
-
-            data = json.loads(proc.stdout or "[]")
-            # entries look like: {"Name": "...", "URI": "...", "Identity": "...", "Default": true, ...}
-            default = next((x for x in data if x.get("Default") is True), None)
-            if default and default.get("Name"):
-                return [
-                    "--url",
-                    str(default["URI"]),
-                    "--identity",
-                    str(default["Identity"]),
-                ]
-        except Exception as exc:
-            self._logger.info("Failed to auto-detect Podman connection: %r", exc)
-            return []
-
-        return []
-
-
-class DockerRunner(ContainerRunner):
-    """Run the inner command inside a container via Docker."""
-
-    def __init__(self, log_path, logger):
-        super().__init__(log_path, logger)
-
-    def run(
-        self,
-        *,
-        cmd: list[str],
-        env: dict[str, str],
-        cfg_root: Path,
-        config: BaseCLIConfig,
-        spawn_error_message: str,
-    ) -> CLIResult:
-        runtime = "docker"
-        host_gateway = "host.docker.internal"
-        host_cfg_root = str(cfg_root.resolve())
-
-        # Patch mcp.json so container uses host gateway (not 127.0.0.1/localhost)
-        self._patch_mcp_json(cfg_root=cfg_root, host_gateway=host_gateway)
-
-        inner_cmd = self._rewrite_mcp_config_path(list(cmd), workdir=config.image_workdir)
-
-        # Minimal env forwarding into container (encoded via docker -e flags)
-        container_env = self._container_env_from(env, host_gateway=host_gateway, config=config)
-        container_env["HOME"] = config.image_workdir
-        user_args: list[str] = []
-        uid = getattr(os, "getuid", None)
-        gid = getattr(os, "getgid", None)
-        if callable(uid) and callable(gid):
-            try:
-                user_args = ["--user", f"{uid()}:{gid()}"]
-            except Exception:
-                user_args = []
-        wrapped_cmd: list[str] = [
-            runtime,
-            "run",
-            "--rm",
             "--add-host",
             f"{host_gateway}:host-gateway",
+            "--security-opt",
+            "label=disable",
             *user_args,
+            "--group-add",
+            "0",
             "-v",
             f"{host_cfg_root}:{config.image_workdir}",
+            "-v",
+            "/var/run/docker.sock:/var/run/docker.sock",
             "-w",
             config.image_workdir,
         ]
@@ -453,10 +386,14 @@ class DockerRunner(ContainerRunner):
         wrapped_cmd.append(str(config.image))
         wrapped_cmd.extend(inner_cmd)
 
-        # Important: do NOT keep stdin open (avoids "docker run never ends")
+        # The outer command needs the host environment (PATH, DOCKER_HOST,
+        # etc.) to locate the daemon.  Container-internal env is passed
+        # separately via -e flags above.
+        host_env = {**os.environ, **env}
+
         return super().run(
             cmd=wrapped_cmd,
-            env=env,
+            env=host_env,
             cfg_root=cfg_root,
             config=config,
             spawn_error_message=spawn_error_message,
