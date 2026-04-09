@@ -13,15 +13,28 @@ if TYPE_CHECKING:
     from ...core.types.model_settings import ModelSettings
 
 
-def _is_rate_limit_error(exc: BaseException) -> bool:
-    """Return True if *exc* represents a 429 / rate-limit response."""
+def _is_transient_error(exc: BaseException) -> bool:
+    """Return True if *exc* is a transient failure worth retrying.
+
+    Covers rate-limit (429), timeouts, and connection errors.
+    """
+    # Timeouts — endpoint is slow/loaded, not broken.
+    if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
+        return True
+    # Connection errors
+    if isinstance(exc, (ConnectionError, OSError)):
+        return True
+    # HTTP 429 rate limit
     status = getattr(exc, "status_code", None)
     if status == 429:
         return True
     # Some wrappers surface the code inside a nested ``original_exception``.
     original = getattr(exc, "original_exception", None)
-    if original is not None and getattr(original, "status_code", None) == 429:
-        return True
+    if original is not None:
+        if isinstance(original, (TimeoutError, asyncio.TimeoutError)):
+            return True
+        if getattr(original, "status_code", None) == 429:
+            return True
     return False
 
 
@@ -40,9 +53,9 @@ async def acheck_model_accessible(
     the latter pulls in ``litellm.proxy`` internals that require the optional
     ``backoff`` package (only declared under ``litellm[proxy]``).
 
-    Rate-limit errors (HTTP 429) are retried according to the retry
-    parameters in *model_settings* (defaults to ``ModelSettings()``).
-    Other errors are raised immediately.
+    Transient errors (rate-limit 429, timeouts, connection errors) are
+    retried according to the retry parameters in *model_settings*
+    (defaults to ``ModelSettings()``). Other errors are raised immediately.
     """
     import litellm
 
@@ -68,7 +81,7 @@ async def acheck_model_accessible(
             return
         except Exception as exc:
             last_exc = exc
-            if not _is_rate_limit_error(exc) or attempt >= num_retries:
+            if not _is_transient_error(exc) or attempt >= num_retries:
                 raise
             delay = retry_after * (2**attempt) if is_exponential else retry_after
             await asyncio.sleep(delay)
