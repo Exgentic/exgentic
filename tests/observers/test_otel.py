@@ -2875,3 +2875,160 @@ class TestHeritableAttributeCompleteness:
         ]
         for attr in non_heritable:
             assert attr not in child.attributes, f"Non-heritable {attr} should not be on child span"
+
+
+# ===================================================================
+# Content recording robustness (GitHub issue #140)
+# ===================================================================
+
+
+class TestContentRecordingRobustness:
+    """Verify tool parameters and task recording handle edge cases."""
+
+    def test_tool_parameters_recorded_with_dict_arguments(self, ctx, tmp_path):
+        """gen_ai.tool.parameters must be recorded when arguments is a plain dict."""
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        t = provider.get_tracer("test")
+
+        obs = _create_observer_with_tracer(ctx, tmp_path, t)
+        obs, session, _settings = _trigger_session_lifecycle(obs, t, ctx, tmp_path, record_content=True)
+
+        # Create action with dict arguments (no model_dump_json)
+        mock_action = MagicMock()
+        action_item = MagicMock(spec=[])  # empty spec so no auto-attrs
+        action_item.name = "browse"
+        action_item.id = "act-dict"
+        action_item.arguments = {"url": "http://example.com", "timeout": 30}
+        mock_action.to_action_list.return_value = [action_item]
+
+        settings_on = MagicMock(otel_record_content=True)
+        with (
+            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings_on),
+            patch("exgentic.observers.handlers.otel.flush_traces"),
+        ):
+            obs.on_react_success(session, mock_action)
+            obs.on_step_success(session, MockObservation())
+            obs.on_session_success(session, MockScore(), MockAgent())
+
+        spans = exporter.get_finished_spans()
+        tool_spans = [s for s in spans if "execute_tool browse" in s.name]
+        assert len(tool_spans) >= 1, "Should have a browse execute_tool span"
+        attrs = tool_spans[0].attributes or {}
+        assert "gen_ai.tool.parameters" in attrs, "Dict arguments should be serialized as tool parameters"
+        params = json.loads(attrs["gen_ai.tool.parameters"])
+        assert params["url"] == "http://example.com"
+        assert params["timeout"] == 30
+
+    def test_tool_parameters_recorded_with_pydantic_model(self, ctx, tmp_path):
+        """gen_ai.tool.parameters must be recorded when arguments is a Pydantic BaseModel."""
+        from pydantic import BaseModel
+
+        class BrowseArgs(BaseModel):
+            url: str
+            timeout: int = 30
+
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        t = provider.get_tracer("test")
+
+        obs = _create_observer_with_tracer(ctx, tmp_path, t)
+        obs, session, _settings = _trigger_session_lifecycle(obs, t, ctx, tmp_path, record_content=True)
+
+        mock_action = MagicMock()
+        action_item = MagicMock(spec=[])
+        action_item.name = "browse"
+        action_item.id = "act-pydantic"
+        action_item.arguments = BrowseArgs(url="http://example.com", timeout=60)
+        mock_action.to_action_list.return_value = [action_item]
+
+        settings_on = MagicMock(otel_record_content=True)
+        with (
+            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings_on),
+            patch("exgentic.observers.handlers.otel.flush_traces"),
+        ):
+            obs.on_react_success(session, mock_action)
+            obs.on_step_success(session, MockObservation())
+            obs.on_session_success(session, MockScore(), MockAgent())
+
+        spans = exporter.get_finished_spans()
+        tool_spans = [s for s in spans if "execute_tool browse" in s.name]
+        assert len(tool_spans) >= 1
+        attrs = tool_spans[0].attributes or {}
+        assert "gen_ai.tool.parameters" in attrs, "Pydantic model arguments should be serialized"
+        params = json.loads(attrs["gen_ai.tool.parameters"])
+        assert params["url"] == "http://example.com"
+        assert params["timeout"] == 60
+
+    def test_task_not_recorded_when_session_has_no_task_attr(self, ctx, tmp_path):
+        """on_session_creation must not fail when session has no task attribute."""
+        from exgentic.observers.handlers.otel import OtelTracingObserver, SessionSpanManager
+
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        t = provider.get_tracer("test")
+
+        session = MagicMock()
+        session.session_id = "sess-notask"
+        session.task_id = "task-notask"
+        session.actions = [MockAction()]
+        session.context = {}
+        # Deliberately remove 'task' attribute
+        del session.task
+
+        settings_on = MagicMock(otel_record_content=True)
+
+        original_init = SessionSpanManager.__init__
+
+        def patched_init(self, session_id, session_root_path, tracer=t):
+            original_init(self, session_id, session_root_path, tracer=tracer)
+
+        session_root = tmp_path / "test-run" / "sessions" / "sess-notask"
+        session_root.mkdir(parents=True, exist_ok=True)
+
+        with (
+            patch("exgentic.observers.handlers.otel.get_benchmark_entries", return_value={}),
+            patch("exgentic.observers.handlers.otel.get_agent_entries", return_value={}),
+            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings_on),
+            patch.object(SessionSpanManager, "__init__", patched_init),
+            patch(
+                "exgentic.observers.handlers.otel.to_otel_attribute_value",
+                side_effect=lambda v: str(v) if v is not None else None,
+            ),
+        ):
+            obs = OtelTracingObserver()
+            run_config = MockRunConfig()
+            run_config.subset = "test_subset"
+            obs.on_run_start(run_config)
+            # This should NOT raise even though session has no 'task'
+            obs.on_session_creation(session)
+
+        # Verify span was created without task attribute
+        spans = exporter.get_finished_spans()
+        # No crash is the main assertion; also verify no task attr
+        for s in spans:
+            assert "exgentic.session.task" not in (s.attributes or {})
+
+    def test_serialize_to_json_dict(self):
+        """_serialize_to_json handles plain dicts."""
+        from exgentic.observers.handlers.otel import OtelTracingObserver
+
+        result = OtelTracingObserver._serialize_to_json({"key": "value", "num": 42})
+        parsed = json.loads(result)
+        assert parsed == {"key": "value", "num": 42}
+
+    def test_serialize_to_json_pydantic(self):
+        """_serialize_to_json handles Pydantic models."""
+        from exgentic.observers.handlers.otel import OtelTracingObserver
+        from pydantic import BaseModel
+
+        class MyModel(BaseModel):
+            name: str
+            count: int
+
+        result = OtelTracingObserver._serialize_to_json(MyModel(name="test", count=5))
+        parsed = json.loads(result)
+        assert parsed == {"name": "test", "count": 5}

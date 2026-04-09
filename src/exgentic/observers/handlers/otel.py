@@ -2,6 +2,7 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 import json
+import logging
 import os
 import threading
 from datetime import datetime
@@ -25,6 +26,8 @@ from ...utils.otel import (
     to_otel_attribute_value,
 )
 from ...utils.settings import get_settings
+
+logger = logging.getLogger(__name__)
 
 tracer = init_tracing_from_env()
 
@@ -202,6 +205,13 @@ class OtelTracingObserver(Observer):
                 return action_type.description
         return None
 
+    @staticmethod
+    def _serialize_to_json(obj: Any) -> str:
+        """Serialize an object to JSON, handling both Pydantic models and plain dicts."""
+        if hasattr(obj, "model_dump_json"):
+            return obj.model_dump_json()
+        return json.dumps(obj, default=str)
+
     def _get_tool_definitions(self, session_id: str) -> str:
         """Generate gen_ai.tool.definitions JSON from session actions."""
         actions = self._session_actions.get(session_id, [])
@@ -313,10 +323,12 @@ class OtelTracingObserver(Observer):
 
         # Only record task content if otel_record_content is enabled
         if get_settings().otel_record_content:
-            span_manager.set_attribute(
-                "exgentic.session.task",
-                session.task,
-            )
+            task = getattr(session, "task", None)
+            if task is not None:
+                span_manager.set_attribute(
+                    "exgentic.session.task",
+                    task,
+                )
 
         for action in session.actions:
             span_manager.set_attribute(f"exgentic.session.action.{action.name}.name", action.name)
@@ -385,10 +397,14 @@ class OtelTracingObserver(Observer):
             # Set tool parameters as JSON
             if get_settings().otel_record_content:
                 try:
-                    params_json = first_action.arguments.model_dump_json()
+                    params_json = self._serialize_to_json(first_action.arguments)
                     span_manager.current_span.set_attribute("gen_ai.tool.parameters", params_json)
                 except Exception:
-                    pass
+                    logger.warning(
+                        "Failed to serialize tool parameters for %s",
+                        tool_name,
+                        exc_info=True,
+                    )
 
     def on_react_error(self, session, error) -> None:
         return None
