@@ -21,6 +21,7 @@ Options:
 import argparse
 import asyncio
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -29,6 +30,9 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 import psutil
+
+# Setup logger
+logger = logging.getLogger(__name__)
 
 
 def find_a2a_server_pid(port: int = 8001) -> Optional[int]:
@@ -288,13 +292,13 @@ class MemoryMonitor:
             print("✓ No memory increase detected (or memory decreased)")
 
 
-async def call_a2a_agent(a2a_url: str, task_input: str, debug: bool = False) -> Dict[str, Any]:
+async def call_a2a_agent(a2a_url: str, task_input: str, timeout: float = 600.0) -> Dict[str, Any]:
     """Call the A2A agent to solve a task.
 
     Args:
         a2a_url: URL of the A2A agent server
         task_input: Task description/input
-        debug: Enable debug output
+        timeout: Timeout in seconds for the A2A client (default: 600)
 
     Returns:
         Dictionary with result information
@@ -310,55 +314,102 @@ async def call_a2a_agent(a2a_url: str, task_input: str, debug: bool = False) -> 
     try:
         import httpx
 
-        httpx_client = httpx.AsyncClient()
+        # Use a long timeout for A2A client to handle long-running tasks
+        httpx_client = httpx.AsyncClient(timeout=timeout)
         client_config = ClientConfig(httpx_client=httpx_client)
         
-        # Fetch and override agent card URL
-        if debug:
-            print(f"   [DEBUG] Resolving Agent Card at {a2a_url}")
+        # Fetch the agent card manually and override the URL
+        logger.debug(f"Resolving Agent Card at {a2a_url} (timeout={timeout}s)")
         
         resolver = A2ACardResolver(httpx_client=httpx_client, base_url=a2a_url)
         card = await resolver.get_agent_card()
+        
+        # Override the URL in the card to use the actual server URL
+        logger.debug(f"Agent card original URL: '{card.url}'")
+        logger.debug(f"Overriding agent card URL to: '{a2a_url}'")
         card.url = a2a_url
         
-        if debug:
-            print(f"   [DEBUG] Creating client with URL: {a2a_url}")
-        
+        # Create the client using the modified card
+        logger.debug("Creating client with overridden URL")
         client = ClientFactory(client_config).create(card=card)
+        
+        # Create a text message with explicit role
+        logger.debug(f"Creating message with role=user, content length={len(task_input)}")
         message = create_text_message_object(role=Role.user, content=task_input)
+        
+        logger.debug(f"Message created: role={message.role}, message_id={message.message_id}")
+        logger.debug(f"Message parts: {len(message.parts)}")
         
         # Send message and collect results
         result_text = ""
         task_id = None
         event_count = 0
         
-        if debug:
-            print(f"   [DEBUG] Sending message to agent...")
+        logger.debug("Sending message to agent...")
         
         async for response in client.send_message(message):
             event_count += 1
+            logger.debug(f"Received response #{event_count}: type={type(response).__name__}")
             
             if isinstance(response, tuple):
+                # This is a (Task, Event) tuple
                 task, event = response
                 if task_id is None:
                     task_id = task.id
+                    logger.debug(f"Task ID: {task_id}")
                 
-                # Extract text from artifacts
+                if event:
+                    # For status updates, just print the text
+                    if hasattr(event, 'kind') and event.kind == 'status-update':
+                        if hasattr(event, 'status') and hasattr(event.status, 'message'):
+                            msg = event.status.message
+                            if hasattr(msg, 'parts'):
+                                texts = []
+                                for part in msg.parts:
+                                    if hasattr(part, 'root') and hasattr(part.root, 'text'):
+                                        texts.append(part.root.text)
+                                if texts:
+                                    logger.debug(f"Status update: {' '.join(texts)}")
+                                else:
+                                    logger.debug("Status update (no text)")
+                            else:
+                                logger.debug(f"Status update: {event.status.state}")
+                        else:
+                            logger.debug(f"Status update: {event.status.state if hasattr(event, 'status') else 'unknown'}")
+                    else:
+                        # For other events, pretty print the full details
+                        event_dict = event.model_dump() if hasattr(event, 'model_dump') else str(event)
+                        logger.debug(f"Event details ({event.kind if hasattr(event, 'kind') else 'unknown'}):")
+                        logger.debug(f"{json.dumps(event_dict, indent=6, default=str)}")
+                
+                # Check for artifact updates
                 if event and hasattr(event, 'artifact') and event.artifact:
+                    logger.debug(f"Event has artifact with {len(event.artifact.parts)} parts")
                     for part in event.artifact.parts:
+                        # Part is a wrapper, actual data is in part.root
                         if hasattr(part, 'root') and isinstance(part.root, TextPart):
-                            result_text += part.root.text
+                            text = part.root.text
+                            result_text += text
+                            logger.debug(f"Extracted text from artifact: {text[:100]}...")
             else:
-                # Extract text from message parts
+                # This is a Message response
+                msg_dict = response.model_dump() if hasattr(response, 'model_dump') else str(response)
+                logger.debug("Message response details:")
+                logger.debug(f"{json.dumps(msg_dict, indent=6, default=str)}")
+                
                 if hasattr(response, 'parts'):
+                    logger.debug(f"Message response with {len(response.parts)} parts")
                     for part in response.parts:
+                        # Part is a wrapper, actual data is in part.root
                         if hasattr(part, 'root') and isinstance(part.root, TextPart):
-                            result_text += part.root.text
+                            text = part.root.text
+                            result_text += text
+                            logger.debug(f"Extracted text from message: {text[:100]}...")
         
         elapsed_time = time.time() - start_time
         
-        if debug:
-            print(f"   [DEBUG] Completed in {elapsed_time:.2f}s, received {event_count} events")
+        logger.debug(f"Completed in {elapsed_time:.2f}s, received {event_count} events")
+        logger.debug(f"Result length: {len(result_text)} characters")
         
         return {
             "success": True,
@@ -367,7 +418,6 @@ async def call_a2a_agent(a2a_url: str, task_input: str, debug: bool = False) -> 
             "error": None,
             "task_id": task_id,
         }
-        
     except A2AClientTimeoutError as e:
         elapsed_time = time.time() - start_time
         return {
@@ -379,9 +429,7 @@ async def call_a2a_agent(a2a_url: str, task_input: str, debug: bool = False) -> 
         }
     except Exception as e:
         elapsed_time = time.time() - start_time
-        if debug:
-            import traceback
-            traceback.print_exc()
+        logger.exception(f"Error calling A2A agent: {type(e).__name__}: {str(e)}")
         return {
             "success": False,
             "result": None,
@@ -391,15 +439,17 @@ async def call_a2a_agent(a2a_url: str, task_input: str, debug: bool = False) -> 
         }
     finally:
         if httpx_client:
-            await httpx_client.aclose()
+            try:
+                await httpx_client.aclose()
+            except Exception:
+                pass
 
 
-async def fetch_tasks(mcp_session, debug: bool = False) -> List[str]:
+async def fetch_tasks(mcp_session) -> List[str]:
     """Fetch available tasks from MCP server.
     
     Args:
         mcp_session: MCP client session
-        debug: Enable debug output
         
     Returns:
         List of task IDs
@@ -412,19 +462,17 @@ async def fetch_tasks(mcp_session, debug: bool = False) -> List[str]:
     tasks_data = json.loads(list_tasks_result.content[0].text)
     task_ids = tasks_data.get("tasks", tasks_data.get("task_ids", []))
     
-    if debug:
-        print(f"✓ Found {len(task_ids)} tasks")
+    logger.info(f"Found {len(task_ids)} tasks")
     
     return task_ids
 
 
-async def create_mcp_session(mcp_session, task_id: str, debug: bool = False) -> Dict[str, Any]:
+async def create_mcp_session(mcp_session, task_id: str) -> Dict[str, Any]:
     """Create a session in the MCP server for a task.
     
     Args:
         mcp_session: MCP client session
         task_id: Task ID to create session for
-        debug: Enable debug output
         
     Returns:
         Dictionary with session information
@@ -435,9 +483,7 @@ async def create_mcp_session(mcp_session, task_id: str, debug: bool = False) -> 
         raise RuntimeError(f"Error creating session: {create_result.content}")
     
     session_data = json.loads(create_result.content[0].text)
-    
-    if debug:
-        print(f"   ✓ Session created: {session_data.get('session_id')}")
+    logger.debug(f"Session created: {session_data.get('session_id')}")
     
     return session_data
 
@@ -473,13 +519,12 @@ If you are asked to submit an answer, make sure you call the submit MCP tool."""
     return "\n".join(prompt_parts)
 
 
-async def evaluate_mcp_session(mcp_session, session_id: str, debug: bool = False) -> Optional[Dict[str, Any]]:
+async def evaluate_mcp_session(mcp_session, session_id: str) -> Optional[Dict[str, Any]]:
     """Evaluate a session in the MCP server.
     
     Args:
         mcp_session: MCP client session
         session_id: Session ID to evaluate
-        debug: Enable debug output
         
     Returns:
         Evaluation data dictionary, or None if evaluation failed
@@ -492,18 +537,18 @@ async def evaluate_mcp_session(mcp_session, session_id: str, debug: bool = False
         
         if eval_result.isError:
             error_content = eval_result.content[0].text if eval_result.content else "Unknown error"
+            logger.warning(f"Evaluation error: {error_content}")
             print(f"   ⚠️  Evaluation error: {error_content}")
             return None
         
         eval_text = eval_result.content[0].text
-        
-        if debug:
-            print(f"   [DEBUG] Raw evaluation response: {eval_text}")
+        logger.debug(f"Raw evaluation response: {eval_text}")
         
         eval_data = json.loads(eval_text)
         
         # Check if there's an error in the response
         if "error" in eval_data:
+            logger.warning(f"Evaluation returned error: {eval_data['error']}")
             print(f"   ⚠️  Evaluation returned error: {eval_data['error']}")
             return None
         
@@ -515,23 +560,21 @@ async def evaluate_mcp_session(mcp_session, session_id: str, debug: bool = False
         return eval_data
         
     except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse evaluation response as JSON: {e}")
         print(f"   ⚠️  Failed to parse evaluation response as JSON: {e}")
         return None
     except Exception as e:
+        logger.exception(f"Evaluation exception: {type(e).__name__}: {e}")
         print(f"   ⚠️  Evaluation exception: {type(e).__name__}: {e}")
-        if debug:
-            import traceback
-            traceback.print_exc()
         return None
 
 
-async def delete_mcp_session(mcp_session, session_id: str, debug: bool = False) -> bool:
+async def delete_mcp_session(mcp_session, session_id: str) -> bool:
     """Delete a session in the MCP server.
     
     Args:
         mcp_session: MCP client session
         session_id: Session ID to delete
-        debug: Enable debug output
         
     Returns:
         True if successful, False otherwise
@@ -540,14 +583,16 @@ async def delete_mcp_session(mcp_session, session_id: str, debug: bool = False) 
         delete_result = await mcp_session.call_tool("delete_session", {"session_id": session_id})
         
         if delete_result.isError:
+            logger.error(f"Error deleting session: {delete_result.content}")
             print(f"   ❌ Error deleting session: {delete_result.content}")
             return False
         
-        if debug:
-            print(f"   ✓ Session deleted")
+        logger.debug("Session deleted")
+        print(f"   ✓ Session deleted")
         return True
         
     except Exception as e:
+        logger.exception(f"Exception deleting session: {e}")
         print(f"   ❌ Exception deleting session: {e}")
         return False
 
@@ -599,7 +644,6 @@ async def test_a2a_agent(
     limit: int = 0,
     server_pid: Optional[int] = None,
     timeout: float = 300.0,
-    debug: bool = False,
 ):
     """Test A2A agent by solving tasks from MCP server.
 
@@ -693,7 +737,7 @@ async def test_a2a_agent(
                 print("FETCHING AVAILABLE TASKS")
                 print("-" * 80)
 
-                task_ids = await fetch_tasks(mcp_session, debug=debug)
+                task_ids = await fetch_tasks(mcp_session)
 
                 # Apply limit if specified
                 if limit > 0 and len(task_ids) > limit:
@@ -714,7 +758,7 @@ async def test_a2a_agent(
 
                     try:
                         # Create session in MCP server
-                        session_data = await create_mcp_session(mcp_session, task_id, debug=debug)
+                        session_data = await create_mcp_session(mcp_session, task_id)
                         session_id = session_data.get("session_id")
                         task_input = session_data.get("task", "")
                         context = session_data.get("context", {})
@@ -731,7 +775,7 @@ async def test_a2a_agent(
                         
                         # Call A2A agent to solve the task
                         print(f"   🤖 Calling A2A agent...")
-                        result = await call_a2a_agent(a2a_url, enhanced_task_input, debug=debug)
+                        result = await call_a2a_agent(a2a_url, enhanced_task_input, timeout=timeout)
 
                         if result["success"]:
                             print(f"   ✓ Task completed in {result['elapsed_time']:.2f}s")
@@ -740,7 +784,7 @@ async def test_a2a_agent(
                             
                             # Evaluate the session
                             print(f"   📊 Evaluating session...")
-                            eval_data = await evaluate_mcp_session(mcp_session, session_id, debug=debug)
+                            eval_data = await evaluate_mcp_session(mcp_session, session_id)
                         else:
                             print(f"   ❌ Task failed: {result['error']}")
                             eval_data = None
@@ -790,7 +834,7 @@ async def test_a2a_agent(
                         session_id = session_info["session_id"]
                         print(f"\n[{i}/{len(created_sessions)}] Deleting session {session_id}...")
 
-                        await delete_mcp_session(mcp_session, session_id, debug=debug)
+                        await delete_mcp_session(mcp_session, session_id)
 
                         # Measure memory after every 10 deletions
                         if monitor and (i % 10 == 0 or i == len(created_sessions)):
@@ -863,6 +907,22 @@ def main():
 
     args = parser.parse_args()
 
+    # Configure logging for this module only based on debug flag
+    if args.debug:
+        logger.setLevel(logging.DEBUG)
+        handler = logging.StreamHandler()
+        handler.setLevel(logging.DEBUG)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    else:
+        logger.setLevel(logging.INFO)
+        handler = logging.StreamHandler()
+        handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
     return asyncio.run(
         test_a2a_agent(
             args.mcp_url,
@@ -872,7 +932,6 @@ def main():
             args.limit,
             args.server_pid,
             args.timeout,
-            args.debug,
         )
     )
 
