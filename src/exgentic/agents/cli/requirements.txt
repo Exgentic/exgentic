@@ -1,1 +1,2 @@
 litellm[proxy]
+websockets>=16.0
