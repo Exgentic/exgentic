@@ -112,7 +112,7 @@ def _parse_set_list(values: tuple[str, ...]) -> list[tuple[str, list[str], Any]]
             items.append(("settings", path, value))
         else:
             raise click.ClickException(
-                "Invalid --set key. Use benchmark.<arg>=..., agent.<arg>=..., " "or settings.<arg>=..."
+                "Invalid --set key. Use benchmark.<arg>=..., agent.<arg>=..., or settings.<arg>=..."
             )
     return items
 
@@ -140,7 +140,7 @@ def _validate_set_keys_for_benchmark(benchmark: str, items: list[tuple[str, list
             raise click.ClickException(f"Use --subset/--num-tasks instead of --set benchmark.{path[0]}.")
         if not allow_any and path[0] not in allowed:
             raise click.ClickException(
-                f"Unknown benchmark override '{path[0]}'. " f"Available: {', '.join(sorted(allowed))}"
+                f"Unknown benchmark override '{path[0]}'. Available: {', '.join(sorted(allowed))}"
             )
 
 
@@ -160,13 +160,11 @@ def _validate_set_keys_for_agent(agent: str, items: list[tuple[str, list[str], A
         if path[0] == "model_settings":
             if len(path) < 2 or path[1] not in model_fields:
                 raise click.ClickException(
-                    f"Unknown agent model override '{'.'.join(path)}'. " f"Available: {', '.join(sorted(model_fields))}"
+                    f"Unknown agent model override '{'.'.join(path)}'. Available: {', '.join(sorted(model_fields))}"
                 )
             continue
         if not allow_any and path[0] not in allowed:
-            raise click.ClickException(
-                f"Unknown agent override '{path[0]}'. " f"Available: {', '.join(sorted(allowed))}"
-            )
+            raise click.ClickException(f"Unknown agent override '{path[0]}'. Available: {', '.join(sorted(allowed))}")
 
 
 def _validate_set_keys_for_settings(
@@ -178,7 +176,7 @@ def _validate_set_keys_for_settings(
             continue
         if len(path) != 1 or path[0] not in allowed:
             raise click.ClickException(
-                f"Unknown settings override '{'.'.join(path)}'. " f"Available: {', '.join(sorted(allowed))}"
+                f"Unknown settings override '{'.'.join(path)}'. Available: {', '.join(sorted(allowed))}"
             )
 
 
@@ -308,6 +306,11 @@ def has_run_options(
     max_steps: int | None,
     max_actions: int | None,
 ) -> bool:
+    """Check whether any identity-affecting run options were provided.
+
+    Fields in ``RunConfig.OVERRIDABLE_FIELDS`` are skipped — they
+    can be passed alongside ``--config`` as overrides.
+    """
     if benchmark or agent or agent_json or subset or model or log_level:
         return True
     if agent_arg or set_values or tasks:

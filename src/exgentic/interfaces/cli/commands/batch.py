@@ -187,9 +187,9 @@ def _parse_patch_values(pairs: tuple[str, ...]) -> dict[str, Any]:
 def _apply_patch(payload: dict[str, Any], updates: dict[str, Any]) -> None:
     for key, value in updates.items():
         if key.startswith("agent."):
-            key = f"agent_kwargs.{key[len('agent.'):]}"
+            key = f"agent_kwargs.{key[len('agent.') :]}"
         elif key.startswith("benchmark."):
-            key = f"benchmark_kwargs.{key[len('benchmark.'):]}"
+            key = f"benchmark_kwargs.{key[len('benchmark.') :]}"
         if "." not in key:
             payload[key] = value
             continue
@@ -481,11 +481,19 @@ def batch_status_cmd(
     multiple=True,
     help="RunConfig/SessionConfig path or glob pattern (repeatable).",
 )
+@click.option("--num-tasks", type=int, default=None, help="Override num_tasks for all configs.")
+@click.option("--max-workers", type=int, default=None, help="Override max_workers for all configs.")
+@click.option("--max-steps", type=int, default=None, help="Override max_steps for all configs.")
+@click.option("--max-actions", type=int, default=None, help="Override max_actions for all configs.")
 @click.pass_context
 def batch_evaluate_cmd(
     ctx: click.Context,
     debug: bool,
     config_values: tuple[str, ...],
+    num_tasks: int | None,
+    max_workers: int | None,
+    max_steps: int | None,
+    max_actions: int | None,
 ) -> None:
     """Evaluate configs sequentially."""
     apply_debug_mode(debug)
@@ -496,6 +504,8 @@ def batch_evaluate_cmd(
         click.echo(f"Running: {config_path}")
         try:
             cfg = _load_run_like_config(config_path)
+            if isinstance(cfg, RunConfig):
+                cfg = cfg.with_overrides(**ctx.params)
             evaluate(config=cfg)
         except Exception as exc:
             failures.append((config_path, str(exc)))
@@ -520,11 +530,19 @@ def batch_evaluate_cmd(
     multiple=True,
     help="RunConfig/SessionConfig path or glob pattern (repeatable).",
 )
+@click.option("--num-tasks", type=int, default=None, help="Override num_tasks for all configs.")
+@click.option("--max-workers", type=int, default=None, help="Override max_workers for all configs.")
+@click.option("--max-steps", type=int, default=None, help="Override max_steps for all configs.")
+@click.option("--max-actions", type=int, default=None, help="Override max_actions for all configs.")
 @click.pass_context
 def batch_execute_cmd(
     ctx: click.Context,
     debug: bool,
     config_values: tuple[str, ...],
+    num_tasks: int | None,
+    max_workers: int | None,
+    max_steps: int | None,
+    max_actions: int | None,
 ) -> None:
     """Execute configs sequentially (no aggregation)."""
     apply_debug_mode(debug)
@@ -535,6 +553,8 @@ def batch_execute_cmd(
         click.echo(f"Running: {config_path}")
         try:
             cfg = _load_run_like_config(config_path)
+            if isinstance(cfg, RunConfig):
+                cfg = cfg.with_overrides(**ctx.params)
             execute(config=cfg)
         except Exception as exc:
             failures.append((config_path, str(exc)))
@@ -1001,7 +1021,7 @@ def batch_publish_cmd(
                 new_rows.append(row)
 
             all_rows = existing_rows + new_rows
-            click.echo(f"Publishing {len(all_rows)} row(s) " f"({len(new_rows) - updated} new, {updated} updated).")
+            click.echo(f"Publishing {len(all_rows)} row(s) ({len(new_rows) - updated} new, {updated} updated).")
         except Exception:
             click.echo("No existing dataset found, creating new one.")
             all_rows = rows
@@ -1019,13 +1039,13 @@ def batch_publish_cmd(
 
 
 __all__ = [
+    "batch_aggregate_cmd",
     "batch_cmd",
-    "batch_status_cmd",
     "batch_evaluate_cmd",
     "batch_execute_cmd",
-    "batch_prepare_cmd",
-    "batch_aggregate_cmd",
-    "batch_patch_cmd",
     "batch_extract_cmd",
+    "batch_patch_cmd",
+    "batch_prepare_cmd",
     "batch_publish_cmd",
+    "batch_status_cmd",
 ]

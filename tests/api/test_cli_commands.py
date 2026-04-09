@@ -74,6 +74,39 @@ def test_cli_execute_session_config(tmp_path):
     assert len(session_dirs) == 1
 
 
+def test_cli_evaluate_config_with_num_tasks_override(tmp_path):
+    """--num-tasks should override the config's num_tasks."""
+    runner = CliRunner()
+    output_dir = tmp_path / "outputs"
+    config = RunConfig(
+        benchmark="test_benchmark",
+        agent="test_agent",
+        output_dir=str(output_dir),
+        cache_dir=str(tmp_path / "cache"),
+        run_id="run-override",
+        num_tasks=10,
+        benchmark_kwargs={"tasks": [f"task-{i}" for i in range(10)]},
+        agent_kwargs={"policy": "good_then_finish", "finish_after": 2},
+    )
+    config_path = tmp_path / "run_config.json"
+    config_path.write_text(config.model_dump_json(indent=2), encoding="utf-8")
+
+    result = runner.invoke(
+        cli,
+        [
+            "evaluate",
+            "--config",
+            str(config_path),
+            "--num-tasks",
+            "2",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    sessions_root = output_dir / "run-override" / "sessions"
+    session_dirs = [p for p in sessions_root.iterdir() if (p / "config.json").exists()]
+    assert len(session_dirs) == 2
+
+
 def test_cli_status_with_config(tmp_path):
     runner = CliRunner()
     output_dir = tmp_path / "outputs"

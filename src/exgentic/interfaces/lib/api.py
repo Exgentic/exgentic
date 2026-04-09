@@ -148,15 +148,12 @@ def _normalize_run_config(
             raise ValueError("Do not pass run parameters together with config.")
         if isinstance(config, SessionConfig):
             config = _run_config_from_session(config)
-        if num_tasks is not None:
-            config.num_tasks = num_tasks
-        if max_workers is not None:
-            config.max_workers = max_workers
-        if max_steps is not None:
-            config.max_steps = max_steps
-        if max_actions is not None:
-            config.max_actions = max_actions
-        return config
+        return config.with_overrides(
+            num_tasks=num_tasks,
+            max_workers=max_workers,
+            max_steps=max_steps,
+            max_actions=max_actions,
+        )
     if benchmark is None or agent is None:
         raise ValueError("benchmark and agent are required.")
 

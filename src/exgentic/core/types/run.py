@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import random
-from typing import Any, Literal, Optional
+from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -37,43 +37,43 @@ class RunResults(BaseModel):
     model_names: list[str] | None = None
     subset_name: str | None = None
     total_sessions: int
-    planned_sessions: Optional[int] = None
-    planned_session_ids: Optional[list[str]] = None
+    planned_sessions: int | None = None
+    planned_session_ids: list[str] | None = None
     executed_session_ids: list[str] = Field(default_factory=list)
-    max_workers: Optional[int] = None
+    max_workers: int | None = None
     successful_sessions: int
     # Primary benchmark-level outcome (from evaluator.aggregate_sessions())
-    benchmark_score: Optional[float] = None
-    benchmark_results: Optional[dict[str, Any]] = None
-    average_score: Optional[float] = None
-    average_agent_cost: Optional[float] = None
-    total_agent_cost: Optional[float] = None
-    average_benchmark_cost: Optional[float] = None
-    total_benchmark_cost: Optional[float] = None
-    total_run_cost: Optional[float] = None
-    accumulated_agent_report: Optional[Any] = None
-    accumulated_benchmark_report: Optional[Any] = None
+    benchmark_score: float | None = None
+    benchmark_results: dict[str, Any] | None = None
+    average_score: float | None = None
+    average_agent_cost: float | None = None
+    total_agent_cost: float | None = None
+    average_benchmark_cost: float | None = None
+    total_benchmark_cost: float | None = None
+    total_run_cost: float | None = None
+    accumulated_agent_report: Any | None = None
+    accumulated_benchmark_report: Any | None = None
     session_results: list[SessionResults]
-    average_steps: Optional[float] = None
-    average_action_count: Optional[float] = None
-    average_invalid_action_count: Optional[float] = None
-    average_invalid_action_percent: Optional[float] = None
-    percent_finished: Optional[float] = None
-    percent_successful: Optional[float] = None
-    percent_finished_successful: Optional[float] = None
-    percent_finished_unsuccessful: Optional[float] = None
-    percent_unfinished: Optional[float] = None
-    percent_error: Optional[float] = None
+    average_steps: float | None = None
+    average_action_count: float | None = None
+    average_invalid_action_count: float | None = None
+    average_invalid_action_percent: float | None = None
+    percent_finished: float | None = None
+    percent_successful: float | None = None
+    percent_finished_successful: float | None = None
+    percent_finished_unsuccessful: float | None = None
+    percent_unfinished: float | None = None
+    percent_error: float | None = None
     # Aggregation provenance
-    aggregation_mode: Optional[str] = None
-    completed_sessions: Optional[int] = None
-    incomplete_sessions: Optional[int] = None
-    missing_sessions: Optional[int] = None
-    running_sessions: Optional[int] = None
-    aggregated_session_ids: Optional[list[str]] = None
-    skipped_session_ids: Optional[list[str]] = None
-    skipped_session_reasons: Optional[dict[str, str]] = None
-    missing_result_files: Optional[list[str]] = None
+    aggregation_mode: str | None = None
+    completed_sessions: int | None = None
+    incomplete_sessions: int | None = None
+    missing_sessions: int | None = None
+    running_sessions: int | None = None
+    aggregated_session_ids: list[str] | None = None
+    skipped_session_ids: list[str] | None = None
+    skipped_session_reasons: dict[str, str] | None = None
+    missing_result_files: list[str] | None = None
     exgentic_version: str | None = None
 
 
@@ -104,8 +104,8 @@ class RunStatus(BaseModel):
     benchmark_slug_name: str
     agent_name: str
     agent_slug_name: str
-    model_name: Optional[str] = None
-    subset_name: Optional[str] = None
+    model_name: str | None = None
+    subset_name: str | None = None
     task_ids: list[str]
     total_tasks: int
     session_statuses: list[SessionStatus] = Field(default_factory=list)
@@ -242,9 +242,9 @@ class RunPlan(BaseModel):
 class RunConfig(BaseEvaluationConfig):
     """Configuration for a run of multiple sessions."""
 
-    task_ids: Optional[list[str]] = None
-    num_tasks: Optional[int] = None
-    max_workers: Optional[int] = None
+    task_ids: list[str] | None = None
+    num_tasks: int | None = None
+    max_workers: int | None = None
     max_steps: int = 100
     max_actions: int = 100
     overwrite_sessions: bool = False
@@ -255,6 +255,17 @@ class RunConfig(BaseEvaluationConfig):
         if value <= 0:
             raise ValueError("limit must be > 0")
         return value
+
+    # Fields that can be overridden without affecting the run identity (run_id).
+    OVERRIDABLE_FIELDS: ClassVar[frozenset[str]] = frozenset({"num_tasks", "max_workers", "max_steps", "max_actions"})
+
+    def with_overrides(self, **kwargs: Any) -> RunConfig:
+        """Return a copy with overrides applied for fields in ``OVERRIDABLE_FIELDS``.
+
+        ``None`` values are skipped. Unknown fields are ignored.
+        """
+        updates = {k: v for k, v in kwargs.items() if k in self.OVERRIDABLE_FIELDS and v is not None}
+        return self.model_copy(update=updates) if updates else self
 
     def to_session_config(self, task_id: str) -> SessionConfig:
         """Derive a SessionConfig for a single task from this run config."""

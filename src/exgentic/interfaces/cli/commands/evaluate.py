@@ -187,7 +187,7 @@ def evaluate_cmd(
             max_workers=max_workers,
         ):
             raise click.ClickException("Do not pass run options together with --config.")
-        config = RunConfig.model_validate(_load_config_file(config_path))
+        config = RunConfig.model_validate(_load_config_file(config_path)).with_overrides(**ctx.params)
         evaluate(config)
         return
     if ctx.invoked_subcommand is not None:
