@@ -25,20 +25,17 @@ dependencies = [
     "python-dotenv>=1,<2",
     "rich>=13,<14",
     "rich-click>=1,<2",
-]
-
-[project.scripts]
-exgentic = "exgentic.interfaces.cli.main:main"
-
-[project.optional-dependencies]
-# Observability
-otel = [
     "opentelemetry-api>=1,<2",
     "opentelemetry-sdk>=1,<2",
     "opentelemetry-exporter-otlp-proto-http>=1,<2",
     "opentelemetry-exporter-otlp-proto-grpc>=1,<2",
     "opentelemetry-semantic-conventions-ai>=0.4.0,<1",
 ]
+
+[project.scripts]
+exgentic = "exgentic.interfaces.cli.main:main"
+
+[project.optional-dependencies]
 analysis = [
     "matplotlib>=3,<4",
     "numpy>=2,<3",

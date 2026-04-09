@@ -619,6 +619,11 @@ dependencies = [
     { name = "litellm" },
     { name = "mcp" },
     { name = "nicegui" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp-proto-grpc" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "opentelemetry-sdk" },
+    { name = "opentelemetry-semantic-conventions-ai" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
@@ -644,13 +649,6 @@ dev = [
     { name = "pytest-mock" },
     { name = "ruff" },
 ]
-otel = [
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc" },
-    { name = "opentelemetry-exporter-otlp-proto-http" },
-    { name = "opentelemetry-sdk" },
-    { name = "opentelemetry-semantic-conventions-ai" },
-]
 
 [package.dev-dependencies]
 dev = [
@@ -671,11 +669,11 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.24,<2" },
     { name = "nicegui", specifier = ">=3,<4" },
     { name = "numpy", marker = "extra == 'analysis'", specifier = ">=2,<3" },
-    { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1,<2" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc", marker = "extra == 'otel'", specifier = ">=1,<2" },
-    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'", specifier = ">=1,<2" },
-    { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1,<2" },
-    { name = "opentelemetry-semantic-conventions-ai", marker = "extra == 'otel'", specifier = ">=0.4.0,<1" },
+    { name = "opentelemetry-api", specifier = ">=1,<2" },
+    { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1,<2" },
+    { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1,<2" },
+    { name = "opentelemetry-sdk", specifier = ">=1,<2" },
+    { name = "opentelemetry-semantic-conventions-ai", specifier = ">=0.4.0,<1" },
     { name = "pandas", marker = "extra == 'analysis'", specifier = ">=3,<4" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.0.0,<5" },
     { name = "pydantic", specifier = ">=2.9.2,<3" },
@@ -691,7 +689,7 @@ requires-dist = [
     { name = "statsmodels", marker = "extra == 'analysis'", specifier = ">=0.14,<1" },
     { name = "typing-extensions", specifier = ">=4,<5" },
 ]
-provides-extras = ["analysis", "dev", "otel"]
+provides-extras = ["analysis", "dev"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=9.0.1,<10" }]
