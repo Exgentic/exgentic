@@ -46,7 +46,7 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
         self._model = None
 
         # Check model accessibility
-        check_model_accessible_sync(self.model_id, logger=self.logger)
+        check_model_accessible_sync(self.model_id, logger=self.logger, model_settings=self.model_settings)
 
     def run_code_agent(self, functions: list[Callable]) -> None:
         def _wrap_tool(fn: Callable) -> Callable:

@@ -87,7 +87,7 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         self._cost_data = LiteLLMCostReport.initialize_empty(model_name=self.model)
 
         # Check model accessibility
-        check_model_accessible_sync(self.model, logger=self.logger)
+        check_model_accessible_sync(self.model, logger=self.logger, model_settings=self.model_settings)
 
     def start(self, task, context, actions):
         """Receive work payload, build tool registry, and seed conversation."""
@@ -415,7 +415,7 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         if finish_reason != "tool_calls":
             if message is None or message.content is None:
                 self.logger.error(
-                    "LiteLLM completion missing assistant content " "(finish_reason=%s). Raw response: %s",
+                    "LiteLLM completion missing assistant content (finish_reason=%s). Raw response: %s",
                     finish_reason,
                     response,
                 )

@@ -117,7 +117,7 @@ class OpenAIMCPAgentInstance(MCPAgentInstance):
         if self._model_access_checked or self.mcp_config.skip_health_check:
             return
         self.logger.info("Running LiteLLM model health check (model=%s)", self.model_id)
-        await acheck_model_accessible(self.model_id)
+        await acheck_model_accessible(self.model_id, model_settings=self.model_settings)
         self._model_access_checked = True
 
     def _record_usage(self, usage: Usage | None) -> None:

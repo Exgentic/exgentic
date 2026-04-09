@@ -132,7 +132,7 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
             raise ValueError("model_settings must be a ModelSettings instance.")
 
         # Check model accessibility
-        check_model_accessible_sync(self.model_id, logger=self.logger)
+        check_model_accessible_sync(self.model_id, logger=self.logger, model_settings=self.model_settings)
 
     @property
     @abc.abstractmethod
