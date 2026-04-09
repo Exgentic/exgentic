@@ -153,6 +153,12 @@ class LitellmProxy:
 
     def _build_litellm_params(self) -> dict[str, object]:
         litellm_params: dict[str, object] = {"model": self.model}
+        # Include api_key so the Anthropic /v1/messages pass-through
+        # path can authenticate (litellm requires it as a positional arg
+        # in anthropic_messages() even when routing to non-Anthropic backends).
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if api_key:
+            litellm_params["api_key"] = api_key
         if self.model_settings.temperature is not None:
             litellm_params["temperature"] = self.model_settings.temperature
         if self.model_settings.max_tokens is not None:
@@ -174,8 +180,8 @@ class LitellmProxy:
                 "success_callback": [trace_cb],
                 "failure_callback": [trace_cb],
                 # Force chat/completions instead of /responses for Anthropic
-                # message translation — many backends (Azure proxies, etc.)
-                # don't expose the newer Responses API endpoint.
+                # message translation — many backends don't support the
+                # Responses API.
                 "use_chat_completions_url_for_anthropic_messages": True,
             },
         }
