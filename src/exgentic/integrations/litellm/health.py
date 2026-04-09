@@ -8,6 +8,10 @@ from __future__ import annotations
 import logging
 
 
+class HealthCheckError(RuntimeError):
+    """Raised when the model health check fails."""
+
+
 async def acheck_model_accessible(model: str) -> None:
     """Raise if LiteLLM cannot access the configured model.
 
@@ -49,4 +53,4 @@ def check_model_accessible_sync(
     except Exception as exc:
         error_msg = getattr(exc, "message", "") or str(exc) or repr(exc)
         logger.error("Model health check failed for %s: %s", model, error_msg)
-        raise RuntimeError(f"Model {model} is not accessible: {error_msg}") from exc
+        raise HealthCheckError(f"Model {model} is not accessible: {error_msg}") from exc

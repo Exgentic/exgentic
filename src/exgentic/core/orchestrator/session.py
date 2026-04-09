@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
+from ...integrations.litellm.health import HealthCheckError
 from ..types import SessionConfig
 from .controller import Controller
 from .observer import Observer
@@ -42,17 +43,17 @@ def run_session(
     # is baked into each service at spawn time via per-service runtime.json.
     tracker.on_session_creation(session)
 
-    agent_instance = agent.get_instance(session_id=session.session_id)
-
-    observation = session.start()
-
-    agent_instance.start(
-        task=session.task,
-        context=session.context,
-        actions=session.actions,
-    )
-
     try:
+        agent_instance = agent.get_instance(session_id=session.session_id)
+
+        observation = session.start()
+
+        agent_instance.start(
+            task=session.task,
+            context=session.context,
+            actions=session.actions,
+        )
+
         tracker.on_session_start(session, agent_instance, observation)
         while not session.done() and observation is not None:
             try:
@@ -73,6 +74,8 @@ def run_session(
             raise BenchmarkTerminationError()
         raise AgentTerminationError()
 
+    except HealthCheckError as exc:
+        tracker.on_session_error(session, AgentError(exc))
     except KeyboardInterrupt:
         tracker.on_session_error(session, RunCancelError())
         _close_session_agent(session, agent_instance)
