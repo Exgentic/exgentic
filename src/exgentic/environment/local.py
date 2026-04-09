@@ -65,5 +65,12 @@ class LocalBackend:
 
         return {"python": sys.executable, "exgentic_version": get_exgentic_version()}
 
+    def exists(self, env_dir: Path, marker_data: dict) -> bool:
+        """Check that the recorded Python binary exists."""
+        python = marker_data.get("python")
+        if not python:
+            return False
+        return Path(python).exists()
+
     def uninstall(self, env_dir: Path, marker_data: dict) -> None:
         """No-op. Cannot remove deps from the current Python environment."""

@@ -157,7 +157,15 @@ class EnvironmentManager:
             return bool(marker)
         if env_type not in marker:
             return False
-        return not self._exgentic_version_stale(name, env_type)
+        if self._exgentic_version_stale(name, env_type):
+            return False
+        # Verify the actual environment artifacts exist on disk.
+        backend = self._backends[env_type]
+        env_dir = self.env_path(name)
+        if not backend.exists(env_dir, marker.get(env_type, {})):
+            _log.info("Environment %s (%s): artifacts missing on disk, will rebuild", name, env_type)
+            return False
+        return True
 
     def get_info(self, name: str) -> dict | None:
         """Return installation info or *None* if not installed."""

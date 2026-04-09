@@ -107,6 +107,10 @@ class DockerBackend:
         )
         return {"image": image_tag, "exgentic_version": get_exgentic_version()}
 
+    def exists(self, env_dir: Path, marker_data: dict) -> bool:
+        """Docker images are managed externally; trust the marker."""
+        return bool(marker_data.get("image"))
+
     def uninstall(self, env_dir: Path, marker_data: dict) -> None:
         """Remove the Docker images referenced in the marker data.
 

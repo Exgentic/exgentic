@@ -154,6 +154,24 @@ class TestVenvInstall:
         mgr.install("mybench", module_path=module_path)
         assert (mgr.env_path("mybench") / ".installed").stat().st_mtime == mtime
 
+    def test_reinstalls_when_venv_missing(self, tmp_path: Path) -> None:
+        """Deleting the venv but keeping the marker triggers a rebuild."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        mgr.install("mybench", module_path=module_path)
+        assert mgr.is_installed("mybench", env_type=EnvType.VENV)
+
+        # Remove the venv but keep the marker.
+        venv_dir = mgr.env_path("mybench") / "venv"
+        shutil.rmtree(venv_dir)
+        assert not mgr.is_installed("mybench", env_type=EnvType.VENV)
+
+        # Reinstalling should recreate the venv.
+        mgr.install("mybench", module_path=module_path)
+        assert (venv_dir / "bin" / "python").exists()
+        assert mgr.is_installed("mybench", env_type=EnvType.VENV)
+
     def test_reinstalls_when_exgentic_version_stale(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
         mgr = EnvironmentManager(base_dir=tmp_path / "envs")

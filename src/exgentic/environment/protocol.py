@@ -29,6 +29,18 @@ class EnvironmentBackend(Protocol):
         """
         ...
 
+    def exists(self, env_dir: Path, marker_data: dict) -> bool:
+        """Check whether the environment artifacts actually exist on disk.
+
+        Args:
+            env_dir: Root directory for this environment.
+            marker_data: Data previously stored in the marker file.
+
+        Returns:
+            True if the environment is usable, False if it needs reinstalling.
+        """
+        ...
+
     def uninstall(self, env_dir: Path, marker_data: dict) -> None:
         """Tear down the environment.
 

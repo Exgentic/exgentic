@@ -79,6 +79,10 @@ class VenvBackend:
 
         return {"exgentic_version": get_exgentic_version()}
 
+    def exists(self, env_dir: Path, marker_data: dict) -> bool:
+        """Check that the venv Python binary exists."""
+        return (env_dir / "venv" / "bin" / "python").exists()
+
     def uninstall(self, env_dir: Path, marker_data: dict) -> None:
         """Remove the venv directory."""
         venv_dir = env_dir / "venv"
