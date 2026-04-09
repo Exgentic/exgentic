@@ -283,52 +283,15 @@ class ContainerRunner(ProcessRunner):
 def _detect_container_runtime() -> tuple[str, list[str]]:
     """Return ``(binary, extra_args)`` for the container CLI.
 
-    Prefer ``podman`` because on macOS it transparently resolves VM-internal
-    paths for ``-v`` mounts (e.g. ``/var/run/docker.sock``).  Fall back to
-    ``docker``.
-
-    For ``podman`` the extra_args may include ``--url`` / ``--identity`` so
-    the CLI can find its machine connection even when HOME or XDG_RUNTIME_DIR
-    differ from the interactive shell.
+    Uses Docker only (podman support was removed in #130).
     """
-    if shutil.which("podman"):
-        return "podman", _resolve_podman_connection_args()
     if shutil.which("docker"):
         return "docker", []
-    raise RuntimeError("Neither podman nor docker found on PATH")
-
-
-def _resolve_podman_connection_args() -> list[str]:
-    """Return extra ``podman`` CLI flags to select the default connection."""
-    env_name = os.environ.get("PODMAN_CONNECTION")
-    if env_name:
-        return ["--connection", env_name]
-
-    try:
-        proc = subprocess.run(
-            ["podman", "system", "connection", "list", "--format", "json"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if proc.returncode != 0:
-            return []
-        data = json.loads(proc.stdout or "[]")
-        default = next((x for x in data if x.get("Default") is True), None)
-        if default and default.get("URI"):
-            args = ["--url", str(default["URI"])]
-            identity = default.get("Identity")
-            if identity:
-                args += ["--identity", str(identity)]
-            return args
-    except Exception:
-        pass
-    return []
+    raise RuntimeError("Docker not found on PATH")
 
 
 class DockerRunner(ContainerRunner):
-    """Run the inner command inside a container (docker or podman)."""
+    """Run the inner command inside a Docker container."""
 
     host_gateway = "host.docker.internal"
 

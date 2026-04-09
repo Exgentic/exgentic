@@ -156,7 +156,7 @@ class VenvRunner:
         env["VIRTUAL_ENV"] = str(venv)
         venv_bin = str(venv / "bin")
         # Prepend venv bin to the *system* PATH so external tools (docker,
-        # podman, git, …) remain reachable from within the venv subprocess.
+        # git, …) remain reachable from within the venv subprocess.
         system_path = os.environ.get("PATH", "")
         env["PATH"] = venv_bin + os.pathsep + system_path
         inject_exgentic_env(env, role=self._role)
