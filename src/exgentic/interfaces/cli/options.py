@@ -308,13 +308,11 @@ def has_run_options(
     max_steps: int | None,
     max_actions: int | None,
 ) -> bool:
-    if benchmark or agent or agent_json or subset or num_tasks or model or log_level:
+    if benchmark or agent or agent_json or subset or model or log_level:
         return True
     if agent_arg or set_values or tasks:
         return True
-    if overwrite or run_id or max_workers is not None:
-        return True
-    if max_steps is not None or max_actions is not None:
+    if overwrite or run_id:
         return True
     if cache_dir:
         return True
