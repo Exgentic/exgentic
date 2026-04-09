@@ -91,8 +91,6 @@ def _install_tau2_stubs() -> dict[str, ModuleType]:
         "tau2.run",
         "tau2.utils",
         "tau2.utils.display",
-        "rich",
-        "rich.console",
     ]
     for name in names:
         mod = ModuleType(name)
@@ -130,7 +128,6 @@ def _install_tau2_stubs() -> dict[str, ModuleType]:
     run_mod.run_domain = object  # type: ignore[attr-defined]
 
     sys.modules["tau2.utils.display"].ConsoleDisplay = object  # type: ignore[attr-defined]
-    sys.modules["rich.console"].Console = object  # type: ignore[attr-defined]
 
     return stubs
 
