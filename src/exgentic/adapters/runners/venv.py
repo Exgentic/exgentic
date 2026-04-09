@@ -35,7 +35,7 @@ from ._utils import (
 from .service import HTTPTransport, _wait_for_health
 from .transport import ObjectProxy
 
-_HEALTH_TIMEOUT = 30.0
+_HEALTH_TIMEOUT = 120.0
 _TRANSPORT_TIMEOUT = 600.0
 
 
