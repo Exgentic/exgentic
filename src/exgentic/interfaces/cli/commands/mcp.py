@@ -253,6 +253,11 @@ def mcp_cmd(
                 try:
                     sess = sessions[session_id]
 
+                    # IMPORTANT: Evaluate BEFORE closing!
+                    # For service runner sessions, closing the session closes the HTTP transport,
+                    # making it impossible to call score() afterwards.
+                    score_result = sess.score()
+
                     # Close session if not done yet
                     # Wrap in try-except to handle cases where the client is already closed
                     if not sess.done():
@@ -261,9 +266,6 @@ def mcp_cmd(
                         except Exception as close_exc:
                             # Log but don't fail - session might already be closed by agent
                             logger.warning(f"Error closing session {session_id}: {close_exc}")
-
-                    # Evaluate the session
-                    score_result = sess.score()
 
                     return {
                         "status": "success",
