@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from datetime import datetime, timezone
 from enum import StrEnum
@@ -15,6 +16,8 @@ from .docker import DockerBackend
 from .local import LocalBackend
 from .protocol import EnvironmentBackend
 from .venv import VenvBackend
+
+_log = logging.getLogger(__name__)
 
 
 class EnvType(StrEnum):
@@ -137,7 +140,11 @@ class EnvironmentManager:
     # ------------------------------------------------------------------
 
     def is_installed(self, name: str, *, env_type: EnvType | None = None) -> bool:
-        """Check if an environment is installed.
+        """Check if an environment is installed and up-to-date.
+
+        Returns ``False`` when the environment has never been installed
+        **or** when the stored exgentic version no longer matches the
+        running version.
 
         Args:
             name: Environment name.
@@ -148,7 +155,9 @@ class EnvironmentManager:
         marker = self._read_marker(name)
         if env_type is None:
             return bool(marker)
-        return env_type in marker
+        if env_type not in marker:
+            return False
+        return not self._exgentic_version_stale(name, env_type)
 
     def get_info(self, name: str) -> dict | None:
         """Return installation info or *None* if not installed."""
@@ -191,6 +200,31 @@ class EnvironmentManager:
     def local_python(self, name: str) -> str | None:
         """Return the Python path used for local install, or *None*."""
         return self._read_marker(name).get(EnvType.LOCAL, {}).get("python")
+
+    # ------------------------------------------------------------------
+    # Version checks
+    # ------------------------------------------------------------------
+
+    def _exgentic_version_stale(self, name: str, env_type: EnvType) -> bool:
+        """Return True if the installed exgentic version differs from the running one."""
+        from .helpers import get_exgentic_version
+
+        marker = self._read_marker(name)
+        stored = marker.get(env_type, {}).get("exgentic_version")
+        current = get_exgentic_version()
+        if stored is None:
+            _log.info("Environment %s (%s): no exgentic version recorded, will rebuild", name, env_type)
+            return True
+        if stored != current:
+            _log.info(
+                "Environment %s (%s): exgentic version changed (%s -> %s), will rebuild",
+                name,
+                env_type,
+                stored,
+                current,
+            )
+            return True
+        return False
 
     # ------------------------------------------------------------------
     # Marker management

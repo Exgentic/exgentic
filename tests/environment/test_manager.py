@@ -142,6 +142,7 @@ class TestVenvInstall:
         marker = json.loads((env_dir / ".installed").read_text())
         assert "venv" in marker
         assert "installed_at" in marker["venv"]
+        assert "exgentic_version" in marker["venv"]
 
     def test_skips_if_already_installed(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
@@ -152,6 +153,57 @@ class TestVenvInstall:
 
         mgr.install("mybench", module_path=module_path)
         assert (mgr.env_path("mybench") / ".installed").stat().st_mtime == mtime
+
+    def test_reinstalls_when_exgentic_version_stale(self, tmp_path: Path) -> None:
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        mgr.install("mybench", module_path=module_path)
+        sentinel = mgr.env_path("mybench") / "venv" / "sentinel.txt"
+        sentinel.write_text("old")
+
+        # Fake a stale version in the marker.
+        marker_path = mgr.env_path("mybench") / ".installed"
+        marker = json.loads(marker_path.read_text())
+        marker["venv"]["exgentic_version"] = "0.0.0.fake"
+        marker_path.write_text(json.dumps(marker))
+
+        # is_installed should return False for stale versions.
+        assert not mgr.is_installed("mybench", env_type=EnvType.VENV)
+
+        mgr.install("mybench", module_path=module_path)
+
+        # Sentinel should be gone — venv was rebuilt.
+        assert not sentinel.exists()
+        assert mgr.is_installed("mybench", env_type=EnvType.VENV)
+
+        # Marker should contain the current version after rebuild.
+        from exgentic.environment.helpers import get_exgentic_version
+
+        marker = json.loads(marker_path.read_text())
+        assert marker["venv"]["exgentic_version"] == get_exgentic_version()
+
+    def test_reinstalls_when_exgentic_version_missing(self, tmp_path: Path) -> None:
+        """Pre-existing environments without exgentic_version trigger rebuild."""
+        module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+
+        mgr.install("mybench", module_path=module_path)
+        sentinel = mgr.env_path("mybench") / "venv" / "sentinel.txt"
+        sentinel.write_text("old")
+
+        # Remove the version field to simulate a pre-existing marker.
+        marker_path = mgr.env_path("mybench") / ".installed"
+        marker = json.loads(marker_path.read_text())
+        del marker["venv"]["exgentic_version"]
+        marker_path.write_text(json.dumps(marker))
+
+        assert not mgr.is_installed("mybench", env_type=EnvType.VENV)
+
+        mgr.install("mybench", module_path=module_path)
+
+        assert not sentinel.exists()
+        assert mgr.is_installed("mybench", env_type=EnvType.VENV)
 
     def test_force_reinstalls(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)

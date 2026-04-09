@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .helpers import (
     build_subprocess_env,
+    get_exgentic_version,
     install_packages,
     install_project,
     install_requirements,
@@ -76,7 +77,7 @@ class VenvBackend:
                 shutil.rmtree(venv_dir, ignore_errors=True)
             raise
 
-        return {}
+        return {"exgentic_version": get_exgentic_version()}
 
     def uninstall(self, env_dir: Path, marker_data: dict) -> None:
         """Remove the venv directory."""

@@ -12,6 +12,20 @@ from importlib import resources
 from pathlib import Path
 
 
+def get_exgentic_version() -> str:
+    """Return the currently running exgentic version string.
+
+    Falls back to ``"0.0.0"`` when exgentic is not installed as a
+    proper package (e.g. running from a raw source checkout).
+    """
+    try:
+        from importlib.metadata import version
+
+        return version("exgentic")
+    except Exception:
+        return "0.0.0"
+
+
 def get_exgentic_install_target() -> tuple[Path | None, list[str] | None]:
     """Return ``(project_root, packages)`` for installing exgentic itself.
 

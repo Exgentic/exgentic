@@ -14,7 +14,7 @@ from pathlib import Path
 
 import tomllib
 
-from .helpers import find_package_file, read_lines
+from .helpers import find_package_file, get_exgentic_version, read_lines
 
 _DOCKER_CLI_VERSION = "27.5.1"
 _DOCKER_CLI_RUN = (
@@ -96,7 +96,7 @@ class DockerBackend:
             docker_socket=docker_socket,
         )
         if not force and self._image_exists(image_tag):
-            return {"image": image_tag}
+            return {"image": image_tag, "exgentic_version": get_exgentic_version()}
         self._build_image(
             image_tag,
             req_path,
@@ -105,7 +105,7 @@ class DockerBackend:
             packages=packages,
             docker_socket=docker_socket,
         )
-        return {"image": image_tag}
+        return {"image": image_tag, "exgentic_version": get_exgentic_version()}
 
     def uninstall(self, env_dir: Path, marker_data: dict) -> None:
         """Remove the Docker images referenced in the marker data.
@@ -153,7 +153,7 @@ class DockerBackend:
         )
 
         if not force and self._image_exists(bench_tag):
-            return {"image": bench_tag}
+            return {"image": bench_tag, "exgentic_version": get_exgentic_version()}
 
         if force or not self._image_exists(base_tag):
             self._build_base_image(base_tag, project_root)
@@ -167,7 +167,7 @@ class DockerBackend:
             packages=packages,
             docker_socket=docker_socket,
         )
-        return {"image": bench_tag, "base_image": base_tag}
+        return {"image": bench_tag, "base_image": base_tag, "exgentic_version": get_exgentic_version()}
 
     @classmethod
     def _base_image_tag(cls, project_root: Path) -> str:

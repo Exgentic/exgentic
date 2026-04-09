@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .helpers import (
     build_subprocess_env,
+    get_exgentic_version,
     install_packages,
     install_project,
     install_requirements,
@@ -62,7 +63,7 @@ class LocalBackend:
                 validate_system_deps(module_path)
                 run_setup_sh(module_path, env_dir)
 
-        return {"python": sys.executable}
+        return {"python": sys.executable, "exgentic_version": get_exgentic_version()}
 
     def uninstall(self, env_dir: Path, marker_data: dict) -> None:
         """No-op. Cannot remove deps from the current Python environment."""
