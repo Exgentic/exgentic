@@ -700,7 +700,7 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
         # sessions don't each load the heavy search index (OOM / slow).
         # Direct/thread runners share memory so the model is loaded once.
         if not self.retriever_runner and self.resolve_runner() in ("docker", "venv", "process"):
-            self.retriever_runner = "service"
+            self.retriever_runner = "venv"
         kwargs: dict[str, Any] = {
             "searcher_params": self._searcher_params(),
             "assets_dir": self._assets_dir,
