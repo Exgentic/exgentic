@@ -2615,14 +2615,16 @@ class TestLLMInferenceContentFiltering:
 class TestTraceLoggerSilentFailure:
     """Verify TraceLogger._write_otel swallows exceptions silently."""
 
-    def test_write_otel_emits_warning_on_tracer_error(self):
-        """Exception in start_span emits warning but doesn't propagate."""
+    def test_write_otel_emits_warning_on_tracer_error(self, caplog):
+        """Exception in start_span logs warning but doesn't propagate."""
+        import logging
+
         from exgentic.integrations.litellm.trace_logger import TraceLogger
 
-        logger = TraceLogger()
-        logger._tracer = MagicMock()
-        logger._tracer.start_span.side_effect = RuntimeError("tracer broken")
-        logger._otel_logger = MagicMock()
+        tl = TraceLogger()
+        tl._tracer = MagicMock()
+        tl._tracer.start_span.side_effect = RuntimeError("tracer broken")
+        tl._otel_logger = MagicMock()
 
         mock_ctx = MagicMock()
         mock_ctx.session_id = "s"
@@ -2632,33 +2634,37 @@ class TestTraceLoggerSilentFailure:
 
         with (
             patch("exgentic.integrations.litellm.trace_logger._otel_enabled", return_value=True),
-            patch.object(logger, "get_context", return_value=mock_ctx),
-            pytest.warns(UserWarning, match="TraceLogger._write_otel failed.*tracer broken"),
+            patch.object(tl, "get_context", return_value=mock_ctx),
+            caplog.at_level(logging.WARNING, logger="exgentic.integrations.litellm.trace_logger"),
         ):
-            logger._write_otel(
+            tl._write_otel(
                 {"model": "m", "messages": [], "optional_params": {}, "litellm_params": {}},
                 {},
                 "success",
             )
+        assert "TraceLogger._write_otel failed" in caplog.text
 
-    def test_write_otel_emits_warning_on_context_error(self):
-        """Exception in get_context emits warning but doesn't propagate."""
+    def test_write_otel_emits_warning_on_context_error(self, caplog):
+        """Exception in get_context logs warning but doesn't propagate."""
+        import logging
+
         from exgentic.integrations.litellm.trace_logger import TraceLogger
 
-        logger = TraceLogger()
-        logger._tracer = MagicMock()
-        logger._otel_logger = MagicMock()
+        tl = TraceLogger()
+        tl._tracer = MagicMock()
+        tl._otel_logger = MagicMock()
 
         with (
             patch("exgentic.integrations.litellm.trace_logger._otel_enabled", return_value=True),
-            patch.object(logger, "get_context", side_effect=RuntimeError("context broken")),
-            pytest.warns(UserWarning, match="TraceLogger._write_otel failed.*context broken"),
+            patch.object(tl, "get_context", side_effect=RuntimeError("context broken")),
+            caplog.at_level(logging.WARNING, logger="exgentic.integrations.litellm.trace_logger"),
         ):
-            logger._write_otel(
+            tl._write_otel(
                 {"model": "m", "messages": [], "optional_params": {}, "litellm_params": {}},
                 {},
                 "success",
             )
+        assert "TraceLogger._write_otel failed" in caplog.text
 
     def test_write_otel_noop_when_init_otel_fails_to_set_tracer(self):
         """If _init_otel fails (context missing), subsequent _write_otel calls silently skip."""
@@ -2878,7 +2884,377 @@ class TestHeritableAttributeCompleteness:
 
 
 # ===================================================================
-# Content recording robustness (GitHub issue #140)
+# 8. Exporter tests
+# ===================================================================
+
+
+class TestFileSpanExporter:
+    """Direct tests for FileSpanExporter."""
+
+    def test_export_writes_jsonl(self, tmp_path):
+        from exgentic.utils.otel import FileSpanExporter
+
+        path = tmp_path / "spans.jsonl"
+        exporter = FileSpanExporter(path)
+
+        mock_span = MagicMock()
+        mock_span.to_json.return_value = '{"name": "test"}'
+
+        result = exporter.export([mock_span])
+        assert result == SpanExportResult.SUCCESS
+        assert path.read_text() == '{"name": "test"}\n'
+
+    def test_export_appends(self, tmp_path):
+        from exgentic.utils.otel import FileSpanExporter
+
+        path = tmp_path / "spans.jsonl"
+        exporter = FileSpanExporter(path)
+
+        span1 = MagicMock()
+        span1.to_json.return_value = '{"name": "a"}'
+        span2 = MagicMock()
+        span2.to_json.return_value = '{"name": "b"}'
+
+        exporter.export([span1])
+        exporter.export([span2])
+        lines = path.read_text().strip().split("\n")
+        assert len(lines) == 2
+
+    def test_export_creates_parent_dirs(self, tmp_path):
+        from exgentic.utils.otel import FileSpanExporter
+
+        path = tmp_path / "deep" / "nested" / "spans.jsonl"
+        FileSpanExporter(path)
+        assert path.parent.exists()
+
+    def test_export_returns_failure_on_write_error(self, tmp_path):
+        from exgentic.utils.otel import FileSpanExporter
+
+        path = tmp_path / "spans.jsonl"
+        exporter = FileSpanExporter(path)
+
+        mock_span = MagicMock()
+        mock_span.to_json.side_effect = RuntimeError("serialize error")
+
+        result = exporter.export([mock_span])
+        assert result == SpanExportResult.FAILURE
+
+
+class TestPerSessionFileExporter:
+    """Direct tests for PerSessionFileExporter."""
+
+    def test_routes_by_session_id(self, tmp_path):
+        from exgentic.utils.otel import PerSessionFileExporter
+
+        exporter = PerSessionFileExporter(tmp_path)
+
+        span = MagicMock()
+        span.attributes = {"exgentic.session.id": "sess-abc"}
+        span.to_json.return_value = '{"name": "test"}'
+
+        result = exporter.export([span])
+        assert result == SpanExportResult.SUCCESS
+
+        expected = tmp_path / "sessions" / "sess-abc" / "otel_spans.jsonl"
+        assert expected.exists()
+        assert '{"name": "test"}' in expected.read_text()
+
+    def test_skips_spans_without_session_id(self, tmp_path):
+        from exgentic.utils.otel import PerSessionFileExporter
+
+        exporter = PerSessionFileExporter(tmp_path)
+
+        span = MagicMock()
+        span.attributes = {}
+        span.to_json.return_value = '{"name": "orphan"}'
+
+        result = exporter.export([span])
+        assert result == SpanExportResult.SUCCESS
+        # No session dir should be created
+        assert not (tmp_path / "sessions").exists()
+
+    def test_returns_failure_on_write_error(self, tmp_path):
+        from exgentic.utils.otel import PerSessionFileExporter
+
+        exporter = PerSessionFileExporter(tmp_path)
+
+        span = MagicMock()
+        span.attributes = {"exgentic.session.id": "sess-1"}
+        span.to_json.side_effect = RuntimeError("boom")
+
+        result = exporter.export([span])
+        assert result == SpanExportResult.FAILURE
+
+
+# ===================================================================
+# 9. Additional attribute conversion edge cases
+# ===================================================================
+
+
+class TestAttributeConversionEdgeCases:
+    """Additional edge cases for to_otel_attribute_value and helpers."""
+
+    def test_bool_int_list_rejected(self):
+        """Lists mixing bool and int are not homogeneous (bool is subclass of int)."""
+        from exgentic.utils.otel import to_otel_attribute_value
+
+        result = to_otel_attribute_value([True, 1, False])
+        # Should fall back to JSON since bool+int can't be homogeneous
+        assert isinstance(result, str)
+
+    def test_decimal_in_list(self):
+        from exgentic.utils.otel import to_otel_attribute_value
+
+        result = to_otel_attribute_value([Decimal("1.5"), Decimal("2.5")])
+        assert result == [1.5, 2.5]
+
+    def test_pydantic_model_dump(self):
+        from exgentic.utils.otel import to_otel_attribute_value
+
+        obj = MagicMock()
+        obj.model_dump.return_value = {"field": "value"}
+        # Remove __dict__ to ensure model_dump path is taken in _json_default
+        result = to_otel_attribute_value(obj)
+        assert isinstance(result, str)
+        parsed = json.loads(result)
+        assert parsed["field"] == "value"
+
+    def test_object_with_dict_attr(self):
+        """Objects with __dict__ but no model_dump/dict go through JSON with _json_default fallback."""
+        from exgentic.utils.otel import to_otel_attribute_value
+
+        class Obj:
+            def __init__(self):
+                self.x = 1
+                self.y = "hello"
+
+        result = to_otel_attribute_value(Obj())
+        # Should return a string (JSON or str fallback)
+        assert isinstance(result, str)
+
+    def test_prefer_json_false_skips_json_for_sequences(self):
+        from exgentic.utils.otel import to_otel_attribute_value
+
+        # Mixed list that can't be homogeneous — with prefer_json=False should return str()
+        result = to_otel_attribute_value([{"nested": True}], prefer_json=False)
+        # Should not attempt JSON, no result from homogeneous, falls to Mapping/object or str
+        assert isinstance(result, str)
+
+
+# ===================================================================
+# 10. SessionSpanManager.depth and sort_session_spans
+# ===================================================================
+
+
+class TestSessionSpanManagerDepth:
+    """Tests for the depth property."""
+
+    def test_depth_zero_initially(self, span_manager):
+        assert span_manager.depth == 0
+
+    def test_depth_increments_on_start(self, span_manager):
+        span_manager.start_span("root")
+        assert span_manager.depth == 1
+        span_manager.start_span("child")
+        assert span_manager.depth == 2
+
+    def test_depth_decrements_on_end(self, span_manager):
+        span_manager.start_span("root")
+        span_manager.start_span("child")
+        span_manager.end_current_span()
+        assert span_manager.depth == 1
+        span_manager.end_current_span()
+        assert span_manager.depth == 0
+
+
+class TestSortSessionSpans:
+    """Tests for _sort_session_spans."""
+
+    def test_sorts_by_start_time(self, ctx, tmp_path):
+        session_id = "sess-001"
+        session_dir = tmp_path / "test-run" / "sessions" / session_id
+        session_dir.mkdir(parents=True)
+        spans_file = session_dir / "otel_spans.jsonl"
+
+        # Write spans out of order
+        spans = [
+            {"name": "second", "start_time": "2026-01-01T00:00:02"},
+            {"name": "first", "start_time": "2026-01-01T00:00:01"},
+            {"name": "third", "start_time": "2026-01-01T00:00:03"},
+        ]
+        with open(spans_file, "w") as f:
+            for s in spans:
+                f.write(json.dumps(s) + "\n")
+
+        # Create observer and sort
+        with (
+            patch("exgentic.observers.handlers.otel.get_benchmark_entries", return_value={}),
+            patch("exgentic.observers.handlers.otel.get_agent_entries", return_value={}),
+        ):
+            from exgentic.observers.handlers.otel import OtelTracingObserver
+
+            obs = OtelTracingObserver()
+
+        obs._sort_session_spans(session_id)
+
+        # Verify sorted
+        with open(spans_file) as f:
+            sorted_spans = [json.loads(line) for line in f]
+        names = [s["name"] for s in sorted_spans]
+        assert names == ["first", "second", "third"]
+
+    def test_handles_corrupt_json_gracefully(self, ctx, tmp_path):
+        session_id = "sess-001"
+        session_dir = tmp_path / "test-run" / "sessions" / session_id
+        session_dir.mkdir(parents=True)
+        spans_file = session_dir / "otel_spans.jsonl"
+
+        spans_file.write_text("not valid json\n")
+
+        with (
+            patch("exgentic.observers.handlers.otel.get_benchmark_entries", return_value={}),
+            patch("exgentic.observers.handlers.otel.get_agent_entries", return_value={}),
+        ):
+            from exgentic.observers.handlers.otel import OtelTracingObserver
+
+            obs = OtelTracingObserver()
+
+        # Should not raise
+        obs._sort_session_spans(session_id)
+
+
+# ===================================================================
+# 11. Cost attribute serialization failure
+# ===================================================================
+
+
+class TestCostAttributeFailure:
+    """_set_cost_attr handles missing/broken get_cost gracefully."""
+
+    def test_missing_get_cost_does_not_raise(self, ctx, tmp_path):
+        """Session without get_cost method doesn't crash on_session_success."""
+        session = MockSession()
+        # MockSession has no get_cost — verify on_session_error handles it
+        _, _, spans = _full_lifecycle_spans(ctx, tmp_path, session=session)
+        # Should complete without error
+        assert any("session" in s.name for s in spans)
+
+    def test_get_cost_exception_does_not_raise(self, ctx, tmp_path):
+        """If get_cost raises, session still completes."""
+        agent = MockAgent()
+        agent.get_cost = MagicMock(side_effect=RuntimeError("cost broke"))
+        _, _, spans = _full_lifecycle_spans(ctx, tmp_path, agent=agent)
+        assert any("session" in s.name for s in spans)
+
+
+# ===================================================================
+# 12. TraceLogger content attributes with tool calls
+# ===================================================================
+
+
+class TestTraceLoggerOutputToolCalls:
+    """Verify output messages include tool_call parts."""
+
+    def test_output_messages_include_tool_calls(self):
+        response_obj = {
+            "choices": [
+                {
+                    "finish_reason": "tool_calls",
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "function": {"name": "search", "arguments": '{"q": "test"}'},
+                            }
+                        ],
+                    },
+                }
+            ],
+        }
+        spans = _invoke_write_otel(response_obj=response_obj, record_content=True)
+        assert len(spans) == 1
+        output = json.loads(spans[0].attributes["gen_ai.output.messages"])
+        parts = output[0]["parts"]
+        assert any(p["type"] == "tool_call" and p["name"] == "search" for p in parts)
+
+    def test_output_messages_text_and_tool_calls(self):
+        response_obj = {
+            "choices": [
+                {
+                    "finish_reason": "stop",
+                    "message": {
+                        "role": "assistant",
+                        "content": "Here's what I found",
+                        "tool_calls": [
+                            {
+                                "id": "call_2",
+                                "function": {"name": "lookup", "arguments": "{}"},
+                            }
+                        ],
+                    },
+                }
+            ],
+        }
+        spans = _invoke_write_otel(response_obj=response_obj, record_content=True)
+        output = json.loads(spans[0].attributes["gen_ai.output.messages"])
+        parts = output[0]["parts"]
+        assert parts[0] == {"type": "text", "content": "Here's what I found"}
+        assert parts[1]["type"] == "tool_call"
+        assert parts[1]["name"] == "lookup"
+
+
+class TestTraceLoggerErrorTypeBranches:
+    """Cover all branches of _set_error_type."""
+
+    def test_error_type_string_fallback(self):
+        """Non-dict, non-Exception error info falls back to str()."""
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {},
+                "litellm_params": {"custom_llm_provider": "openai"},
+                "exception": "some string error",
+            },
+            status="failure",
+        )
+        assert spans[0].attributes["error.type"] == "some string error"
+
+    def test_no_error_info_skips_error_type(self):
+        """When neither exception nor error is present, error.type is not set."""
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "optional_params": {},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            },
+            response_obj={},
+            status="failure",
+        )
+        assert "error.type" not in spans[0].attributes
+
+
+class TestTraceLoggerResponseEdgeCases:
+    """Cover response attribute edge cases."""
+
+    def test_empty_usage_skips_token_attrs(self):
+        spans = _invoke_write_otel(response_obj={"id": "x", "model": "m", "usage": None, "choices": []})
+        attrs = spans[0].attributes
+        assert "gen_ai.usage.input_tokens" not in attrs
+        assert "gen_ai.usage.output_tokens" not in attrs
+
+    def test_empty_response_obj_skips_response_attrs(self):
+        spans = _invoke_write_otel(response_obj={})
+        attrs = spans[0].attributes
+        assert "gen_ai.response.id" not in attrs
+        assert "gen_ai.response.model" not in attrs
+
+
+# ===================================================================
+# 13. Content recording robustness (GitHub issue #140)
 # ===================================================================
 
 
@@ -3008,27 +3384,27 @@ class TestContentRecordingRobustness:
 
         # Verify span was created without task attribute
         spans = exporter.get_finished_spans()
-        # No crash is the main assertion; also verify no task attr
         for s in spans:
             assert "exgentic.session.task" not in (s.attributes or {})
 
     def test_serialize_to_json_dict(self):
         """_serialize_to_json handles plain dicts."""
-        from exgentic.observers.handlers.otel import OtelTracingObserver
+        from exgentic.observers.handlers.otel import _serialize_to_json
 
-        result = OtelTracingObserver._serialize_to_json({"key": "value", "num": 42})
+        result = _serialize_to_json({"key": "value", "num": 42})
         parsed = json.loads(result)
         assert parsed == {"key": "value", "num": 42}
 
     def test_serialize_to_json_pydantic(self):
         """_serialize_to_json handles Pydantic models."""
-        from exgentic.observers.handlers.otel import OtelTracingObserver
         from pydantic import BaseModel
+
+        from exgentic.observers.handlers.otel import _serialize_to_json
 
         class MyModel(BaseModel):
             name: str
             count: int
 
-        result = OtelTracingObserver._serialize_to_json(MyModel(name="test", count=5))
+        result = _serialize_to_json(MyModel(name="test", count=5))
         parsed = json.loads(result)
         assert parsed == {"name": "test", "count": 5}
