@@ -7,11 +7,13 @@ On macOS (especially Apple Silicon), you can use [Podman](https://podman.io/) as
 
 ---
 
-## 1. Install Podman
+## 1. Install Podman and the Docker CLI
 
 ```bash
-brew install podman
+brew install podman docker
 ```
+
+This installs Podman as the container engine and the `docker` CLI client (without Docker Desktop). The `docker` CLI is needed because Exgentic's docker runner invokes it directly.
 
 ## 2. Create and start a Podman machine
 
