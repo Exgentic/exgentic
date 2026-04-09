@@ -116,7 +116,13 @@ class RunStatus(BaseModel):
 
     @classmethod
     def from_config(cls, run_config: RunConfig) -> RunStatus:
-        session_configs = run_config.get_sessions()
+        from ...core.context import try_get_context
+
+        if try_get_context() is not None:
+            session_configs = run_config.get_sessions()
+        else:
+            with run_config.get_context():
+                session_configs = run_config.get_sessions()
         return cls.from_session_configs(run_config, session_configs)
 
     @classmethod
