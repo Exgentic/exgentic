@@ -40,11 +40,10 @@ from ...core.types import (
     SessionScore,
     SingleAction,
 )
+from ...environment.instance import get_manager
 from ...utils.paths import get_run_id, get_run_paths
-from ...utils.settings import get_settings
 from .appworld_benchmark import AppWorldObservation
 
-settings = get_settings()
 logger = logging.getLogger(__name__)
 
 APPWORLD_TOTAL_TASKS = {
@@ -109,8 +108,7 @@ class AppWorldSession(Session):
         from appworld.environment import AppWorld  # type: ignore
 
         # Point appworld at the correct data directory before loading the task.
-        cache = Path(settings.cache_dir).expanduser()
-        update_root(str(cache / "appworld"))
+        update_root(str(get_manager().env_path("benchmarks/appworld")))
 
         # Patch appworld's SQLite connection helper to allow cross-thread usage.
         # The venv runner serves via uvicorn which may dispatch requests across
@@ -538,9 +536,7 @@ class AppWorldEvaluator(Evaluator):
     def _ensure_appworld_root(self) -> None:
         from appworld import update_root  # type: ignore
 
-        cache = Path(settings.cache_dir).expanduser()
-        root = str(cache / "appworld")
-        update_root(root)
+        update_root(str(get_manager().env_path("benchmarks/appworld")))
 
     def list_tasks(self) -> list[str]:
         from appworld.task import load_task_ids  # type: ignore
