@@ -19,7 +19,7 @@ class CodexAgentInstance(ProxyBackedMCPAgentInstance):
         session_id: str,
         model_id: str,
         max_steps: int = 150,
-        execution_backend: ExecutionBackend = ExecutionBackend.AUTO,
+        execution_backend: ExecutionBackend = ExecutionBackend.DOCKER,
         model_settings: ModelSettings | None = None,
     ):
         super().__init__(
@@ -64,7 +64,7 @@ class CodexAgentInstance(ProxyBackedMCPAgentInstance):
 class CodexAgent(ProxyBackedAgent):
     display_name: ClassVar[str] = "Codex CLI"
     slug_name: ClassVar[str] = "codex_cli"
-    execution_backend: ExecutionBackend = ExecutionBackend.AUTO
+    execution_backend: ExecutionBackend = ExecutionBackend.DOCKER
 
     @classmethod
     def _get_instance_class(cls):

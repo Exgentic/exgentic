@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 import os
 import shlex
-import shutil
 import subprocess
 from dataclasses import dataclass
 from enum import Enum
@@ -20,49 +19,7 @@ class ExecutionBackend(str, Enum):
     """Execution backend for CLI runs."""
 
     PROCESS = "process"
-    PODMAN = "podman"
     DOCKER = "docker"
-    AUTO = "auto"
-
-
-def _podman_works() -> bool:
-    """Check if podman is installed and its rootless runtime is functional."""
-    if not shutil.which("podman"):
-        return False
-    try:
-        subprocess.run(
-            ["podman", "info"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=30,
-        )
-        return True
-    except (subprocess.SubprocessError, FileNotFoundError, OSError):
-        return False
-
-
-def resolve_container_backend() -> ExecutionBackend:
-    """Auto-detect container runtime: prefer podman, fallback to docker.
-
-    Honours the ``EXGENTIC_CONTAINER_CMD`` env-var (``podman`` or ``docker``)
-    to let users force a specific runtime.  When auto-detecting, podman is
-    validated with ``podman info`` so that broken rootless setups fall back
-    to docker automatically.
-    """
-    override = os.environ.get("EXGENTIC_CONTAINER_CMD", "").strip().lower()
-    if override:
-        mapping = {"podman": ExecutionBackend.PODMAN, "docker": ExecutionBackend.DOCKER}
-        if override not in mapping:
-            raise RuntimeError(f"EXGENTIC_CONTAINER_CMD={override!r} is not supported (use 'podman' or 'docker')")
-        if not shutil.which(override):
-            raise RuntimeError(f"EXGENTIC_CONTAINER_CMD={override!r} not found on PATH")
-        return mapping[override]
-
-    if _podman_works():
-        return ExecutionBackend.PODMAN
-    if shutil.which("docker"):
-        return ExecutionBackend.DOCKER
-    raise RuntimeError("Neither podman nor docker found")
 
 
 @dataclass
@@ -234,10 +191,67 @@ class ProcessRunner:
                     self._logger.warning("CLI process did not exit after kill.")
 
 
-class ContainerRunner(ProcessRunner):
-    """Shared helpers for container-based runners."""
+class DockerRunner(ProcessRunner):
+    """Run the inner command inside a Docker container."""
 
-    host_gateway: str = "host.docker.internal"
+    host_gateway = "host.docker.internal"
+
+    def __init__(self, log_path, logger):
+        super().__init__(log_path, logger)
+
+    def run(
+        self,
+        *,
+        cmd: list[str],
+        env: dict[str, str],
+        cfg_root: Path,
+        config: BaseCLIConfig,
+        spawn_error_message: str,
+    ) -> CLIResult:
+        host_gateway = self.host_gateway
+        host_cfg_root = str(cfg_root.resolve())
+
+        self._patch_mcp_json(cfg_root=cfg_root, host_gateway=host_gateway)
+
+        inner_cmd = self._rewrite_mcp_config_path(list(cmd), workdir=config.image_workdir)
+
+        container_env = self._container_env_from(env, host_gateway=host_gateway, config=config)
+        container_env["HOME"] = config.image_workdir
+        user_args: list[str] = []
+        uid = getattr(os, "getuid", None)
+        gid = getattr(os, "getgid", None)
+        if callable(uid) and callable(gid):
+            try:
+                user_args = ["--user", f"{uid()}:{gid()}"]
+            except Exception:
+                user_args = []
+        wrapped_cmd: list[str] = [
+            "docker",
+            "run",
+            "--rm",
+            "--add-host",
+            f"{host_gateway}:host-gateway",
+            *user_args,
+            "-v",
+            f"{host_cfg_root}:{config.image_workdir}",
+            "-w",
+            config.image_workdir,
+        ]
+        for k, v in container_env.items():
+            wrapped_cmd.extend(["-e", f"{k}={v}"])
+        wrapped_cmd.append(str(config.image))
+        wrapped_cmd.extend(inner_cmd)
+
+        return super().run(
+            cmd=wrapped_cmd,
+            env=env,
+            cfg_root=cfg_root,
+            config=config,
+            spawn_error_message=spawn_error_message,
+            stdin_devnull=True,
+        )
+
+    # -- helpers --------------------------------------------------------------
 
     def _rewrite_mcp_config_path(self, inner_cmd: list[str], workdir: str) -> list[str]:
         if "--mcp-config" in inner_cmd:
@@ -255,14 +269,11 @@ class ContainerRunner(ProcessRunner):
         forwarded: dict[str, str] = {}
 
         for k in (
-            # Anthropic (Claude Code)
             "ANTHROPIC_BASE_URL",
             "ANTHROPIC_API_KEY",
             "ANTHROPIC_AUTH_TOKEN",
-            # OpenAI (Codex)
             "OPENAI_API_KEY",
             "OPENAI_API_BASE",
-            # Google (Gemini)
             "GEMINI_API_KEY",
             "GOOGLE_GEMINI_BASE_URL",
         ):
@@ -320,176 +331,3 @@ class ContainerRunner(ProcessRunner):
 
         except Exception as exc:
             self._logger.warning("Failed to patch mcp.json (%s): %s", mcp_path, exc)
-
-
-class PodmanRunner(ContainerRunner):
-    """Run the inner command inside a container via Podman."""
-
-    host_gateway = "host.containers.internal"
-
-    def __init__(self, log_path, logger):
-        super().__init__(log_path, logger)
-
-    def run(
-        self,
-        *,
-        cmd: list[str],
-        env: dict[str, str],
-        cfg_root: Path,
-        config: BaseCLIConfig,
-        spawn_error_message: str,
-    ) -> CLIResult:
-        runtime = "podman"
-        host_gateway = "host.containers.internal"
-        host_cfg_root = str(cfg_root.resolve())
-
-        # Patch mcp.json so container uses host gateway (not 127.0.0.1/localhost)
-        self._patch_mcp_json(cfg_root=cfg_root, host_gateway=host_gateway)
-
-        inner_cmd = self._rewrite_mcp_config_path(list(cmd), workdir=config.image_workdir)
-
-        # Minimal env forwarding into container (encoded via podman -e flags)
-        container_env = self._container_env_from(env, host_gateway=host_gateway, config=config)
-        container_env["HOME"] = config.image_workdir
-        connection_args = self._resolve_podman_connection_args()
-        user_args: list[str] = []
-        uid = getattr(os, "getuid", None)
-        gid = getattr(os, "getgid", None)
-        if callable(uid) and callable(gid):
-            try:
-                user_args = ["--user", f"{uid()}:{gid()}"]
-            except Exception:
-                user_args = []
-        wrapped_cmd: list[str] = [
-            runtime,
-            *connection_args,
-            "run",
-            "--rm",
-            *user_args,
-            "-v",
-            f"{host_cfg_root}:{config.image_workdir}:Z",
-            "-w",
-            config.image_workdir,
-        ]
-        for k, v in container_env.items():
-            wrapped_cmd.extend(["-e", f"{k}={v}"])
-        wrapped_cmd.append(str(config.image))
-        wrapped_cmd.extend(inner_cmd)
-
-        # Important: do NOT keep stdin open (avoids "podman run never ends")
-        return super().run(
-            cmd=wrapped_cmd,
-            env=env,
-            cfg_root=cfg_root,
-            config=config,
-            spawn_error_message=spawn_error_message,
-            stdin_devnull=True,
-        )
-
-    def _resolve_podman_connection_args(self) -> list[str]:
-        """Return extra args for the `podman` CLI to select a connection.
-
-        Priority:
-        1) PODMAN_CONNECTION env var
-        2) auto-detect default connection from `podman system connection list --format json`
-        3) fallback: no args (let Podman decide; works on native Linux / preconfigured env)
-        """
-        # 1) environment override (nice for CI/users)
-        env_name = os.environ.get("PODMAN_CONNECTION")
-        if env_name:
-            return ["--connection", env_name]
-
-        # 2) auto-detect default connection
-        try:
-            proc = subprocess.run(
-                ["podman", "system", "connection", "list", "--format", "json"],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-            if proc.returncode != 0:
-                self._logger.info(
-                    "podman system connection list failed (rc=%s): %s",
-                    proc.returncode,
-                    (proc.stderr or "").strip(),
-                )
-                return []
-
-            data = json.loads(proc.stdout or "[]")
-            # entries look like: {"Name": "...", "URI": "...", "Identity": "...", "Default": true, ...}
-            default = next((x for x in data if x.get("Default") is True), None)
-            if default and default.get("Name"):
-                return [
-                    "--url",
-                    str(default["URI"]),
-                    "--identity",
-                    str(default["Identity"]),
-                ]
-        except Exception as exc:
-            self._logger.info("Failed to auto-detect Podman connection: %r", exc)
-            return []
-
-        return []
-
-
-class DockerRunner(ContainerRunner):
-    """Run the inner command inside a container via Docker."""
-
-    def __init__(self, log_path, logger):
-        super().__init__(log_path, logger)
-
-    def run(
-        self,
-        *,
-        cmd: list[str],
-        env: dict[str, str],
-        cfg_root: Path,
-        config: BaseCLIConfig,
-        spawn_error_message: str,
-    ) -> CLIResult:
-        runtime = "docker"
-        host_gateway = "host.docker.internal"
-        host_cfg_root = str(cfg_root.resolve())
-
-        # Patch mcp.json so container uses host gateway (not 127.0.0.1/localhost)
-        self._patch_mcp_json(cfg_root=cfg_root, host_gateway=host_gateway)
-
-        inner_cmd = self._rewrite_mcp_config_path(list(cmd), workdir=config.image_workdir)
-
-        # Minimal env forwarding into container (encoded via docker -e flags)
-        container_env = self._container_env_from(env, host_gateway=host_gateway, config=config)
-        container_env["HOME"] = config.image_workdir
-        user_args: list[str] = []
-        uid = getattr(os, "getuid", None)
-        gid = getattr(os, "getgid", None)
-        if callable(uid) and callable(gid):
-            try:
-                user_args = ["--user", f"{uid()}:{gid()}"]
-            except Exception:
-                user_args = []
-        wrapped_cmd: list[str] = [
-            runtime,
-            "run",
-            "--rm",
-            "--add-host",
-            f"{host_gateway}:host-gateway",
-            *user_args,
-            "-v",
-            f"{host_cfg_root}:{config.image_workdir}",
-            "-w",
-            config.image_workdir,
-        ]
-        for k, v in container_env.items():
-            wrapped_cmd.extend(["-e", f"{k}={v}"])
-        wrapped_cmd.append(str(config.image))
-        wrapped_cmd.extend(inner_cmd)
-
-        # Important: do NOT keep stdin open (avoids "docker run never ends")
-        return super().run(
-            cmd=wrapped_cmd,
-            env=env,
-            cfg_root=cfg_root,
-            config=config,
-            spawn_error_message=spawn_error_message,
-            stdin_devnull=True,
-        )
