@@ -367,6 +367,8 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         return self._completion_with_retries(call_kwargs)
 
     def _completion_with_retries(self, call_kwargs: dict[str, Any]):
+        from ...integrations.litellm.health import ErrorCategory, classify_error
+
         num_retries = self.model_settings.num_retries or 0
         max_attempts = max(1, num_retries + 1)
         for attempt in range(max_attempts):
@@ -377,16 +379,20 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
             except NonRetryableCompletionError:
                 raise
             except Exception as exc:
-                if attempt >= num_retries:
+                category = classify_error(exc)
+                # Only retry transient errors (timeout, rate limit, 500).
+                # Permanent (auth, not found) and unknown errors fail immediately.
+                if category != ErrorCategory.TRANSIENT or attempt >= num_retries:
                     raise
                 delay = self.model_settings.retry_after
                 retry_strategy = self.model_settings.retry_strategy.value
                 if retry_strategy == RetryStrategy.EXPONENTIAL_BACKOFF.value:
                     delay *= 2**attempt
                 self.logger.warning(
-                    "LiteLLM completion failed (attempt %d/%d): %s",
+                    "LiteLLM completion failed (attempt %d/%d, %s): %s",
                     attempt + 1,
                     num_retries + 1,
+                    category.value,
                     exc,
                 )
                 if delay > 0:
