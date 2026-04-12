@@ -410,7 +410,14 @@ class AppWorldSession(Session):
             test_tracker.success,
         )
 
-        # Finished when close() already captured task completion.
+        # Capture task completion before resetting the DB cache — reset
+        # disposes the engine, making subsequent DB queries crash.
+        # The orchestrator calls score() before close(), so this is the
+        # last chance to query the DB.
+        try:
+            self._done = self.world.task_completed()
+        except Exception:
+            self.logger.warning("task_completed check failed in score()")
         finished = bool(self._done)
         # Reset cached DB handler for this task so later aggregate evaluation can run.
         CachedDBHandler.reset(self._task_id)
@@ -439,13 +446,14 @@ class AppWorldSession(Session):
                 indent=2,
             )
         session_metadata = {"test_tracker": tracker_dict}
-        return SessionScore(
+        self._cached_score = SessionScore(
             score=score_value,
             success=test_tracker.success,
             is_finished=finished,
             session_metrics=session_metrics,
             session_metadata=session_metadata,
         )
+        return self._cached_score
 
     def close(self):
         # Save AppWorld task state and mirror logs
@@ -457,16 +465,19 @@ class AppWorldSession(Session):
         )
         if self._world_closed:
             self.logger.warning("AppWorld session close called more than once.")
+            return
         try:
             self.world.save()
         except Exception:
             self.logger.exception("AppWorld world.save failed")
             raise
-        try:
-            self._done = self.world.task_completed()
-        except Exception:
-            self.logger.exception("AppWorld task_completed check failed")
-            raise
+        # Skip if score() already captured task_completed (and disposed the DB).
+        if self._cached_score is None:
+            try:
+                self._done = self.world.task_completed()
+            except Exception:
+                self.logger.exception("AppWorld task_completed check failed")
+                raise
         logs_src = self._task_output_dir / "logs"
         if logs_src.exists():
             dest = self.paths.benchmark_dir / "logs"
