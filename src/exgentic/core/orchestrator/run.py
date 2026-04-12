@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from ...interfaces.registry import load_benchmark
 from ...observers.logging import get_logger
 from ...utils.paths import get_run_paths
@@ -11,13 +13,16 @@ from ..types import (
     RunPlan,
     RunResults,
     RunStatus,
+    SessionConfig,
     SessionExecutionStatus,
     SessionIndex,
 )
 from .controller import Controller
-from .execution import execute_sessions, load_reused_results
+from .execution import _run_task_with_lock, execute_sessions, load_reused_results
 from .observer import Observer
 from .tracker import Tracker
+
+_log = logging.getLogger(__name__)
 
 
 def _build_session_indexes(run_config: RunConfig, task_ids: list[str]):
@@ -188,3 +193,95 @@ def core_aggregate(
         execute=False,
         aggregate=True,
     )
+
+
+# ---------------------------------------------------------------------------
+# Batch evaluation with a global worker pool
+# ---------------------------------------------------------------------------
+
+
+def _plan_config(run_config: RunConfig) -> tuple[RunConfig, Tracker, list[SessionConfig]]:
+    """Plan sessions for a config.  Returns (resolved config, tracker, sessions to run)."""
+    with run_config.get_context() as ctx:
+        updates = {}
+        if run_config.run_id is None:
+            updates["run_id"] = ctx.run_id
+        if run_config.cache_dir is None:
+            updates["cache_dir"] = ctx.cache_dir
+        if updates:
+            run_config = run_config.model_copy(update=updates)
+
+        # Quiet tracker — no console output during batch planning.
+        tracker = Tracker(
+            use_defaults=False,
+            max_steps=run_config.max_steps,
+            max_actions=run_config.max_actions,
+        )
+        status = RunStatus.from_config(run_config)
+        if run_config.task_ids is None and status.task_ids:
+            run_config = run_config.model_copy(update={"task_ids": status.task_ids})
+
+        tracker.on_run_start(run_config)
+        plan = RunPlan.from_config_and_status(run_config, status)
+
+    _log.info(
+        "%s/%s: %d to run, %d to reuse",
+        run_config.benchmark,
+        run_config.agent,
+        len(plan.to_run),
+        len(plan.reuse),
+    )
+    return run_config, tracker, plan.to_run
+
+
+def core_batch_evaluate(
+    run_configs: list[RunConfig],
+    *,
+    max_workers: int = 4,
+) -> list[RunResults]:
+    """Evaluate multiple configs with a single global worker pool.
+
+    1. **Plan** — resolve sessions per config (sequential, fast).
+    2. **Execute** — run ALL sessions in one ``ThreadPoolExecutor``.
+    3. **Aggregate** — score each config from disk (sequential).
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from contextvars import copy_context
+
+    # Phase 1: plan.
+    configs: list[RunConfig] = []
+    work: list[tuple[SessionConfig, RunConfig, Tracker]] = []
+
+    for cfg in run_configs:
+        cfg, tracker, sessions = _plan_config(cfg)
+        configs.append(cfg)
+        for sc in sessions:
+            work.append((sc, cfg, tracker))
+
+    _log.info("Batch: %d sessions, %d configs, %d workers", len(work), len(configs), max_workers)
+
+    # Phase 2: execute.
+    if work:
+
+        def _run(item: tuple[SessionConfig, RunConfig, Tracker]) -> None:
+            sc, cfg, tracker = item
+            with cfg.get_context():
+                _run_task_with_lock(session_config=sc, tracker=tracker, log=_log)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(copy_context().run, _run, item): item for item in work}
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception:
+                    sc, _, _ = futures[future]
+                    _log.exception("Session %s failed", sc.get_session_id())
+
+    # Phase 3: aggregate from disk.
+    results: list[RunResults] = []
+    for cfg in configs:
+        try:
+            results.append(core_aggregate(run_config=cfg))
+        except Exception:
+            _log.exception("Aggregation failed for %s", cfg.run_id)
+    return results

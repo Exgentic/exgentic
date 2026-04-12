@@ -16,7 +16,7 @@ import rich_click as click
 from ....core.types import RunConfig, SessionConfig
 from ....core.types.session import SessionExecutionStatus, SessionOutcomeStatus
 from ....utils.paths import get_run_paths, get_session_paths
-from ...lib.api import aggregate, evaluate, execute, status
+from ...lib.api import aggregate, execute, status
 from ..options import (
     _format_exception_for_cli,
     _should_show_traceback,
@@ -379,11 +379,13 @@ def batch_cmd(debug: bool) -> None:
     multiple=True,
     help="RunConfig/SessionConfig path or glob pattern (repeatable).",
 )
+@click.option("--num-tasks", type=int, default=None, help="Override num_tasks for display.")
 @click.pass_context
 def batch_status_cmd(
     ctx: click.Context,
     debug: bool,
     config_values: tuple[str, ...],
+    num_tasks: int | None,
 ) -> None:
     """Show a status table for multiple config files."""
     apply_debug_mode(debug)
@@ -393,74 +395,60 @@ def batch_status_cmd(
     for i, config_path in enumerate(config_paths, start=1):
         row: dict[str, str] = {
             "#": str(i),
-            "config": _format_config_link(config_path, max_len=30),
-            "run_id": "-",
             "benchmark": "-",
             "agent": "-",
-            "subset": "-",
-            "models": "-",
-            "ready": "-",
-            "aggregated": "-",
-            "finished": "-",
-            "errors": "-",
+            "model": "-",
+            "sessions": "-",
             "score": "-",
             "cost": "-",
         }
         try:
             cfg = _load_run_like_config(config_path)
+            if num_tasks is not None and isinstance(cfg, RunConfig):
+                cfg = cfg.with_overrides(num_tasks=num_tasks)
             run_status = status(cfg)
-            (
-                score,
-                cost,
-                models,
-                ready,
-                finished,
-                errors,
-                aggregated,
-            ) = _load_results_summary(run_status.results_path)
-            if models == "-":
-                models = run_status.model_name or "-"
-            models = _truncate_leading(models, 24)
-            if ready is None or finished is None or errors is None:
-                ready = 0
-                finished = 0
-                errors = 0
-                if aggregated is None:
-                    aggregated = 0
-                for item in run_status.session_statuses:
-                    if item.status != SessionExecutionStatus.COMPLETED:
-                        continue
-                    if item.result_status in (
-                        SessionOutcomeStatus.ERROR,
-                        SessionOutcomeStatus.CANCELLED,
-                    ):
+            completed = 0
+            running = 0
+            errors = 0
+            for s in run_status.session_statuses:
+                if s.status == SessionExecutionStatus.RUNNING:
+                    running += 1
+                elif s.status == SessionExecutionStatus.COMPLETED:
+                    completed += 1
+                    if s.result_status in (SessionOutcomeStatus.ERROR, SessionOutcomeStatus.CANCELLED):
                         errors += 1
-                    else:
-                        ready += 1
-                        if aggregated is not None:
-                            aggregated += 1
-                    if item.result_status in (
-                        SessionOutcomeStatus.SUCCESS,
-                        SessionOutcomeStatus.UNSUCCESSFUL,
-                    ):
-                        finished += 1
+            total = run_status.total_tasks
+            parts = [f"{completed}/{total}"]
+            if running:
+                parts.append(f"{running}run")
+            if errors:
+                parts.append(f"{errors}err")
+            sessions_str = " ".join(parts)
+
+            score, cost, models, *_ = _load_results_summary(run_status.results_path)
+            model = run_status.model_name or models
+            if model != "-":
+                # Strip common prefixes for readability.
+                for prefix in ("openai/azure/", "openai/Azure/", "openai/"):
+                    if model.startswith(prefix):
+                        model = model[len(prefix) :]
+                        break
+            benchmark = run_status.benchmark_slug_name
+            subset = run_status.subset_name
+            if subset:
+                benchmark = f"{benchmark}/{subset}"
             row.update(
                 {
-                    "run_id": run_status.run_id,
-                    "benchmark": run_status.benchmark_slug_name,
+                    "benchmark": benchmark,
                     "agent": run_status.agent_slug_name,
-                    "subset": run_status.subset_name or "-",
-                    "models": models,
-                    "ready": f"{ready}/{run_status.total_tasks}",
-                    "aggregated": f"{aggregated}/{run_status.total_tasks}",
-                    "finished": f"{finished}/{run_status.total_tasks}",
-                    "errors": f"{errors}/{run_status.total_tasks}",
+                    "model": model,
+                    "sessions": sessions_str,
                     "score": score,
                     "cost": cost,
                 }
             )
         except Exception:
-            pass
+            row["benchmark"] = _short_config_path(config_path)
         rows.append(row)
 
     render_batch_status(rows)
@@ -482,7 +470,7 @@ def batch_status_cmd(
     help="RunConfig/SessionConfig path or glob pattern (repeatable).",
 )
 @click.option("--num-tasks", type=int, default=None, help="Override num_tasks for all configs.")
-@click.option("--max-workers", type=int, default=None, help="Override max_workers for all configs.")
+@click.option("--max-workers", type=int, default=None, help="Concurrent sessions across all configs.")
 @click.option("--max-steps", type=int, default=None, help="Override max_steps for all configs.")
 @click.option("--max-actions", type=int, default=None, help="Override max_actions for all configs.")
 @click.pass_context
@@ -495,24 +483,26 @@ def batch_evaluate_cmd(
     max_steps: int | None,
     max_actions: int | None,
 ) -> None:
-    """Evaluate configs sequentially."""
+    """Evaluate multiple configs with a shared worker pool.
+
+    All sessions from all configs run in a single pool of --max-workers.
+    Completed sessions are skipped.  Each config is aggregated from disk
+    after all sessions finish.
+    """
+    from ....core.orchestrator.run import core_batch_evaluate
+
     apply_debug_mode(debug)
-    config_paths = _expand_config_inputs(config_values, list(ctx.args))
-    failures: list[tuple[str, str]] = []
+    config_paths = list(_expand_config_inputs(config_values, list(ctx.args)))
+    overrides = ctx.params
 
+    configs: list[RunConfig] = []
     for config_path in config_paths:
-        click.echo(f"Running: {config_path}")
-        try:
-            cfg = _load_run_like_config(config_path)
-            if isinstance(cfg, RunConfig):
-                cfg = cfg.with_overrides(**ctx.params)
-            evaluate(config=cfg)
-        except Exception as exc:
-            failures.append((config_path, str(exc)))
-            click.echo(f"Error: {config_path}\n  {_format_batch_error(exc)}")
+        cfg = _load_run_like_config(config_path)
+        if isinstance(cfg, RunConfig):
+            cfg = cfg.with_overrides(**overrides)
+        configs.append(cfg)
 
-    if failures:
-        raise click.ClickException("Batch evaluate completed with errors in " + ", ".join(path for path, _ in failures))
+    core_batch_evaluate(configs, max_workers=max_workers or 1)
 
 
 @batch_cmd.command(
