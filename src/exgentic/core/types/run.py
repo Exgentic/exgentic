@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import random
+from pathlib import Path
 from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -239,6 +242,35 @@ class RunPlan(BaseModel):
         )
 
 
+_log = logging.getLogger(__name__)
+
+
+def _task_ids_cache_path(benchmark_slug: str, subset: str) -> Path:
+    from ...environment.instance import get_manager
+
+    return get_manager().env_path(f"benchmarks/{benchmark_slug}") / f"task_ids_{subset}.json"
+
+
+def _load_cached_task_ids(benchmark_slug: str, subset: str) -> list[str] | None:
+    path = _task_ids_cache_path(benchmark_slug, subset)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        _log.debug("Failed to read task ID cache %s, will regenerate", path)
+        return None
+
+
+def _save_cached_task_ids(benchmark_slug: str, subset: str, task_ids: list[str]) -> None:
+    path = _task_ids_cache_path(benchmark_slug, subset)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(task_ids), encoding="utf-8")
+    except Exception:
+        _log.debug("Failed to write task ID cache %s", path)
+
+
 class RunConfig(BaseEvaluationConfig):
     """Configuration for a run of multiple sessions."""
 
@@ -296,20 +328,23 @@ class RunConfig(BaseEvaluationConfig):
         if task_ids is None:
             bench_cls = load_benchmark(resolved.benchmark)
             benchmark = bench_cls(**(resolved.benchmark_kwargs or {}))
-            evaluator = benchmark.get_evaluator()
-            try:
-                selected = [str(t) for t in evaluator.list_tasks()]
-                if resolved.num_tasks is not None:
-                    seed = benchmark.seed
-                    rng = random.Random(seed if seed is not None else 0)
-                    rng.shuffle(selected)
-                    selected = selected[: int(resolved.num_tasks)]
-            finally:
+            selected = _load_cached_task_ids(resolved.benchmark, benchmark.subset_name)
+            if selected is None:
+                evaluator = benchmark.get_evaluator()
                 try:
-                    evaluator.close()
-                except Exception:
-                    pass
-                benchmark.close()
+                    selected = [str(t) for t in evaluator.list_tasks()]
+                finally:
+                    try:
+                        evaluator.close()
+                    except Exception:
+                        pass
+                _save_cached_task_ids(resolved.benchmark, benchmark.subset_name, selected)
+            benchmark.close()
+            if resolved.num_tasks is not None:
+                seed = benchmark.seed
+                rng = random.Random(seed if seed is not None else 0)
+                rng.shuffle(selected)
+                selected = selected[: int(resolved.num_tasks)]
         else:
             selected = [str(t) for t in task_ids]
             if resolved.num_tasks is not None:

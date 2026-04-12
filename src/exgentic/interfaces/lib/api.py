@@ -543,6 +543,8 @@ def list_tasks(
     subset: str | None = None,
     benchmark_kwargs: dict[str, Any] | None = None,
 ) -> list[str]:
+    from ..core.types.run import _load_cached_task_ids, _save_cached_task_ids
+
     benchmark_entries = get_benchmark_entries()
     if benchmark not in benchmark_entries:
         raise ValueError(
@@ -553,10 +555,15 @@ def list_tasks(
         bench_kwargs = apply_subset_kwargs(benchmark, subset, bench_kwargs)
     bench_cls = load_benchmark_class(benchmark)
     benchmark_obj: Benchmark = bench_cls(**bench_kwargs)
+    subset_name = benchmark_obj.subset_name
+    cached = _load_cached_task_ids(benchmark, subset_name)
+    if cached is not None:
+        benchmark_obj.close()
+        return cached
     evaluator = benchmark_obj.get_evaluator()
     try:
         try:
-            return evaluator.list_tasks()
+            tasks = evaluator.list_tasks()
         except NotImplementedError as exc:
             raise ValueError(str(exc)) from exc
     finally:
@@ -565,6 +572,8 @@ def list_tasks(
         except Exception:
             pass
         benchmark_obj.close()
+    _save_cached_task_ids(benchmark, subset_name, tasks)
+    return tasks
 
 
 def needs_setup(name: str, kind: str) -> bool:
