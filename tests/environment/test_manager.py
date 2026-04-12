@@ -223,6 +223,27 @@ class TestVenvInstall:
         assert not sentinel.exists()
         assert mgr.is_installed("mybench", env_type=EnvType.VENV)
 
+    def test_has_marker_false_before_install(self, tmp_path: Path) -> None:
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+        assert not mgr.has_marker("mybench")
+
+    def test_has_marker_true_with_marker_file(self, tmp_path: Path) -> None:
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+        marker_path = mgr.env_path("mybench") / ".installed"
+        marker_path.parent.mkdir(parents=True, exist_ok=True)
+        marker_path.write_text(json.dumps({"venv": {"exgentic_version": "1.0.0"}}))
+        assert mgr.has_marker("mybench")
+
+    def test_has_marker_true_when_version_stale(self, tmp_path: Path) -> None:
+        """has_marker returns True even when the version is stale."""
+        mgr = EnvironmentManager(base_dir=tmp_path / "envs")
+        marker_path = mgr.env_path("mybench") / ".installed"
+        marker_path.parent.mkdir(parents=True, exist_ok=True)
+        marker_path.write_text(json.dumps({"venv": {"exgentic_version": "0.0.0.fake"}}))
+
+        assert not mgr.is_installed("mybench", env_type=EnvType.VENV)
+        assert mgr.has_marker("mybench")
+
     def test_force_reinstalls(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
         mgr = EnvironmentManager(base_dir=tmp_path / "envs")

@@ -139,6 +139,10 @@ class EnvironmentManager:
     # Queries
     # ------------------------------------------------------------------
 
+    def has_marker(self, name: str) -> bool:
+        """Return True if the environment has ever been installed (marker exists)."""
+        return bool(self._read_marker(name))
+
     def is_installed(self, name: str, *, env_type: EnvType | None = None) -> bool:
         """Check if an environment is installed and up-to-date.
 
