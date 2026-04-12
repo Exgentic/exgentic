@@ -212,8 +212,8 @@ class TestAggregateSessions:
         assert result.score == 0.8
         assert result.total_tasks == 2
 
-    def test_all_sessions_errored_raises(self, evaluator, tmp_path: Path):
-        """When every session errored, raise RuntimeError instead of silently returning."""
+    def test_all_sessions_empty_returns_zero_score(self, evaluator, tmp_path: Path):
+        """When every session has no simulations, return score=0 instead of crashing."""
         err1 = tmp_path / "err1" / "results.json"
         err2 = tmp_path / "err2" / "results.json"
 
@@ -233,8 +233,9 @@ class TestAggregateSessions:
                 _make_session_paths(err2, "err2"),
             ],
         ):
-            with pytest.raises(RuntimeError, match="All 2 tau2 sessions errored out"):
-                evaluator.aggregate_sessions(sessions)
+            result = evaluator.aggregate_sessions(sessions)
+            assert result.score == 0.0
+            assert result.metrics["avg_reward"] == 0.0
 
     def test_rejects_file_with_multiple_tasks(self, evaluator, tmp_path: Path):
         """A result file with != 1 task should raise ValueError."""

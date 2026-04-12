@@ -472,11 +472,15 @@ class TAU2Session(PairableProxySession):
             if self.file_path and Path(self.file_path).exists():
                 Path(self.results_file).parent.mkdir(parents=True, exist_ok=True)
                 move(self.file_path, self.results_file)
+        # No simulation file or empty simulations → agent produced no
+        # useful actions.  Score as unsuccessful rather than crashing.
+        if not Path(self.results_file).exists():
+            self.logger.warning("No simulation file produced; scoring as unsuccessful (score=0).")
+            return SessionScore(score=0.0, success=False, is_finished=True)
         res = Results.load(self.results_file)
         if not res.simulations:
-            self.logger.error("Tau2 produced no simulations; marking session as failed.")
-            # Finished is false when the underlying Tau2 run produced no simulations.
-            return SessionScore(score=0.0, success=False, is_finished=False)
+            self.logger.warning("No simulations in results; scoring as unsuccessful (score=0).")
+            return SessionScore(score=0.0, success=False, is_finished=True)
 
         sim = res.simulations[-1]
 
@@ -616,14 +620,12 @@ class TAU2Evaluator(Evaluator):
         files: list[Path] = []
         for paths in self.get_sessions_paths(sessions):
             fp = paths.benchmark_results
-            if not fp.exists():
-                raise FileNotFoundError(f"Missing results for planned session '{paths.session_id}' at {fp}")
-            files.append(fp)
+            if fp.exists():
+                files.append(fp)
 
         base: Results | None = None
         all_sims = []
         task_map: dict[str, Any] = {}
-        errored_tasks = 0
         for fp in files:
             r = Results.load(fp)
             if base is None:
@@ -632,21 +634,21 @@ class TAU2Evaluator(Evaluator):
                 raise ValueError(f"Expected exactly 1 task per result file, got {len(r.tasks)} in {fp}")
             if len(r.simulations) > 1:
                 raise ValueError(f"Expected at most 1 simulation per result file, got {len(r.simulations)} in {fp}")
-
             if len(r.simulations) == 0:
-                errored_tasks += 1
                 continue
-
             all_sims.extend(r.simulations)
             for t in r.tasks:
                 task_map[t.id] = t
 
         total_sessions = len(sessions)
 
+        # No simulations at all → return score=0 instead of crashing.
         if len(all_sims) == 0 or base is None:
-            raise RuntimeError(
-                f"All {total_sessions} tau2 sessions errored out with no simulations. "
-                f"Check session error logs for details."
+            return BenchmarkResults(
+                benchmark_name=f"tau2-{self._subset}",
+                total_tasks=total_sessions,
+                score=0.0,
+                metrics={"avg_reward": 0.0},
             )
 
         combined = Results(info=base.info, tasks=list(task_map.values()), simulations=all_sims)
