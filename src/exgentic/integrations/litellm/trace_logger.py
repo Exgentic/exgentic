@@ -194,10 +194,11 @@ class TraceLogger(CustomLogger):
         file_path = self._resolve_log_path(kwargs)
         Path(file_path).parent.mkdir(parents=True, exist_ok=True)
         usage = self._extract_usage(response_obj)
+        litellm_params = kwargs.get("litellm_params") or {}
         row = {
             "timestamp": datetime.now(UTC).isoformat(),
             "status": status,
-            "model": kwargs.get("model"),
+            "model": litellm_params.get("model") or kwargs.get("model"),
             "prompt_tokens": usage.get("prompt_tokens"),
             "completion_tokens": usage.get("completion_tokens"),
             "total_tokens": usage.get("total_tokens"),
@@ -231,7 +232,7 @@ class TraceLogger(CustomLogger):
         ctx = self.get_context(kwargs)
 
         operation = "chat" if kwargs.get("messages") else "text_completion"
-        model = kwargs.get("model", "unknown")
+        model = litellm_params.get("model") or kwargs.get("model", "unknown")
         span_name = f"{operation} {model}"
 
         # Create span

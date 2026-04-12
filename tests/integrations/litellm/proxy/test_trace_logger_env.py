@@ -74,6 +74,31 @@ def test_trace_logger_uses_kwargs_context_for_log_path(tmp_path, monkeypatch) ->
     assert not env_log_path.exists()
 
 
+def test_trace_logger_resolves_alias_to_backend_model(tmp_path, monkeypatch) -> None:
+    """Trace should log the actual backend model, not the proxy alias.
+
+    Reproduces https://github.com/Exgentic/exgentic/issues/52
+    """
+    log_path = tmp_path / "trace.jsonl"
+    monkeypatch.setenv(FILE_ENV, str(log_path))
+
+    logger = TraceLogger()
+    kwargs = {
+        "model": "claude-3-5-sonnet-20241022",  # alias from CLI client
+        "litellm_params": {"model": "openai/aws/claude-opus-4-5"},  # actual backend
+        "messages": [{"role": "user", "content": "Hi"}],
+        "response_cost": 0.0,
+    }
+    response = {
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        "choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+    }
+    logger.log_success_event(kwargs, response, None, None)
+
+    record = json.loads(log_path.read_text().strip())
+    assert record["model"] == "openai/aws/claude-opus-4-5"
+
+
 def test_trace_logger_get_context_falls_back_to_try_get_context(monkeypatch) -> None:
     fallback = Context(
         run_id="run_fallback",
