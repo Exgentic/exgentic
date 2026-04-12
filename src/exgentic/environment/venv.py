@@ -10,6 +10,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from filelock import FileLock
+
 from .helpers import (
     build_subprocess_env,
     get_exgentic_version,
@@ -46,38 +48,43 @@ class VenvBackend:
         packages: list[str] | None = kwargs.get("packages")  # type: ignore[assignment]
 
         venv_dir = env_dir / "venv"
-        if venv_dir.exists():
-            shutil.rmtree(venv_dir)
+        lock_path = env_dir / ".venv-install.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock = FileLock(str(lock_path), timeout=600)  # 10 min timeout for heavy installs
 
-        try:
-            uv = require_uv()
-
-            subprocess.run(
-                [uv, "venv", str(venv_dir), "--python", f"{sys.version_info.major}.{sys.version_info.minor}"],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-
-            venv_py = str(venv_dir / "bin" / "python")
-            env = build_subprocess_env()
-
-            if project_root is not None:
-                install_project(uv, venv_py, project_root, env)
-
-            if packages:
-                install_packages(uv, venv_py, packages, env)
-
-            if module_path is not None:
-                install_requirements(uv, venv_py, module_path, env)
-                validate_system_deps(module_path)
-                run_setup_sh(module_path, env_dir, venv_dir=venv_dir)
-        except BaseException:
+        with lock:
             if venv_dir.exists():
-                shutil.rmtree(venv_dir, ignore_errors=True)
-            raise
+                shutil.rmtree(venv_dir)
 
-        return {"exgentic_version": get_exgentic_version()}
+            try:
+                uv = require_uv()
+
+                subprocess.run(
+                    [uv, "venv", str(venv_dir), "--python", f"{sys.version_info.major}.{sys.version_info.minor}"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+
+                venv_py = str(venv_dir / "bin" / "python")
+                env = build_subprocess_env()
+
+                if project_root is not None:
+                    install_project(uv, venv_py, project_root, env)
+
+                if packages:
+                    install_packages(uv, venv_py, packages, env)
+
+                if module_path is not None:
+                    install_requirements(uv, venv_py, module_path, env)
+                    validate_system_deps(module_path)
+                    run_setup_sh(module_path, env_dir, venv_dir=venv_dir)
+            except BaseException:
+                if venv_dir.exists():
+                    shutil.rmtree(venv_dir, ignore_errors=True)
+                raise
+
+            return {"exgentic_version": get_exgentic_version()}
 
     def exists(self, env_dir: Path, marker_data: dict) -> bool:
         """Check that the venv Python binary exists."""
