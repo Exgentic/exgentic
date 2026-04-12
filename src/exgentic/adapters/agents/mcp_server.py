@@ -225,7 +225,7 @@ class MCPServer:
 
     def stop(
         self,
-        timeout: float = 60.0,
+        timeout: float = 10.0,
         *,
         error: BaseException | None = None,
         raise_on_timeout: bool = True,

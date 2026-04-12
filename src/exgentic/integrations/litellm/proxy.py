@@ -237,7 +237,7 @@ class LitellmProxy:
         if proc and proc.poll() is None:
             try:
                 proc.terminate()
-                proc.wait(timeout=30)
+                proc.wait(timeout=5)
             except Exception:
                 # fall through to kill below
                 pass

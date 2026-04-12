@@ -232,7 +232,6 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
                 self._cli = None
             proxy.close()
             self._proxy = None
-            self._drain_server()
 
     def get_cost(self) -> UpdatableCostReport:
         cost = load_trace_cost(self._trace_log_path, self.model_id)
@@ -278,7 +277,6 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
         if self._proxy is not None:
             self._proxy.close()
             self._proxy = None
-        self._drain_server()
         super().close()
 
     def _proxy_alias_map(self) -> dict[str, str]:
