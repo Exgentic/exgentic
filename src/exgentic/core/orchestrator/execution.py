@@ -2,7 +2,9 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 import json
+import logging
 import shutil
+import time
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextvars import copy_context
@@ -10,6 +12,7 @@ from pathlib import Path
 
 from filelock import FileLock, Timeout
 
+from ...integrations.litellm.health import HealthCheckError
 from ...interfaces.registry import load_agent, load_benchmark
 from ...observers.logging import get_disabled_logger
 from ...utils.paths import get_run_paths, get_session_paths
@@ -21,8 +24,10 @@ from ..types import (
     SessionStatus,
 )
 from .session import run_session
-from .termination import RunCancelError
+from .termination import AgentError, RunCancelError
 from .tracker import Tracker
+
+_log = logging.getLogger(__name__)
 
 _BENCHMARK_CACHE: dict[str, type] = {}
 _AGENT_CACHE: dict[str, type] = {}
@@ -157,36 +162,76 @@ def run_session_config(
     *,
     session_config: SessionConfig,
     tracker: Tracker,
+    max_session_retries: int = 3,
+    session_retry_base_delay: float = 30.0,
 ) -> None:
     from ..context import session_scope
 
-    bench_cls = _get_benchmark_class(session_config.benchmark)
-    agent_cls = _get_agent_class(session_config.agent)
-    benchmark = bench_cls(**(session_config.benchmark_kwargs or {}))
-    agent = agent_cls(**(session_config.agent_kwargs or {}))
-
     session_id = session_config.get_session_id()
-    # Enter session_scope here (not inside run_session) so that
-    # benchmark.get_session() — which spawns a per-service subprocess —
-    # sees session_id on the context and writes its runtime.json at the
-    # correct path.
-    with session_scope(session_id, task_id=str(session_config.task_id)):
-        # Fire on_session_enter BEFORE spawning any service so observers
-        # (e.g. OtelTracingObserver) can publish trace context into the
-        # ContextVar — which ends up in each service's runtime.json.
-        tracker.on_session_enter(session_id, str(session_config.task_id))
-        session = benchmark.get_session(
-            task_id=str(session_config.task_id),
-            session_id=session_id,
-        )
-        try:
-            # run_session handles session.close() internally.
-            run_session(session_config, session, agent, tracker=tracker)
-        finally:
+
+    last_health_exc: HealthCheckError | None = None
+    last_session = None
+
+    for attempt in range(1 + max_session_retries):
+        bench_cls = _get_benchmark_class(session_config.benchmark)
+        agent_cls = _get_agent_class(session_config.agent)
+        benchmark = bench_cls(**(session_config.benchmark_kwargs or {}))
+        agent = agent_cls(**(session_config.agent_kwargs or {}))
+
+        # Enter session_scope here (not inside run_session) so that
+        # benchmark.get_session() — which spawns a per-service subprocess —
+        # sees session_id on the context and writes its runtime.json at the
+        # correct path.
+        with session_scope(session_id, task_id=str(session_config.task_id)):
+            # Fire on_session_enter BEFORE spawning any service so observers
+            # (e.g. OtelTracingObserver) can publish trace context into the
+            # ContextVar — which ends up in each service's runtime.json.
+            tracker.on_session_enter(session_id, str(session_config.task_id))
+            session = benchmark.get_session(
+                task_id=str(session_config.task_id),
+                session_id=session_id,
+            )
+            last_session = session
             try:
-                benchmark.close()
+                # run_session handles session.close() internally.
+                run_session(session_config, session, agent, tracker=tracker)
+                return  # Completed (success or non-retryable error).
+            except HealthCheckError as exc:
+                last_health_exc = exc
             finally:
+                try:
+                    benchmark.close()
+                except Exception:
+                    pass
                 agent.close()
+
+        # --- HealthCheckError retry logic (outside session_scope) ---
+        if attempt < max_session_retries:
+            delay = session_retry_base_delay * (2**attempt)
+            _log.warning(
+                "Session %s health check failed (attempt %d/%d), " "retrying in %.0fs: %s",
+                session_id,
+                attempt + 1,
+                max_session_retries + 1,
+                delay,
+                last_health_exc,
+            )
+            time.sleep(delay)
+            # Clean up session artifacts so the retry starts fresh.
+            sess_paths = get_session_paths(session_id)
+            if sess_paths.root.exists():
+                shutil.rmtree(sess_paths.root, ignore_errors=True)
+                sess_paths.root.mkdir(parents=True, exist_ok=True)
+
+    # All retry attempts exhausted — record the error.
+    if last_health_exc is not None and last_session is not None:
+        _log.error(
+            "Session %s health check failed after %d attempts",
+            session_id,
+            max_session_retries + 1,
+        )
+        tracker.on_session_creation(last_session)
+        tracker.on_session_error(last_session, AgentError(last_health_exc))
 
 
 def _run_task_with_lock(

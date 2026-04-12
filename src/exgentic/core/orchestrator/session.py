@@ -74,8 +74,9 @@ def run_session(
             raise BenchmarkTerminationError()
         raise AgentTerminationError()
 
-    except HealthCheckError as exc:
-        tracker.on_session_error(session, AgentError(exc))
+    except HealthCheckError:
+        # Let the caller (run_session_config) handle retry + error recording.
+        raise
     except KeyboardInterrupt:
         tracker.on_session_error(session, RunCancelError())
         _close_session_agent(session, agent_instance)
