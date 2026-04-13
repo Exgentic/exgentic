@@ -36,17 +36,17 @@ def litellm_tokens_cost(input_tokens: int, output_tokens: int, model_name: str) 
                 model=model, prompt_tokens=input_tokens, completion_tokens=output_tokens
             )
             return TokensCost(
-                input_cost=input_cost,
-                output_cost=output_cost,
-                total_cost=input_cost + output_cost,
+                input_cost=input_cost or 0.0,
+                output_cost=output_cost or 0.0,
+                total_cost=(input_cost + output_cost) or 0.0,
             )
         except Exception:
             input_cost, output_cost, total_cost = None, None, None
             continue
     return TokensCost(
-        input_cost=input_cost,
-        output_cost=output_cost,
-        total_cost=total_cost,
+        input_cost=input_cost or 0.0,
+        output_cost=output_cost or 0.0,
+        total_cost=total_cost or 0.0,
     )
 
 

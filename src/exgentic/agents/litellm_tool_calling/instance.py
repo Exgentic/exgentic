@@ -29,6 +29,8 @@ from ...core.types import (
     RetryStrategy,
 )
 from ...integrations.litellm.health import check_model_accessible_sync
+from ...integrations.litellm.rits_resolver import build_rits_overrides
+
 from ...utils.cost import LiteLLMCostReport
 from ...utils.settings import get_settings
 from .utils import ToolCall, ToolsActionsRegistry
@@ -87,8 +89,30 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         self._step_count = 0
         self._cost_data = LiteLLMCostReport.initialize_empty(model_name=self.model)
 
-        # Check model accessibility
-        check_model_accessible_sync(self.model, logger=self.logger)
+        # Pre-resolve RITS models so the health check and every subsequent
+        # completion call use the correct provider/api_base/api_key.
+        self._rits_overrides: dict[str, Any] = {}
+        if self.model.startswith("rits/"):
+            self._rits_overrides = build_rits_overrides(self.model)
+            self.logger.info(
+                "Resolved RITS model: %s -> %s @ %s",
+                self.model,
+                self._rits_overrides["model"],
+                self._rits_overrides["api_base"],
+            )
+
+        # Check model accessibility (using resolved RITS config if applicable)
+        health_kwargs: dict[str, Any] = {}
+        if self._rits_overrides:
+            health_kwargs["model"] = self._rits_overrides["model"]
+            health_kwargs["api_base"] = self._rits_overrides["api_base"]
+            health_kwargs["api_key"] = self._rits_overrides["api_key"]
+            health_kwargs["headers"] = self._rits_overrides["headers"]
+        check_model_accessible_sync(
+            health_kwargs.get("model", self.model),
+            logger=self.logger,
+            **{k: v for k, v in health_kwargs.items() if k != "model"},
+        )
 
     def start(self, task, context, actions):
         """Receive work payload, build tool registry, and seed conversation."""
@@ -108,7 +132,16 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         self._add_message(ChatCompletionUserMessage(role="user", content=f"{self.task}\n{ctx}"))
 
     def _register_cost(self, usage: litellm.Usage):
-        self._cost_data.update_cost_from_tokens(usage.prompt_tokens, usage.completion_tokens)
+        try:
+            self._cost_data.update_cost_from_tokens(
+                usage.prompt_tokens, usage.completion_tokens
+            )
+        except Exception as e:
+            # For RITS models or other models without cost data, just log tokens
+            self.logger.debug(
+                f"Cost tracking not available for {self.model}: {e}. "
+                f"Tokens: {usage.prompt_tokens} prompt, {usage.completion_tokens} completion"
+            )
 
     def _add_message(self, message):
         self.logger.info(f"Adding message to chat history: {message}")
@@ -367,6 +400,11 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         call_kwargs.update(kwargs)
         # Use 'metadata' parameter instead of 'litellm_metadata' - LiteLLM passes this to callbacks
         call_kwargs.setdefault("metadata", {})["context"] = get_context()
+
+        # Apply pre-resolved RITS overrides (model, api_base, api_key, headers)
+        if self._rits_overrides:
+            call_kwargs.update(self._rits_overrides)
+
         return self._completion_with_retries(call_kwargs)
 
     def _completion_with_retries(self, call_kwargs: dict[str, Any]):
@@ -429,3 +467,5 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
 
     def get_cost(self) -> LiteLLMCostReport:
         return self._cost_data
+
+

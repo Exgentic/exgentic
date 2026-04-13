@@ -5,6 +5,14 @@ import os
 
 from .health import acheck_model_accessible
 from .proxy import LitellmProxy
+from .rits_resolver import (
+    get_rits_model_list,
+    resolve_rits_model,
+    build_rits_overrides,
+    clear_rits_model_cache,
+    RITS_API_KEY_ENV,
+    RITS_API_URL_ENV,
+)
 from .trace_cost import load_trace_cost
 from .trace_logger import (
     DEFAULT_FILE,
@@ -24,6 +32,12 @@ if os.environ.get("EXGENTIC_PROXY_CACHE_INIT", "").lower() in ("true", "1"):
 
 __all__ = [
     "LitellmProxy",
+    "get_rits_model_list",
+    "resolve_rits_model",
+    "build_rits_overrides",
+    "clear_rits_model_cache",
+    "RITS_API_KEY_ENV",
+    "RITS_API_URL_ENV",
     "trace_logger",
     "TraceLogger",
     "FILE_ENV",

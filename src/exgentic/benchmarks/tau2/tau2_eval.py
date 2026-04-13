@@ -190,8 +190,16 @@ class TAU2Session(PairableProxySession):
         self.file_path = str((base / f"{self._cfg.save_to}.json").resolve())
         self.results_file = self.paths.benchmark_results
 
-        # Check user simulator model accessibility before starting Tau2 runner
-        check_model_accessible_sync(self._cfg.llm_user, logger=self.logger)
+        # Check user simulator model accessibility before starting Tau2 runner.
+        # Forward any custom provider kwargs (api_base, api_key, headers) that
+        # were stored in llm_args_user so that RITS and similar providers work.
+        _health_kwarg_keys = {"api_base", "api_key", "headers"}
+        _health_kwargs = {
+            k: v
+            for k, v in (self._cfg.llm_args_user or {}).items()
+            if k in _health_kwarg_keys
+        }
+        check_model_accessible_sync(self._cfg.llm_user, logger=self.logger, **_health_kwargs)
 
         # Start Tau2 runner
         self.logger.debug("Staging for pairing")
@@ -595,6 +603,21 @@ class TAU2Evaluator(Evaluator):
     def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
         task_id = index.task_id
 
+        # Resolve RITS model so that tau2's internal LiteLLM calls use the
+        # correct provider, API base and credentials.
+        llm_user = self._user_simulator_model
+        llm_args_user_extra: dict[str, Any] = {}
+        if llm_user.startswith("rits/"):
+            from ...integrations.litellm.rits_resolver import build_rits_overrides
+
+            overrides = build_rits_overrides(llm_user)
+            llm_user = overrides["model"]
+            llm_args_user_extra = {
+                "api_base": overrides["api_base"],
+                "api_key": overrides["api_key"],
+                "headers": overrides["headers"],
+            }
+
         cfg = RunConfig(
             domain=self._subset,
             user="user_simulator",
@@ -604,10 +627,11 @@ class TAU2Evaluator(Evaluator):
             agent=PROXY_AGENT_NAME,
             llm_agent="unknown",
             llm_args_agent={},
-            llm_user=self._user_simulator_model,
+            llm_user=llm_user,
             llm_args_user={
                 "temperature": self._llm_temperature_user,
                 "caching": settings.litellm_caching,
+                **llm_args_user_extra,
             },
             num_trials=self._num_trials,
             max_steps=self._max_steps,
