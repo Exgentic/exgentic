@@ -15,6 +15,7 @@ class SmolagentBaseAgent(Agent):
     max_steps: int = 150
     model_settings: ModelSettings | None = None
     retry_on_all_errors: bool = True
+    use_structured_outputs: bool = True
 
     def get_instance_kwargs(
         self,
@@ -26,6 +27,7 @@ class SmolagentBaseAgent(Agent):
             "max_steps": self.max_steps,
             "model_settings": self.model_settings,
             "retry_on_all_errors": self.retry_on_all_errors,
+            "use_structured_outputs": self.use_structured_outputs,
         }
 
     @property

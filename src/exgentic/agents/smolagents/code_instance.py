@@ -27,7 +27,7 @@ class SmolagentCodeAgentInstance(SmolagentBaseAgentInstance):
             tools=tools,
             model=self.get_internal_model(),
             prompt_templates=prompt_templates,
-            use_structured_outputs_internally=True,
+            use_structured_outputs_internally=self.use_structured_outputs,
             logger=self.get_smolagent_logger(),
         )
         # Remove built-in final_answer; termination should happen by interacting with the benchmark (finish action).

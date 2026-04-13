@@ -15,7 +15,7 @@ class SmolagentToolCallingAgentInstance(SmolagentBaseAgentInstance):
         self._agent = ToolCallingAgent(
             tools=tools,
             model=self.get_internal_model(),
-            # use_structured_outputs_internally=True,
+            use_structured_outputs_internally=self.use_structured_outputs,
             logger=self.get_smolagent_logger(),
         )
 
