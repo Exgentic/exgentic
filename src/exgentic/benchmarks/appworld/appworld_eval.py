@@ -113,8 +113,7 @@ class AppWorldSession(Session):
         from appworld.environment import AppWorld  # type: ignore
 
         # Point appworld at the correct data directory before loading the task.
-        cache = Path(settings.cache_dir).expanduser()
-        update_root(str(cache / "appworld"))
+        update_root(AppWorldEvaluator._resolve_appworld_root())
 
         # Patch appworld's SQLite connection helper to allow cross-thread usage.
         # The venv runner serves via uvicorn which may dispatch requests across
@@ -396,7 +395,17 @@ class AppWorldSession(Session):
     def score(self) -> SessionScore:
         if self._cached_score is not None:
             return self._cached_score
-        # World was already saved and closed in close(); compute the actual evaluation score now.
+        # Ensure the AppWorld state (DB files + model hash counters) is
+        # persisted to disk before running evaluation.  The orchestrator may
+        # call score() before close(), so world.save() might not have run yet.
+        # Without this, evaluate_task() loads stale model_hashes.json (all-zero
+        # counters written by initialize()), causing changed_model_names() to
+        # return an empty set even when the agent mutated records correctly.
+        if not self._world_closed:
+            try:
+                self.world.save()
+            except Exception:
+                self.logger.exception("AppWorld world.save in score() failed")
         from appworld.apps.lib.models.db import CachedDBHandler
         from appworld.evaluator import evaluate_task
 
@@ -416,8 +425,10 @@ class AppWorldSession(Session):
             test_tracker.success,
         )
 
-        # Finished when close() already captured task completion.
-        finished = bool(self._done)
+        # The orchestrator calls score() before close(), so self._done may
+        # not have been set yet.  Query the world directly to reflect the
+        # current task-completion state.
+        finished = self._done or self.done()
         # Reset cached DB handler for this task so later aggregate evaluation can run.
         CachedDBHandler.reset(self._task_id)
         # Surface benchmark evaluation details for downstream analysis.
@@ -551,12 +562,24 @@ class AppWorldEvaluator(Evaluator):
         self._use_cache = use_cache
         self._experiment_name: str = ""
 
+    @staticmethod
+    def _resolve_appworld_root() -> str:
+        """Return the absolute path to the appworld data directory.
+
+        The ``setup.sh`` script downloads data into the environment
+        directory managed by :class:`EnvironmentManager`, i.e.
+        ``~/.exgentic/benchmarks/appworld/``.  We must point the
+        ``appworld`` library at that same directory so it can find
+        ``data/tasks/`` and other assets.
+        """
+        from ...environment.instance import get_manager
+
+        return str(get_manager().env_path("benchmarks/appworld"))
+
     def _ensure_appworld_root(self) -> None:
         from appworld import update_root  # type: ignore
 
-        cache = Path(settings.cache_dir).expanduser()
-        root = str(cache / "appworld")
-        update_root(root)
+        update_root(self._resolve_appworld_root())
 
     def list_tasks(self) -> list[str]:
         from appworld.task import load_task_ids  # type: ignore
