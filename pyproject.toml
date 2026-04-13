@@ -44,16 +44,6 @@ analysis = [
     "statsmodels>=0.14,<1",
 ]
 
-# Development
-dev = [
-    "pytest>=7.0.0,<10",
-    "pytest-asyncio>=0.21.0,<2",
-    "pytest-mock>=3.0.0,<4",
-    "pre-commit>=3.0.0,<5",
-    "ruff>=0.1.0,<1",
-    "codespell>=2.0.0,<3",
-    "detect-secrets>=1.0.0,<2",
-]
 
 [tool.hatch.metadata]
 allow-direct-references = true
@@ -101,4 +91,11 @@ pythonpath = ["."]
 [dependency-groups]
 dev = [
     "pytest>=9.0.1,<10",
+    "pytest-asyncio>=0.21.0,<2",
+    "pytest-mock>=3.0.0,<4",
+    "pre-commit>=3.0.0,<5",
+    "ruff>=0.1.0,<1",
+    "codespell>=2.0.0,<3",
+    "detect-secrets>=1.0.0,<2",
+    "litellm[proxy]>=1.83.4",
 ]
