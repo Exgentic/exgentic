@@ -135,7 +135,7 @@ def mcp_cmd(
         # Dictionary to store active sessions (keyed by session_id)
         sessions = {}
         sessions_lock = threading.Lock()
-        action_types = None  # Will be populated when first session is created
+        action_types = []  # Will be populated when first session is created
 
         # Get available tasks from benchmark evaluator
         try:
@@ -157,72 +157,73 @@ def mcp_cmd(
 
             # Generate a unique session_id using UUID
             session_id = str(uuid.uuid4())
+            session = None
 
-            with sessions_lock:
-                try:
-                    session_index = SessionIndex(
-                        task_id=task_id,
-                        session_id=session_id,
-                    )
-                    # Get session kwargs from evaluator
-                    session_kwargs = evaluator.get_session_kwargs(session_index)
-                    # Create session using benchmark
-                    session = benchmark_instance.get_session(**session_kwargs)
+            try:
+                session_index = SessionIndex(
+                    task_id=task_id,
+                    session_id=session_id,
+                )
+                # Get session kwargs from evaluator
+                session_kwargs = evaluator.get_session_kwargs(session_index)
+                # Create session using benchmark
+                session = benchmark_instance.get_session(**session_kwargs)
 
-                    # Start the session to get initial observation
-                    _ = session.start()
+                # Start the session to get initial observation
+                _ = session.start()
 
+                session_actions = session.actions
+                if not session_actions:
+                    try:
+                        session.close()
+                    except Exception:
+                        pass
+                    return {"error": f"No actions available for task {task_id}"}
+
+                with sessions_lock:
                     sessions[session_id] = session
+                    if not action_types:
+                        action_types = session_actions
 
-                    # Get actions from the first session (all tasks should have same actions)
-                    if action_types is None:
-                        action_types = session.actions
-                        if not action_types:
-                            session.close()
-                            del sessions[session_id]
-                            return {"error": f"No actions available for task {task_id}"}
+                return {
+                    "status": "success",
+                    "session_id": session_id,
+                    "task_id": task_id,
+                    "task": session.task,
+                    "context": session.context,
+                    "message": f"Session created for task {task_id} with session_id {session_id}",
+                }
 
-                    return {
-                        "status": "success",
-                        "session_id": session_id,
-                        "task_id": task_id,
-                        "task": session.task,
-                        "context": session.context,
-                        "message": f"Session created for task {task_id} with session_id {session_id}",
-                    }
-
-                except Exception as exc:
-                    if session_id in sessions:
-                        try:
-                            sessions[session_id].close()
-                        except Exception:
-                            pass
-                        del sessions[session_id]
-                    return {"error": f"Failed to create session for task {task_id}: {exc}"}
+            except Exception as exc:
+                if session is not None:
+                    try:
+                        session.close()
+                    except Exception:
+                        pass
+                with sessions_lock:
+                    sessions.pop(session_id, None)
+                return {"error": f"Failed to create session for task {task_id}: {exc}"}
 
         # Helper function to delete a session
         def delete_session_by_id(session_id: str) -> dict:
             """Close and delete a session by its session_id."""
             with sessions_lock:
-                if session_id not in sessions:
-                    return {"error": f"No session found with session_id {session_id}"}
+                session = sessions.pop(session_id, None)
 
-                try:
-                    session = sessions[session_id]
-                    task_id = session.task_id if hasattr(session, "task_id") else "unknown"
-                    session.close()
-                    del sessions[session_id]
-                    return {
-                        "status": "success",
-                        "session_id": session_id,
-                        "task_id": task_id,
-                        "message": f"Session {session_id} closed and deleted",
-                    }
-                except Exception as exc:
-                    # Try to remove from dict even if close failed
-                    if session_id in sessions:
-                        del sessions[session_id]
-                    return {"error": f"Error closing session {session_id}: {exc}"}
+            if session is None:
+                return {"error": f"No session found with session_id {session_id}"}
+
+            try:
+                task_id = session.task_id if hasattr(session, "task_id") else "unknown"
+                session.close()
+                return {
+                    "status": "success",
+                    "session_id": session_id,
+                    "task_id": task_id,
+                    "message": f"Session {session_id} closed and deleted",
+                }
+            except Exception as exc:
+                return {"error": f"Error closing session {session_id}: {exc}"}
 
         # Create management tools
         def list_tasks_tool() -> dict:
@@ -247,38 +248,38 @@ def mcp_cmd(
         def evaluate_session_tool(session_id: str) -> dict:
             """Evaluate a session and return whether it was successful. Closes the session if not done."""
             with sessions_lock:
-                if session_id not in sessions:
-                    return {"error": f"No session found with session_id {session_id}"}
+                sess = sessions.get(session_id)
 
-                try:
-                    sess = sessions[session_id]
+            if sess is None:
+                return {"error": f"No session found with session_id {session_id}"}
 
-                    # IMPORTANT: Evaluate BEFORE closing!
-                    # For service runner sessions, closing the session closes the HTTP transport,
-                    # making it impossible to call score() afterwards.
-                    score_result = sess.score()
+            try:
+                # IMPORTANT: Evaluate BEFORE closing!
+                # For service runner sessions, closing the session closes the HTTP transport,
+                # making it impossible to call score() afterwards.
+                score_result = sess.score()
 
-                    # Close session if not done yet
-                    # Wrap in try-except to handle cases where the client is already closed
-                    if not sess.done():
-                        try:
-                            sess.close()
-                        except Exception as close_exc:
-                            # Log but don't fail - session might already be closed by agent
-                            logger.warning(f"Error closing session {session_id}: {close_exc}")
+                # Close session if not done yet
+                # Wrap in try-except to handle cases where the client is already closed
+                if not sess.done():
+                    try:
+                        sess.close()
+                    except Exception as close_exc:
+                        # Log but don't fail - session might already be closed by agent
+                        logger.warning(f"Error closing session {session_id}: {close_exc}")
 
-                    return {
-                        "status": "success",
-                        "session_id": session_id,
-                        "success": score_result.success,
-                        "score": score_result.score,
-                        "is_finished": score_result.is_finished,
-                        "session_metrics": score_result.session_metrics,
-                        "session_metadata": score_result.session_metadata,
-                    }
-                except Exception as exc:
-                    import traceback
-                    return {"error": f"Failed to evaluate session {session_id}: {exc}\n{traceback.format_exc()}"}
+                return {
+                    "status": "success",
+                    "session_id": session_id,
+                    "success": score_result.success,
+                    "score": score_result.score,
+                    "is_finished": score_result.is_finished,
+                    "session_metrics": score_result.session_metrics,
+                    "session_metadata": score_result.session_metadata,
+                }
+            except Exception as exc:
+                import traceback
+                return {"error": f"Failed to evaluate session {session_id}: {exc}\n{traceback.format_exc()}"}
 
         # Set up function signatures for management tools
         import inspect
@@ -426,7 +427,7 @@ def mcp_cmd(
                 raise click.ClickException(
                     f"Failed to initialize action types: {temp_result.get('error', 'Unknown error')}"
                 )
-            if action_types is None:
+            if not action_types:
                 raise click.ClickException("Failed to initialize action types: No actions available")
 
             # Create action tools
