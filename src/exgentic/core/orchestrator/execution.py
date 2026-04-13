@@ -139,6 +139,7 @@ def _status_from_paths_without_lock(
             SessionOutcomeStatus.ERROR,
             SessionOutcomeStatus.CANCELLED,
             SessionOutcomeStatus.LIMIT_REACHED,
+            SessionOutcomeStatus.UNKNOWN,
         ):
             status = SessionExecutionStatus.INCOMPLETE
         else:
