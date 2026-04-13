@@ -7,13 +7,15 @@ from enum import Enum
 
 from pydantic import BaseModel, field_validator
 
+from .pickle_safe import PickleSafe
+
 
 class RetryStrategy(str, Enum):
     EXPONENTIAL_BACKOFF = "exponential_backoff_retry"
     CONSTANT = "constant_retry"
 
 
-class ModelSettings(BaseModel):
+class ModelSettings(PickleSafe, BaseModel):
     temperature: float | None = 1.0
     top_p: float | None = None
     max_tokens: int | None = None

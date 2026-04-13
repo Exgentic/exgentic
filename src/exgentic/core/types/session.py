@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from ...utils.cost import CostReport
 from .evaluation import BaseEvaluationConfig
+from .pickle_safe import PickleSafe
 
 
 class SessionOutcomeStatus(StrEnum):
@@ -66,7 +67,7 @@ class SessionResults(BaseModel):
         return v
 
 
-class SessionScore(BaseModel):
+class SessionScore(PickleSafe, BaseModel):
     """Minimal per-session score returned by Session.score()."""
 
     score: float
@@ -167,7 +168,7 @@ class SessionStatus(BaseModel):
         )
 
 
-class SessionIndex(BaseModel):
+class SessionIndex(PickleSafe, BaseModel):
     """Minimal mapping between a task id and a session id."""
 
     task_id: str

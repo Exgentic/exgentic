@@ -10,8 +10,10 @@ from typing import Any, Literal, Optional, get_type_hints
 
 from pydantic import BaseModel, Field
 
+from .pickle_safe import PickleSafe
 
-class Action(BaseModel, ABC):
+
+class Action(PickleSafe, BaseModel, ABC):
     @abstractmethod
     def to_action_list(self):
         pass
@@ -65,7 +67,7 @@ class SequentialAction(Action):
         return self.actions
 
 
-class ActionType(BaseModel):
+class ActionType(PickleSafe, BaseModel):
     name: str
     description: str
     cls: type[SingleAction]

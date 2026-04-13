@@ -9,9 +9,10 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from .action import SingleAction
+from .pickle_safe import PickleSafe
 
 
-class Observation(BaseModel, ABC):
+class Observation(PickleSafe, BaseModel, ABC):
     """Base class to encapsulate both single and multiple observations."""
 
     @abstractmethod

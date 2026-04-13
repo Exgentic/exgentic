@@ -12,6 +12,7 @@ from typing import Any, ClassVar, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from .evaluation import BaseEvaluationConfig
+from .pickle_safe import PickleSafe
 from .session import (
     SessionConfig,
     SessionExecutionStatus,
@@ -20,7 +21,7 @@ from .session import (
 )
 
 
-class BenchmarkResults(BaseModel):
+class BenchmarkResults(PickleSafe, BaseModel):
     """Minimal benchmark-level results returned by Benchmark.aggregate_sessions()."""
 
     benchmark_name: str
