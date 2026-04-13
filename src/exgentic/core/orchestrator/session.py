@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-from ...integrations.litellm.health import HealthCheckError
 from ..types import SessionConfig
 from .controller import Controller
 from .observer import Observer
@@ -74,8 +73,6 @@ def run_session(
             raise BenchmarkTerminationError()
         raise AgentTerminationError()
 
-    except HealthCheckError as exc:
-        tracker.on_session_error(session, AgentError(exc))
     except KeyboardInterrupt:
         tracker.on_session_error(session, RunCancelError())
         _close_session_agent(session, agent_instance)
@@ -108,6 +105,13 @@ def run_session(
     except BenchmarkError as exc:
         tracker.on_session_error(session, exc)
         agent_instance.close()
+    except RuntimeError as exc:
+        from ...integrations.litellm.health import HealthCheckError
+
+        if isinstance(exc, HealthCheckError):
+            tracker.on_session_error(session, AgentError(exc))
+        else:
+            raise
     except SessionCancelError as exc:
         tracker.on_session_error(session, exc)
         _close_session_agent(session, agent_instance)
