@@ -12,6 +12,30 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 import cloudpickle as cp
+from copyreg import pickle
+
+# Register custom reducers for Pydantic models to handle pickling issues
+try:
+    from pydantic import BaseModel as PydanticBaseModel
+    
+    def _reduce_pydantic_model(obj):
+        """Custom reducer for Pydantic models that handles v2 serialization."""
+        # Use model_dump to get a dict representation, then reconstruct
+        return (
+            _reconstruct_pydantic_model,
+            (obj.__class__, obj.model_dump()),
+        )
+    
+    def _reconstruct_pydantic_model(cls, data):
+        """Reconstruct a Pydantic model from its class and dumped data."""
+        return cls(**data)
+    
+    # Register the reducer for all Pydantic BaseModel subclasses
+    pickle(PydanticBaseModel, _reduce_pydantic_model)
+    
+except ImportError:
+    # Pydantic not available, skip registration
+    pass
 
 # Sentinel returned by ``get`` when the attribute is a bound method.
 # The proxy checks for this to avoid serialising the entire instance.
@@ -91,8 +115,13 @@ def serialize_error(exc: BaseException) -> dict:
     pickled = None
     try:
         pickled = cp.dumps(exc)
-    except Exception:
-        pass
+    except Exception as pickle_error:
+        # If pickling fails (e.g., due to Pydantic models in exception context),
+        # log the issue but continue with string fallbacks
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.debug(f"Failed to pickle exception {type(exc).__name__}: {pickle_error}")
+    
     return {
         "type": type(exc).__qualname__,
         "msg": str(exc),
@@ -118,8 +147,12 @@ def deserialize_error(data: dict) -> BaseException:
             if isinstance(exc, BaseException):
                 exc.__remote_traceback__ = tb  # type: ignore[attr-defined]
                 return exc
-        except Exception:
-            pass
+        except Exception as unpickle_error:
+            # If unpickling fails (e.g., due to Pydantic models in traceback),
+            # log the issue and fall through to the fallback
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Failed to unpickle exception: {unpickle_error}")
 
     # Fallback: reconstruct from type name (builtins only) + message.
     name = data.get("type", "RuntimeError")
