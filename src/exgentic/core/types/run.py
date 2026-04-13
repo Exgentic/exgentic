@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import random
@@ -245,14 +246,24 @@ class RunPlan(BaseModel):
 _log = logging.getLogger(__name__)
 
 
-def _task_ids_cache_path(benchmark_slug: str, subset: str) -> Path:
+def _task_ids_cache_key(benchmark_slug: str, subset: str, benchmark_kwargs: dict | None = None) -> str:
+    """Build a cache filename that includes subset and any benchmark kwargs."""
+    key = subset
+    if benchmark_kwargs:
+        # Stable hash of kwargs so different configs get separate caches
+        h = hashlib.sha256(json.dumps(benchmark_kwargs, sort_keys=True).encode()).hexdigest()[:12]
+        key = f"{subset}_{h}"
+    return key
+
+
+def _task_ids_cache_path(benchmark_slug: str, cache_key: str) -> Path:
     from ...environment.instance import get_manager
 
-    return get_manager().env_path(f"benchmarks/{benchmark_slug}") / f"task_ids_{subset}.json"
+    return get_manager().env_path(f"benchmarks/{benchmark_slug}") / f"task_ids_{cache_key}.json"
 
 
-def _load_cached_task_ids(benchmark_slug: str, subset: str) -> list[str] | None:
-    path = _task_ids_cache_path(benchmark_slug, subset)
+def _load_cached_task_ids(benchmark_slug: str, cache_key: str) -> list[str] | None:
+    path = _task_ids_cache_path(benchmark_slug, cache_key)
     if not path.exists():
         return None
     try:
@@ -262,8 +273,8 @@ def _load_cached_task_ids(benchmark_slug: str, subset: str) -> list[str] | None:
         return None
 
 
-def _save_cached_task_ids(benchmark_slug: str, subset: str, task_ids: list[str]) -> None:
-    path = _task_ids_cache_path(benchmark_slug, subset)
+def _save_cached_task_ids(benchmark_slug: str, cache_key: str, task_ids: list[str]) -> None:
+    path = _task_ids_cache_path(benchmark_slug, cache_key)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(task_ids), encoding="utf-8")
@@ -328,7 +339,8 @@ class RunConfig(BaseEvaluationConfig):
         if task_ids is None:
             bench_cls = load_benchmark(resolved.benchmark)
             benchmark = bench_cls(**(resolved.benchmark_kwargs or {}))
-            selected = _load_cached_task_ids(resolved.benchmark, benchmark.subset_name)
+            cache_key = _task_ids_cache_key(resolved.benchmark, benchmark.subset_name, resolved.benchmark_kwargs)
+            selected = _load_cached_task_ids(resolved.benchmark, cache_key)
             if selected is None:
                 evaluator = benchmark.get_evaluator()
                 try:
@@ -338,7 +350,7 @@ class RunConfig(BaseEvaluationConfig):
                         evaluator.close()
                     except Exception:
                         pass
-                _save_cached_task_ids(resolved.benchmark, benchmark.subset_name, selected)
+                _save_cached_task_ids(resolved.benchmark, cache_key, selected)
             benchmark.close()
             if resolved.num_tasks is not None:
                 seed = benchmark.seed
