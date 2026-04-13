@@ -85,21 +85,26 @@ def _cleanup_session_dir(
     sess_paths,
     log,
 ) -> None:
-    if session_config.overwrite_sessions and sess_paths.root.exists():
-        shutil.rmtree(sess_paths.root)
-        log.info(
-            "Overwriting existing session %s (task=%s)",
-            session_config.get_session_id(),
-            session_config.task_id,
-        )
+    if not sess_paths.root.exists():
         return
-    if status.status == SessionExecutionStatus.INCOMPLETE and sess_paths.root.exists():
+    if not (session_config.overwrite_sessions or status.status == SessionExecutionStatus.INCOMPLETE):
+        return
+    # Best-effort removal.  If it fails (e.g. Docker-owned files),
+    # the session will re-run in the existing directory — new results
+    # overwrite old partial files.
+    try:
         shutil.rmtree(sess_paths.root)
-        log.info(
-            "Overwriting incomplete session %s (task=%s)",
+    except OSError:
+        log.warning(
+            "Could not fully remove session dir %s; re-running in place",
             session_config.get_session_id(),
-            session_config.task_id,
         )
+    log.info(
+        "Overwriting %s session %s (task=%s)",
+        "existing" if session_config.overwrite_sessions else "incomplete",
+        session_config.get_session_id(),
+        session_config.task_id,
+    )
 
 
 def _write_session_config(
