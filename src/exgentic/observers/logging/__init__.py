@@ -8,8 +8,6 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from uvicorn.logging import DefaultFormatter
-
 from ...core.context import try_get_context
 from ...utils.settings import get_settings
 
@@ -208,6 +206,8 @@ def configure_warnings_logging(
 
 
 def configure_uvicorn_file_logging(log_path: Path, *, thread_id: int) -> Callable[[], None]:
+    from uvicorn.logging import DefaultFormatter
+
     handler = logging.FileHandler(log_path, encoding="utf-8")
     handler.setLevel(logging.INFO)
     handler.setFormatter(
