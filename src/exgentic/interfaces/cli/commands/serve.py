@@ -36,6 +36,20 @@ def serve_cmd(host: str, port: int, cls: str, kwargs_json: str | None, kwargs_b6
         ctx_vars = {k: v for k, v in os.environ.items() if k.startswith("EXGENTIC_CTX")}
         logger.debug("Context env vars: %s", ctx_vars)
 
+    # Optional CE-Manager bootstrap: if CE_MANAGER_BOOTSTRAP_ENABLED is set the
+    # parent process has already placed CE-Manager on PYTHONPATH and written a
+    # runtime config.  Register the hook now so litellm calls made by the served
+    # object are intercepted and metrics are written.
+    _bootstrap_enabled = os.environ.get("CE_MANAGER_BOOTSTRAP_ENABLED", "").strip().lower()
+    if _bootstrap_enabled in ("1", "true", "yes", "on"):
+        try:
+            from ce_manager import register_ce_manager_hook_from_env  # type: ignore[import]
+
+            register_ce_manager_hook_from_env()
+            logger.info("CE-Manager hook registered from bootstrap env")
+        except Exception as _ce_exc:
+            logger.warning("CE-Manager bootstrap failed (metrics will not be logged): %s", _ce_exc)
+
     from ....adapters.runners.service import serve
 
     # Import the target module FIRST so that package __init__.py files

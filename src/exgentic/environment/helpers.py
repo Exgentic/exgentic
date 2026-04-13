@@ -94,9 +94,14 @@ def build_subprocess_env() -> dict:
 
 
 def install_project(uv: str, python_target: str, project_root: Path, env: dict) -> None:
-    """Install a Python project from *project_root* into the target Python."""
+    """Install a Python project from *project_root* into the target Python.
+
+    Uses an editable install (``-e``) so that source changes in the local
+    checkout are immediately visible inside the venv without needing to
+    rebuild it.
+    """
     subprocess.run(
-        [uv, "pip", "install", "--python", python_target, "--no-cache", str(project_root)],
+        [uv, "pip", "install", "--python", python_target, "--no-cache", "-e", str(project_root)],
         check=True,
         capture_output=True,
         text=True,
