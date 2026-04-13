@@ -543,7 +543,7 @@ def list_tasks(
     subset: str | None = None,
     benchmark_kwargs: dict[str, Any] | None = None,
 ) -> list[str]:
-    from ..core.types.run import _load_cached_task_ids, _save_cached_task_ids
+    from ...core.types.run import _load_cached_task_ids, _save_cached_task_ids
 
     benchmark_entries = get_benchmark_entries()
     if benchmark not in benchmark_entries:
