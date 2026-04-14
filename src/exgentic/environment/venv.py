@@ -18,8 +18,6 @@ import sys
 import uuid
 from pathlib import Path
 
-from filelock import FileLock
-
 from .helpers import (
     build_subprocess_env,
     get_exgentic_version,
@@ -60,63 +58,53 @@ class VenvBackend:
 
         env_dir.mkdir(parents=True, exist_ok=True)
         venv_dir = env_dir / "venv"
-        lock_path = env_dir / ".venv-install.lock"
 
-        with FileLock(str(lock_path), timeout=600):
-            # Clean up scratch/trash dirs from prior crashed installs.
-            # Safe under the lock — nothing else is building here now.
-            for child in env_dir.iterdir():
-                if child.name.startswith((_SCRATCH_PREFIX, _TRASH_PREFIX)):
-                    shutil.rmtree(child, ignore_errors=True)
+        # Clean up scratch/trash dirs left behind by a prior crashed
+        # install. Concurrent installs on the same env are already
+        # serialized by EnvironmentManager's file lock, so this is safe.
+        for child in env_dir.iterdir():
+            if child.name.startswith((_SCRATCH_PREFIX, _TRASH_PREFIX)):
+                shutil.rmtree(child, ignore_errors=True)
 
-            scratch = env_dir / f"{_SCRATCH_PREFIX}{uuid.uuid4().hex}"
-            try:
-                uv = require_uv()
-                # --relocatable: console-script shebangs must resolve
-                # their interpreter relative to the script at runtime
-                # rather than embedding the scratch path, or they'll be
-                # dead references once we rename into place.
-                subprocess.run(
-                    [
-                        uv,
-                        "venv",
-                        str(scratch),
-                        "--python",
-                        f"{sys.version_info.major}.{sys.version_info.minor}",
-                        "--relocatable",
-                    ],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
+        scratch = env_dir / f"{_SCRATCH_PREFIX}{uuid.uuid4().hex}"
+        try:
+            uv = require_uv()
+            # --relocatable: console-script shebangs must resolve their
+            # interpreter relative to the script at runtime rather than
+            # embedding the scratch path, or they become dead references
+            # once we rename into place.
+            subprocess.run(
+                [
+                    uv,
+                    "venv",
+                    str(scratch),
+                    "--python",
+                    f"{sys.version_info.major}.{sys.version_info.minor}",
+                    "--relocatable",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
 
-                scratch_py = str(scratch / "bin" / "python")
-                env = build_subprocess_env()
-                if project_root is not None:
-                    install_project(uv, scratch_py, project_root, env)
-                if packages:
-                    install_packages(uv, scratch_py, packages, env)
-                if module_path is not None:
-                    install_requirements(uv, scratch_py, module_path, env)
-                    validate_system_deps(module_path)
-                    run_setup_sh(module_path, env_dir, venv_dir=scratch)
+            scratch_py = str(scratch / "bin" / "python")
+            env = build_subprocess_env()
+            if project_root is not None:
+                install_project(uv, scratch_py, project_root, env)
+            if packages:
+                install_packages(uv, scratch_py, packages, env)
+            if module_path is not None:
+                install_requirements(uv, scratch_py, module_path, env)
+                validate_system_deps(module_path)
+                run_setup_sh(module_path, env_dir, venv_dir=scratch)
 
-                # Atomic publish: move any existing venv out of the way,
-                # then rename scratch into place. POSIX rename on a
-                # directory is atomic; the tiny window where venv_dir
-                # does not exist is safe because running subprocesses
-                # keep their open inodes via unlink-while-open.
-                if venv_dir.exists():
-                    trash = env_dir / f"{_TRASH_PREFIX}{uuid.uuid4().hex}"
-                    os.rename(venv_dir, trash)
-                    shutil.rmtree(trash, ignore_errors=True)
-                os.rename(scratch, venv_dir)
-            except BaseException:
-                if scratch.exists():
-                    shutil.rmtree(scratch, ignore_errors=True)
-                raise
+            _publish_atomic(scratch, venv_dir)
+            scratch = None  # ownership transferred to venv_dir
+        finally:
+            if scratch is not None and scratch.exists():
+                shutil.rmtree(scratch, ignore_errors=True)
 
-            return {"exgentic_version": get_exgentic_version()}
+        return {"exgentic_version": get_exgentic_version()}
 
     def exists(self, env_dir: Path, marker_data: dict) -> bool:
         """Check that the venv Python binary exists.
@@ -131,3 +119,33 @@ class VenvBackend:
         venv_dir = env_dir / "venv"
         if venv_dir.exists():
             shutil.rmtree(venv_dir)
+
+
+def _publish_atomic(scratch: Path, venv_dir: Path) -> None:
+    """Make *scratch* visible as *venv_dir* via atomic directory renames.
+
+    POSIX ``rename`` on a directory is atomic but cannot replace a
+    non-empty target, so we move any existing venv to a trash name
+    first, rename the scratch in, and only then delete the trash. If
+    the final rename fails, the prior venv is restored.
+    """
+    trash: Path | None = None
+    if venv_dir.exists():
+        trash = venv_dir.parent / f"{_TRASH_PREFIX}{uuid.uuid4().hex}"
+        os.rename(venv_dir, trash)
+
+    try:
+        os.rename(scratch, venv_dir)
+    except BaseException:
+        # Best-effort restore: if the new venv couldn't be placed, move
+        # the old one back so the user isn't left without any venv.
+        if trash is not None and not venv_dir.exists():
+            try:
+                os.rename(trash, venv_dir)
+                trash = None
+            except OSError:
+                pass
+        raise
+    finally:
+        if trash is not None and trash.exists():
+            shutil.rmtree(trash, ignore_errors=True)
