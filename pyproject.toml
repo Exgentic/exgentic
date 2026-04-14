@@ -21,7 +21,7 @@ dependencies = [
     "json-schema-to-pydantic>=0.4,<1",
     "litellm>=1.65.0,!=1.82.7,!=1.82.8,<2",
     "mcp>=1.24,<2",
-    "pydantic>=2.9.2,<3",
+    "pydantic>=2.12.5,<2.13",
     "python-dotenv>=1,<2",
     "rich>=13,<14",
     "rich-click>=1,<2",
