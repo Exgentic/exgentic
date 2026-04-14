@@ -8,6 +8,7 @@ import glob
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +78,18 @@ def _short_config_path(path: str) -> str:
     if rel.startswith(".."):
         return Path(path).name
     return rel
+
+
+def _format_ago(sec: float) -> str:
+    if sec < 0:
+        sec = 0
+    if sec < 60:
+        return f"{int(sec)}s"
+    if sec < 3600:
+        return f"{int(sec / 60)}m"
+    if sec < 86400:
+        return f"{int(sec / 3600)}h"
+    return f"{int(sec / 86400)}d"
 
 
 def _truncate_leading(text: str, max_len: int) -> str:
@@ -401,6 +414,7 @@ def batch_status_cmd(
             "sessions": "-",
             "score": "-",
             "cost": "-",
+            "last_event": "-",
         }
         try:
             cfg = _load_run_like_config(config_path)
@@ -437,6 +451,16 @@ def batch_status_cmd(
             subset = run_status.subset_name
             if subset:
                 benchmark = f"{benchmark}/{subset}"
+            sessions_dir = Path(run_status.results_path).parent / "sessions"
+            latest = 0.0
+            for p in sessions_dir.rglob("*"):
+                try:
+                    m = p.stat().st_mtime
+                except OSError:
+                    continue
+                if m > latest:
+                    latest = m
+            last_event = _format_ago(time.time() - latest) if latest else "-"
             row.update(
                 {
                     "benchmark": benchmark,
@@ -445,6 +469,7 @@ def batch_status_cmd(
                     "sessions": sessions_str,
                     "score": score,
                     "cost": cost,
+                    "last_event": last_event,
                 }
             )
         except Exception:
