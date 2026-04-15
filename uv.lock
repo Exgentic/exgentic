@@ -627,6 +627,7 @@ wheels = [
 name = "exgentic"
 source = { editable = "." }
 dependencies = [
+    { name = "a2a-sdk" },
     { name = "click" },
     { name = "cloudpickle" },
     { name = "diskcache" },
@@ -678,6 +679,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "a2a-sdk", specifier = ">=0.2.16" },
     { name = "a2a-sdk", marker = "extra == 'a2a'", specifier = ">=0.2.16" },
     { name = "click", specifier = ">=8.1.7,<9" },
     { name = "cloudpickle", specifier = ">=3,<4" },

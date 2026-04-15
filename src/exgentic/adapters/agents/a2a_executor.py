@@ -93,7 +93,8 @@ class ExgenticAgentExecutor:
     
     async def execute(self, context: RequestContext, event_queue: EventQueue):
         """Execute a task using the exgentic agent."""
-        from ...core.context import Context, set_context, set_context_fallback
+        from ...core.context import Context, set_context, set_context_fallback, get_context
+        from ...core.orchestrator.tracker import Tracker
         from ...utils.settings import get_settings
         from datetime import datetime
         from pathlib import Path
@@ -109,6 +110,12 @@ class ExgenticAgentExecutor:
         )
         set_context(ctx)
         set_context_fallback(ctx)
+        
+        # Initialize tracker with OTEL observer if enabled
+        tracker = Tracker(observers=None, controllers=None)
+        if settings.otel_enabled:
+            from ...observers.handlers.otel import OtelTracingObserver
+            tracker._register_observer(OtelTracingObserver())
 
         # Setup Event Emitter
         task = context.current_task
@@ -133,6 +140,7 @@ class ExgenticAgentExecutor:
         # Connect to MCP server for tool execution
         mcp_session = None
         http_context = None
+        mock_session = None
         try:
             await event_emitter.emit_event(f"🔗 Connecting to MCP server at {self.mcp_address}...")
             
@@ -157,10 +165,95 @@ class ExgenticAgentExecutor:
             session_id = session_id_match.group(1)
             await event_emitter.emit_event(f"✓ Using session_id from task: {session_id}")
             
-            # Create agent instance
+            # Create a mock session for OTEL tracing
+            from ...core.session import Session as SessionBase
+            from ...core.types import SessionScore
+            
+            class A2ASession(SessionBase):
+                def __init__(self, task_str, actions, session_id_val, task_id_val):
+                    self._session_id = session_id_val
+                    self._task = task_str
+                    self._actions = actions
+                    self._task_id = task_id_val
+                    super().__init__()
+                
+                @property
+                def task(self) -> str:
+                    return self._task
+                
+                @property
+                def context(self) -> dict:
+                    return {}
+                
+                @property
+                def actions(self):
+                    return self._actions
+                
+                @property
+                def task_id(self) -> str:
+                    return self._task_id
+                
+                def start(self):
+                    return None
+                
+                def step(self, action):
+                    return None
+                
+                def done(self) -> bool:
+                    return False
+                
+                def score(self) -> dict:
+                    return {"score": 1.0, "success": True}
+                
+                def close(self) -> None:
+                    pass
+            
+            # Create session for OTEL tracking
+            mock_session = A2ASession(user_input, self.action_types, session_id, f"a2a_{session_id}")
+            
+            # Notify tracker of session creation - this creates the root span
+            tracker.on_session_creation(mock_session)
+            
+            # Update the OS environment with OTEL span information BEFORE creating agent
+            # This ensures the agent subprocess inherits the correct OTEL context
+            import os
+            from ...observers.handlers.otel import OtelTracingObserver
+            from ...core.context import ENV_OTEL_TRACE_ID, ENV_OTEL_SPAN_ID
+            
+            if settings.otel_enabled and any(isinstance(obs, OtelTracingObserver) for obs in tracker._observers):
+                # Find the OtelTracingObserver and get its span manager
+                for obs in tracker._observers:
+                    if isinstance(obs, OtelTracingObserver):
+                        span_manager = obs._get_span_manager(session_id)
+                        # Update context
+                        span_manager.update_tracing_context()
+                        # Also update OS environment so subprocess inherits it
+                        otel_ctx = span_manager.get_otel_context()
+                        if otel_ctx:
+                            os.environ[ENV_OTEL_TRACE_ID] = otel_ctx.trace_id
+                            os.environ[ENV_OTEL_SPAN_ID] = otel_ctx.span_id
+                            # UPDATE THE CONTEXT IN THE CONTEXTVAR AND FALLBACK
+                            # Both are needed: ContextVar for the current async task,
+                            # fallback for the ThreadPoolExecutor thread running react()
+                            current_ctx = get_context()
+                            updated_ctx = current_ctx.with_session(session_id).with_otel_context(otel_ctx)
+                            set_context(updated_ctx)
+                            set_context_fallback(updated_ctx)
+                            logger.info(f"Updated Context with session_id={session_id} and OTEL context: trace_id={otel_ctx.trace_id}, span_id={otel_ctx.span_id}")
+                        else:
+                            logger.warning("OTEL context is None, cannot set environment variables")
+                        break
+            else:
+                logger.info(f"OTEL not enabled or no OtelTracingObserver found. otel_enabled={settings.otel_enabled}, observers={[type(o).__name__ for o in tracker._observers]}")
+            
+            # Create agent instance - it will now inherit the OTEL context from environment
             agent_instance = self.agent_cls(**self.agent_kwargs).get_instance(session_id=session_id)
             
-            # Start the agent with task and actions
+            # Notify tracker of session start
+            tracker.on_session_start(mock_session, agent_instance, None)
+
+            # Start the agent with task and actions.
+            # OTEL context is propagated via env vars (inject_exgentic_env in the venv runner).
             agent_instance.start(
                 task=user_input,
                 context={},
@@ -187,6 +280,9 @@ class ExgenticAgentExecutor:
                         # Agent is done
                         await event_emitter.emit_event("✓ Agent completed execution")
                         break
+                    
+                    # Notify tracker of successful react
+                    tracker.on_react_success(mock_session, action)
                     
                     # Convert action to list of SingleActions (works for all action types)
                     actions_to_execute = action.to_action_list()
@@ -296,6 +392,9 @@ class ExgenticAgentExecutor:
                             )
                             observations.append(obs)
                         current_observation = MultiObservation(observations=observations)
+                    
+                    # Notify tracker of successful step
+                    tracker.on_step_success(mock_session, current_observation)
             finally:
                 executor.shutdown(wait=False)
             
@@ -306,13 +405,23 @@ class ExgenticAgentExecutor:
                 else:
                     final_result = "Task completed"
             
-            # Cleanup
+            # Notify tracker of session success BEFORE closing agent
+            from ...core.types import SessionScore
+            score = SessionScore(success=True, score=1.0, is_finished=True)
+            tracker.on_session_success(mock_session, score, agent_instance)
+            
+            # Cleanup agent after tracker callbacks
             agent_instance.close()
             
             await event_emitter.emit_event(final_result, final=True)
             
         except Exception as e:
             logger.error(f"Error executing task: {e}", exc_info=True)
+            
+            # Notify tracker of session error if session was created
+            if 'mock_session' in locals() and 'tracker' in locals():
+                tracker.on_session_error(mock_session, e)
+            
             await event_emitter.emit_event(f"Error: {str(e)}", failed=True)
         finally:
             # Cleanup MCP session and HTTP context

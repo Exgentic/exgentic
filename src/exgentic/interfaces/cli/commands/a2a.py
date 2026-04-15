@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from textwrap import dedent
 
@@ -115,6 +116,19 @@ def a2a_cmd(
     output_dir = Path(settings.output_dir)
     run_id = f"a2a_{agent}"
 
+    # Initialize OTEL tracing if enabled
+    if settings.otel_enabled:
+        from ....utils.otel import check_otel_collector_health, init_tracing_from_env
+
+        # Verify collector is reachable before starting the server
+        healthy, err = check_otel_collector_health()
+        if not healthy:
+            raise click.ClickException(f"OTEL is enabled but collector is not reachable: {err}")
+
+        init_tracing_from_env(service_name="exgentic-a2a")
+        click.echo(f"✓ OTEL tracing enabled (endpoint: {os.getenv('OTEL_EXPORTER_OTLP_ENDPOINT', 'not set')})")
+
+        
     # Initialize context using run_scope
     with run_scope(run_id=run_id, output_dir=str(output_dir)):
         # Create log directory
