@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -66,40 +68,45 @@ class ExgenticAgentExecutor:
         self.mcp_address = mcp_address
         self.agent_display_name = agent_display_name
         self.tool_metadata = tool_metadata
-        
+
         # Convert MCP tools to OpenAI format, then to ActionTypes using existing functions
         from ...adapters.schemas.openai import mcp_to_openai_tool, openai_tools_to_action_types
-        
+
         openai_tools = []
         for tool_meta in tool_metadata:
-            # Create a simple object with the required attributes
             class MCPTool:
                 def __init__(self, meta):
                     self.name = meta["name"]
                     self.description = meta.get("description", "")
                     self.inputSchema = meta.get("inputSchema", {})
-            
+
             mcp_tool = MCPTool(tool_meta)
             openai_tool = mcp_to_openai_tool(mcp_tool)
             openai_tools.append(openai_tool)
-        
-        # Use the existing function that creates picklable ActionTypes
+
         self.action_types = openai_tools_to_action_types(openai_tools)
-        
-        # Mark the message action as is_message=True so agents handle it correctly
+
         for action_type in self.action_types:
             if action_type.name == "message":
                 action_type.is_message = True
-    
+
+    def _get_span_manager(self, tracker, session_id):
+        """Get the SessionSpanManager from the OtelTracingObserver, or None."""
+        from ...observers.handlers.otel import OtelTracingObserver
+
+        for obs in tracker._observers:
+            if isinstance(obs, OtelTracingObserver):
+                return obs._get_span_manager(session_id)
+        return None
+
     async def execute(self, context: RequestContext, event_queue: EventQueue):
         """Execute a task using the exgentic agent."""
-        from ...core.context import Context, set_context, set_context_fallback, get_context
+        from ...core.context import Context, get_context, set_context, set_context_fallback
         from ...core.orchestrator.tracker import Tracker
         from ...utils.settings import get_settings
         from datetime import datetime
         from pathlib import Path
-        
-        # Create a context for this execution
+
         settings = get_settings()
         run_id = f"a2a_{datetime.now().isoformat().replace(':', '--')}"
         output_dir_path = Path(settings.output_dir).resolve()
@@ -110,8 +117,8 @@ class ExgenticAgentExecutor:
         )
         set_context(ctx)
         set_context_fallback(ctx)
-        
-        # Initialize tracker — default observers include OtelTracingObserver when otel_enabled
+
+        # Default observers include OtelTracingObserver when otel_enabled
         tracker = Tracker()
 
         # Setup Event Emitter
@@ -127,45 +134,43 @@ class ExgenticAgentExecutor:
             await event_emitter.emit_event("Error: Empty input provided", failed=True)
             return
 
-        # Print log location for this request
         logger.info(f"Processing task: {user_input}")
-        logger.info(f"📁 Task execution logs will be written to: {output_dir_path / run_id}")
+        logger.info(f"Task execution logs: {output_dir_path / run_id}")
         print(f"\n📁 New request - Logs: {output_dir_path / run_id}")
-        
+
         await event_emitter.emit_event(f"🚀 Starting task execution with {self.agent_display_name}...")
 
         # Connect to MCP server for tool execution
         mcp_session = None
         http_context = None
         mock_session = None
+        span_manager = None
+
         try:
             await event_emitter.emit_event(f"🔗 Connecting to MCP server at {self.mcp_address}...")
-            
-            # Connect to MCP server
+
             http_context = streamable_http_client(self.mcp_address)
             read_stream, write_stream, _ = await http_context.__aenter__()
-            
+
             mcp_session = ClientSession(read_stream, write_stream)
             await mcp_session.__aenter__()
             await mcp_session.initialize()
-            
-            await event_emitter.emit_event(f"✓ Connected to MCP server")
-            
-            # Extract session_id from user_input (must be present in task context)
-            import re
+
+            await event_emitter.emit_event("✓ Connected to MCP server")
+
+            # Extract session_id from user_input
             session_id_match = re.search(r'session[_ ]id["\s:]+([a-f0-9-]{36})', user_input, re.IGNORECASE)
             if not session_id_match:
                 error_msg = "No session_id found in task context. Task must include session_id."
                 await event_emitter.emit_event(f"❌ {error_msg}", failed=True)
                 raise ValueError(error_msg)
-            
+
             session_id = session_id_match.group(1)
             await event_emitter.emit_event(f"✓ Using session_id from task: {session_id}")
-            
-            # Create a mock session for OTEL tracing
+
+            # Create a mock session for tracker lifecycle
             from ...core.session import Session as SessionBase
-            from ...core.types import SessionScore
-            
+
             class A2ASession(SessionBase):
                 def __init__(self, task_str, actions, session_id_val, task_id_val):
                     self._session_id = session_id_val
@@ -173,166 +178,140 @@ class ExgenticAgentExecutor:
                     self._actions = actions
                     self._task_id = task_id_val
                     super().__init__()
-                
+
                 @property
                 def task(self) -> str:
                     return self._task
-                
+
                 @property
                 def context(self) -> dict:
                     return {}
-                
+
                 @property
                 def actions(self):
                     return self._actions
-                
+
                 @property
                 def task_id(self) -> str:
                     return self._task_id
-                
+
                 def start(self):
                     return None
-                
+
                 def step(self, action):
                     return None
-                
+
                 def done(self) -> bool:
                     return False
-                
+
                 def score(self) -> dict:
                     return {"score": 1.0, "success": True}
-                
+
                 def close(self) -> None:
                     pass
-            
-            # Create session for OTEL tracking
+
             mock_session = A2ASession(user_input, self.action_types, session_id, f"a2a_{session_id}")
 
-            # on_session_enter must be called before on_session_creation so the
-            # OtelTracingObserver creates the root span and span manager first.
+            # on_session_enter creates the root span via OtelTracingObserver
             tracker.on_session_enter(session_id, f"a2a_{session_id}")
             tracker.on_session_creation(mock_session)
-            
-            # Propagate OTEL context to the ContextVar so the venv runner
-            # picks it up via RuntimeConfig.from_current() when spawning the agent.
-            if settings.otel_enabled:
-                from ...observers.handlers.otel import OtelTracingObserver
 
-                for obs in tracker._observers:
-                    if isinstance(obs, OtelTracingObserver):
-                        span_manager = obs._get_span_manager(session_id)
-                        span_manager.update_tracing_context()
-                        otel_ctx = span_manager.get_otel_context()
-                        if otel_ctx:
-                            current_ctx = get_context()
-                            updated_ctx = current_ctx.with_session(session_id).with_otel_context(otel_ctx)
-                            set_context(updated_ctx)
-                            set_context_fallback(updated_ctx)
-                            logger.info(f"Updated Context with session_id={session_id} and OTEL context: trace_id={otel_ctx.trace_id}, span_id={otel_ctx.span_id}")
-                        else:
-                            logger.warning("OTEL context is None after span manager update")
-                        break
-            
-            # Create agent instance - it will now inherit the OTEL context from environment
+            # Rename the root span and set GenAI/MLflow/Phoenix attributes
+            if settings.otel_enabled:
+                span_manager = self._get_span_manager(tracker, session_id)
+                if span_manager:
+                    # Rename from "unknown_benchmark subset session" to proper agent name
+                    span_manager.update_current_span_name(f"invoke_agent {self.agent_display_name}")
+
+                    # GenAI semantic conventions (Required)
+                    span_manager.set_attribute("gen_ai.operation.name", "invoke_agent")
+                    span_manager.set_attribute("gen_ai.provider.name", "exgentic")
+                    span_manager.set_attribute("gen_ai.agent.name", self.agent_display_name)
+
+                    # GenAI (Conditionally Required)
+                    span_manager.set_attribute("gen_ai.conversation.id", session_id)
+                    model_name = self.agent_kwargs.get("model")
+                    if model_name:
+                        span_manager.set_attribute("gen_ai.request.model", model_name)
+
+                    # MLflow attributes
+                    truncated_input = user_input[:1000]
+                    span_manager.set_attribute("mlflow.spanInputs", truncated_input)
+                    span_manager.set_attribute("mlflow.spanType", "AGENT")
+                    span_manager.set_attribute("mlflow.traceName", self.agent_display_name)
+                    span_manager.set_attribute("mlflow.trace.session", session_id)
+
+                    # OpenInference (Phoenix) attributes
+                    span_manager.set_attribute("openinference.span.kind", "AGENT")
+                    span_manager.set_attribute("input.value", truncated_input)
+
+                    # Propagate OTEL context so the venv runner subprocess inherits it
+                    span_manager.update_tracing_context()
+                    otel_ctx = span_manager.get_otel_context()
+                    if otel_ctx:
+                        current_ctx = get_context()
+                        updated_ctx = current_ctx.with_session(session_id).with_otel_context(otel_ctx)
+                        set_context(updated_ctx)
+                        set_context_fallback(updated_ctx)
+                        logger.info(f"Updated Context: session_id={session_id}, trace_id={otel_ctx.trace_id}, span_id={otel_ctx.span_id}")
+
+            # Create agent instance — inherits OTEL context via RuntimeConfig
             agent_instance = self.agent_cls(**self.agent_kwargs).get_instance(session_id=session_id)
-            
-            # Notify tracker of session start
             tracker.on_session_start(mock_session, agent_instance, None)
 
-            # Start the agent with task and actions.
-            # OTEL context is propagated via env vars (inject_exgentic_env in the venv runner).
             agent_instance.start(
                 task=user_input,
                 context={},
                 actions=self.action_types,
             )
-            
+
             await event_emitter.emit_event(f"✓ Agent initialized with {len(self.action_types)} tools")
-            
-            # Run the agent loop - call MCP directly without storing session in objects
+
+            # Agent loop
             max_iterations = 50
             current_observation = None
             final_result = None
-            
-            # Create a thread pool executor for running synchronous agent.react() calls
             executor = ThreadPoolExecutor(max_workers=1)
-            
+
             try:
                 for i in range(max_iterations):
-                    # Run agent.react() in a thread pool to avoid blocking the event loop
                     loop = asyncio.get_event_loop()
                     action = await loop.run_in_executor(executor, agent_instance.react, current_observation)
-                    
+
                     if action is None:
-                        # Agent is done
                         await event_emitter.emit_event("✓ Agent completed execution")
                         break
-                    
-                    # Notify tracker of successful react
+
                     tracker.on_react_success(mock_session, action)
-                    
-                    # Convert action to list of SingleActions (works for all action types)
                     actions_to_execute = action.to_action_list()
-                    
-                    # Log action(s)
+
                     if len(actions_to_execute) > 1:
                         await event_emitter.emit_event(f"🔧 Parallel Action: {len(actions_to_execute)} actions")
                     else:
                         await event_emitter.emit_event(f"🔧 Action: {actions_to_execute[0].name}")
-                    
-                    # Execute all actions
+
                     results = []
                     for single_action in actions_to_execute:
-                        # Check if this is a message action (agent's final response)
-#                        if single_action.name == "message":
-#                            # Extract the message content
-#                            from ...core.types.action import MessageAction
-#                            if isinstance(single_action, MessageAction):
-#                                message_content = single_action.arguments.content
-#                                await event_emitter.emit_event(f"💬 Agent response: {message_content}")
-#                                # This is the final answer, break the loop
-#                                final_result = message_content
-#                                break
-#                            else:
-#                                # Fallback: treat as string
-#                                final_result = str(single_action.arguments)
-#                                break
-                        
-                        # Execute the action by calling MCP directly
                         tool_name = single_action.name
                         args_dict = single_action.arguments.model_dump()
-                        
-                        # If this is the message tool, inject the session_id
+
                         if tool_name == "message" and "session_id" not in args_dict:
                             args_dict["session_id"] = session_id
-                        
+
                         try:
-                            # Call MCP server directly without storing in adapter
                             result = await mcp_session.call_tool(tool_name, args_dict)
-                            
-                            # Extract the result content
+
                             result_text = ""
-                            if hasattr(result, "content") and result.content:
-                                if len(result.content) > 0:
-                                    first_content = result.content[0]
-                                    if hasattr(first_content, "text"):
-                                        result_text = first_content.text
-                                    else:
-                                        result_text = str(first_content)
-                                else:
-                                    result_text = str(result)
+                            if hasattr(result, "content") and result.content and len(result.content) > 0:
+                                first_content = result.content[0]
+                                result_text = first_content.text if hasattr(first_content, "text") else str(first_content)
                             else:
                                 result_text = str(result)
-                            
+
                             results.append(result_text)
-                            
-                            # Log result
-                            result_str = str(result_text)[:200]
-                            await event_emitter.emit_event(f"📊 Result ({tool_name}): {result_str}")
-                            
-                            # Check if session is completed
+                            await event_emitter.emit_event(f"📊 Result ({tool_name}): {str(result_text)[:200]}")
+
                             try:
-                                import json
                                 result_json = json.loads(result_text)
                                 if result_json.get("status") == "completed":
                                     await event_emitter.emit_event("✓ Session completed successfully")
@@ -340,36 +319,31 @@ class ExgenticAgentExecutor:
                                     break
                             except (json.JSONDecodeError, AttributeError):
                                 pass
-                            
+
                         except Exception as e:
                             error_msg = f"Error executing {tool_name}: {e}"
                             results.append(error_msg)
                             await event_emitter.emit_event(f"❌ {error_msg}")
-                            
-                            # Check if this is a timeout error indicating completion
+
                             if "timed out" in str(e).lower() or "timeout" in str(e).lower():
                                 await event_emitter.emit_event("⚠️  Timeout detected, assuming session completed")
                                 final_result = "Session completed (timeout)"
                                 break
-                        
-                        # Check if this is a finish action
+
                         if hasattr(single_action, 'name') and 'finish' in single_action.name.lower():
                             break
-                    
-                    # If we got a final result from a message action, break outer loop
+
                     if final_result is not None:
                         break
-                    
-                    # Create proper Observation object
+
+                    # Build observation for next react() call
                     if len(actions_to_execute) == 1:
-                        # Single action - use SingleObservation
                         from ...core.types.observation import SingleObservation
                         current_observation = SingleObservation(
                             result=results[0] if results else "",
                             invoking_actions=actions_to_execute
                         )
                     else:
-                        # Multiple actions - use MultiObservation with one SingleObservation per action
                         from ...core.types.observation import SingleObservation, MultiObservation
                         observations = []
                         for idx, single_action in enumerate(actions_to_execute):
@@ -379,39 +353,49 @@ class ExgenticAgentExecutor:
                             )
                             observations.append(obs)
                         current_observation = MultiObservation(observations=observations)
-                    
-                    # Notify tracker of successful step
+
                     tracker.on_step_success(mock_session, current_observation)
             finally:
                 executor.shutdown(wait=False)
-            
-            # Get final result
+
+            # Determine final result
             if final_result is None:
                 if current_observation and hasattr(current_observation, 'result'):
                     final_result = str(current_observation.result)
                 else:
                     final_result = "Task completed"
-            
-            # Notify tracker of session success BEFORE closing agent
+
+            # Set output attributes on root span
+            if span_manager:
+                truncated_output = final_result[:1000]
+                span_manager.set_attribute("gen_ai.completion", truncated_output)
+                span_manager.set_attribute("mlflow.spanOutputs", truncated_output)
+                span_manager.set_attribute("output.value", truncated_output)
+
+            # Notify tracker of session success
             from ...core.types import SessionScore
             score = SessionScore(success=True, score=1.0, is_finished=True)
             tracker.on_session_success(mock_session, score, agent_instance)
-            
-            # Cleanup agent after tracker callbacks
+
             agent_instance.close()
-            
             await event_emitter.emit_event(final_result, final=True)
-            
+
+            # Flush traces to ensure they're exported
+            from ...utils.otel import flush_traces
+            flush_traces()
+
         except Exception as e:
             logger.error(f"Error executing task: {e}", exc_info=True)
-            
-            # Notify tracker of session error if session was created
-            if 'mock_session' in locals() and 'tracker' in locals():
+
+            # Record error on root span
+            if span_manager:
+                span_manager.record_exception(e)
+
+            if mock_session:
                 tracker.on_session_error(mock_session, e)
-            
+
             await event_emitter.emit_event(f"Error: {str(e)}", failed=True)
         finally:
-            # Cleanup MCP session and HTTP context
             if mcp_session:
                 try:
                     await mcp_session.__aexit__(None, None, None)
