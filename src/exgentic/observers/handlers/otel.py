@@ -337,6 +337,7 @@ class OtelTracingObserver(Observer):
                 "exgentic.session.task_id": session.task_id,
             }
         )
+        self._set_score_extras(span_manager, score)
 
         self._set_cost_attr(span_manager, "exgentic.agent.agent_cost", lambda: agent.get_cost())
         self._set_cost_attr(span_manager, "exgentic.session.cost", lambda: session.get_cost())
@@ -374,6 +375,19 @@ class OtelTracingObserver(Observer):
     def _close_trailing_tool_span(span_manager: SessionSpanManager) -> None:
         if span_manager.depth == 2:
             span_manager.end_current_span()
+
+    @staticmethod
+    def _set_score_extras(span_manager: SessionSpanManager, score) -> None:
+        """Flatten score.session_metrics / session_metadata onto the session span."""
+        for prefix, attr in (
+            ("exgentic.score.metrics", "session_metrics"),
+            ("exgentic.score.metadata", "session_metadata"),
+        ):
+            data = getattr(score, attr, None) or {}
+            for key, value in data.items():
+                otel_value = to_otel_attribute_value(value)
+                if otel_value is not None:
+                    span_manager.set_attribute(f"{prefix}.{key}", otel_value)
 
     @staticmethod
     def _set_cost_attr(span_manager: SessionSpanManager, key: str, get_cost) -> None:

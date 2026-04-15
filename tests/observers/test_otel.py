@@ -831,6 +831,70 @@ class TestSessionSuccessAttributes:
         assert attrs.get("exgentic.score") == 0.95
         assert attrs.get("exgentic.score.is_finished") is True
 
+    def test_score_extras_flattened_onto_session_span(self, exporter, ctx, tmp_path):
+        """session_metrics and session_metadata are flattened onto the session span."""
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        t = provider.get_tracer("test")
+
+        obs = _create_observer_with_tracer(ctx, tmp_path, t)
+        obs, session, settings = _trigger_session_lifecycle(obs, t, ctx, tmp_path)
+
+        class RichScore(MockScore):
+            session_metrics: ClassVar[dict] = {"reward": 0.75, "db_check_db_match": True}
+            session_metadata: ClassVar[dict] = {
+                "reward_info": {
+                    "reward": 0.75,
+                    "nl_assertions": [
+                        {"assertion": "agent greeted user", "met": True},
+                        {"assertion": "agent confirmed order", "met": False},
+                    ],
+                },
+            }
+
+        with (
+            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
+            patch("exgentic.observers.handlers.otel.flush_traces"),
+        ):
+            obs.on_session_success(session, RichScore(), MockAgent())
+
+        spans = exporter.get_finished_spans()
+        session_spans = [s for s in spans if "session" in s.name]
+        attrs = dict(session_spans[0].attributes)
+
+        # Primitive metric values pass through directly.
+        assert attrs.get("exgentic.score.metrics.reward") == 0.75
+        assert attrs.get("exgentic.score.metrics.db_check_db_match") is True
+
+        # Nested metadata is JSON-serialized so nothing is dropped.
+        reward_info_raw = attrs.get("exgentic.score.metadata.reward_info")
+        assert reward_info_raw is not None, "rich score metadata must be emitted"
+        parsed = json.loads(reward_info_raw)
+        assert parsed["reward"] == 0.75
+        assert parsed["nl_assertions"][0]["assertion"] == "agent greeted user"
+        assert parsed["nl_assertions"][1]["met"] is False
+
+    def test_score_extras_absent_when_empty(self, exporter, ctx, tmp_path):
+        """Scores without metrics/metadata emit no extra attributes and don't crash."""
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        t = provider.get_tracer("test")
+
+        obs = _create_observer_with_tracer(ctx, tmp_path, t)
+        obs, session, settings = _trigger_session_lifecycle(obs, t, ctx, tmp_path)
+
+        with (
+            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
+            patch("exgentic.observers.handlers.otel.flush_traces"),
+        ):
+            obs.on_session_success(session, MockScore(), MockAgent())
+
+        spans = exporter.get_finished_spans()
+        session_spans = [s for s in spans if "session" in s.name]
+        attrs = dict(session_spans[0].attributes)
+        assert not any(k.startswith("exgentic.score.metrics.") for k in attrs)
+        assert not any(k.startswith("exgentic.score.metadata.") for k in attrs)
+
     def test_step_counter_set(self, exporter, ctx, tmp_path):
         """exgentic.session.steps reflects the number of steps."""
         provider = TracerProvider()
