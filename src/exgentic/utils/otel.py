@@ -78,6 +78,49 @@ class PerSessionFileExporter(SpanExporter):
         pass
 
 
+class FilteredSpanExporter(SpanExporter):
+    """Wraps a SpanExporter to filter out spans from specific libraries."""
+
+    def __init__(self, wrapped_exporter: SpanExporter) -> None:
+        self._wrapped = wrapped_exporter
+        # List of instrumentation scope names to exclude
+        self._excluded_scopes = {
+            "a2a.server.events.event_queue",
+            "a2a.server.tasks",
+            "a2a",
+        }
+
+    def export(self, spans: Sequence) -> SpanExportResult:
+        """Filter spans and export only those not from excluded libraries."""
+        filtered_spans = []
+        for span in spans:
+            # Check instrumentation scope
+            scope_name = getattr(span, "instrumentation_scope", None)
+            if scope_name:
+                scope_name_str = getattr(scope_name, "name", "")
+                # Skip spans from a2a-python-sdk
+                if any(excluded in scope_name_str for excluded in self._excluded_scopes):
+                    continue
+            
+            # Also check span name for a2a patterns
+            span_name = getattr(span, "name", "")
+            if span_name and any(pattern in span_name.lower() for pattern in ["enqueue", "a2a"]):
+                # Check if this is an exgentic span (has our attributes)
+                attrs = getattr(span, "attributes", {})
+                if not any(k.startswith("exgentic.") for k in attrs.keys()):
+                    continue
+            
+            filtered_spans.append(span)
+        
+        if not filtered_spans:
+            return SpanExportResult.SUCCESS
+        
+        return self._wrapped.export(filtered_spans)
+
+    def shutdown(self) -> None:
+        self._wrapped.shutdown()
+
+
 class UrandomIdGenerator(IdGenerator):
     def generate_span_id(self) -> int:
         return int.from_bytes(os.urandom(8), "big")
@@ -121,7 +164,9 @@ def init_tracing_from_env(
 
     processor_class = SimpleSpanProcessor if use_simple_processor else BatchSpanProcessor
     for exporter in exporters:
-        provider.add_span_processor(processor_class(exporter))
+        # Wrap exporter with filtering to exclude a2a-python-sdk spans
+        filtered_exporter = FilteredSpanExporter(exporter)
+        provider.add_span_processor(processor_class(filtered_exporter))
 
     return trace.get_tracer(__name__)
 

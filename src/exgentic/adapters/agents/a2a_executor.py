@@ -111,11 +111,8 @@ class ExgenticAgentExecutor:
         set_context(ctx)
         set_context_fallback(ctx)
         
-        # Initialize tracker with OTEL observer if enabled
-        tracker = Tracker(observers=None, controllers=None)
-        if settings.otel_enabled:
-            from ...observers.handlers.otel import OtelTracingObserver
-            tracker._register_observer(OtelTracingObserver())
+        # Initialize tracker — default observers include OtelTracingObserver when otel_enabled
+        tracker = Tracker()
 
         # Setup Event Emitter
         task = context.current_task
