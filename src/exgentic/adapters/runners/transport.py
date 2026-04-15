@@ -12,30 +12,6 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 import cloudpickle as cp
-from copyreg import pickle
-
-# Register custom reducers for Pydantic models to handle pickling issues
-try:
-    from pydantic import BaseModel as PydanticBaseModel
-    
-    def _reduce_pydantic_model(obj):
-        """Custom reducer for Pydantic models that handles v2 serialization."""
-        # Use model_dump to get a dict representation, then reconstruct
-        return (
-            _reconstruct_pydantic_model,
-            (obj.__class__, obj.model_dump()),
-        )
-    
-    def _reconstruct_pydantic_model(cls, data):
-        """Reconstruct a Pydantic model from its class and dumped data."""
-        return cls(**data)
-    
-    # Register the reducer for all Pydantic BaseModel subclasses
-    pickle(PydanticBaseModel, _reduce_pydantic_model)
-    
-except ImportError:
-    # Pydantic not available, skip registration
-    pass
 
 # Sentinel returned by ``get`` when the attribute is a bound method.
 # The proxy checks for this to avoid serialising the entire instance.
