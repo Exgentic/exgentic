@@ -711,17 +711,13 @@ async def test_a2a_agent(
         initial_mem = monitor.measure("initial")
         monitor.print_measurement(initial_mem)
 
-    # Create MCP client
-    import httpx
-    mcp_http_client = httpx.AsyncClient()
-    
     try:
         # Connect to MCP server
         print("\n" + "-" * 80)
         print("CONNECTING TO MCP SERVER")
         print("-" * 80)
-        
-        async with streamable_http_client(mcp_url, http_client=mcp_http_client) as (read_stream, write_stream, _):
+
+        async with streamable_http_client(mcp_url) as (read_stream, write_stream, _):
             async with ClientSession(read_stream, write_stream) as mcp_session:
                 # Initialize
                 print("Initializing session...")
@@ -855,11 +851,7 @@ async def test_a2a_agent(
         traceback.print_exc()
         return 1
     finally:
-        # Ensure HTTP client is closed
-        try:
-            await mcp_http_client.aclose()
-        except Exception:
-            pass
+        pass
 
     # Print summary
     if monitor:

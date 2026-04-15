@@ -160,14 +160,8 @@ def mcp_cmd(
             session = None
 
             try:
-                session_index = SessionIndex(
-                    task_id=task_id,
-                    session_id=session_id,
-                )
-                # Get session kwargs from evaluator
-                session_kwargs = evaluator.get_session_kwargs(session_index)
-                # Create session using benchmark
-                session = benchmark_instance.get_session(**session_kwargs)
+                # Create session using benchmark with task_id and session_id
+                session = benchmark_instance.get_session(task_id=task_id, session_id=session_id)
 
                 # Start the session to get initial observation
                 _ = session.start()

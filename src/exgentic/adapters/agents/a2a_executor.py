@@ -210,41 +210,31 @@ class ExgenticAgentExecutor:
             
             # Create session for OTEL tracking
             mock_session = A2ASession(user_input, self.action_types, session_id, f"a2a_{session_id}")
-            
-            # Notify tracker of session creation - this creates the root span
+
+            # on_session_enter must be called before on_session_creation so the
+            # OtelTracingObserver creates the root span and span manager first.
+            tracker.on_session_enter(session_id, f"a2a_{session_id}")
             tracker.on_session_creation(mock_session)
             
-            # Update the OS environment with OTEL span information BEFORE creating agent
-            # This ensures the agent subprocess inherits the correct OTEL context
-            import os
-            from ...observers.handlers.otel import OtelTracingObserver
-            from ...core.context import ENV_OTEL_TRACE_ID, ENV_OTEL_SPAN_ID
-            
-            if settings.otel_enabled and any(isinstance(obs, OtelTracingObserver) for obs in tracker._observers):
-                # Find the OtelTracingObserver and get its span manager
+            # Propagate OTEL context to the ContextVar so the venv runner
+            # picks it up via RuntimeConfig.from_current() when spawning the agent.
+            if settings.otel_enabled:
+                from ...observers.handlers.otel import OtelTracingObserver
+
                 for obs in tracker._observers:
                     if isinstance(obs, OtelTracingObserver):
                         span_manager = obs._get_span_manager(session_id)
-                        # Update context
                         span_manager.update_tracing_context()
-                        # Also update OS environment so subprocess inherits it
                         otel_ctx = span_manager.get_otel_context()
                         if otel_ctx:
-                            os.environ[ENV_OTEL_TRACE_ID] = otel_ctx.trace_id
-                            os.environ[ENV_OTEL_SPAN_ID] = otel_ctx.span_id
-                            # UPDATE THE CONTEXT IN THE CONTEXTVAR AND FALLBACK
-                            # Both are needed: ContextVar for the current async task,
-                            # fallback for the ThreadPoolExecutor thread running react()
                             current_ctx = get_context()
                             updated_ctx = current_ctx.with_session(session_id).with_otel_context(otel_ctx)
                             set_context(updated_ctx)
                             set_context_fallback(updated_ctx)
                             logger.info(f"Updated Context with session_id={session_id} and OTEL context: trace_id={otel_ctx.trace_id}, span_id={otel_ctx.span_id}")
                         else:
-                            logger.warning("OTEL context is None, cannot set environment variables")
+                            logger.warning("OTEL context is None after span manager update")
                         break
-            else:
-                logger.info(f"OTEL not enabled or no OtelTracingObserver found. otel_enabled={settings.otel_enabled}, observers={[type(o).__name__ for o in tracker._observers]}")
             
             # Create agent instance - it will now inherit the OTEL context from environment
             agent_instance = self.agent_cls(**self.agent_kwargs).get_instance(session_id=session_id)
