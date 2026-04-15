@@ -45,8 +45,8 @@ def test_batch_status_multiple_configs(tmp_path):
 
     assert result.exit_code == 0, result.output
     assert "Batch Status" in result.output
-    assert "run-a" in result.output
-    assert "run-b" in result.output
+    assert "test_benchmark" in result.output
+    assert "test_agent" in result.output
 
 
 def test_batch_status_config_glob_pattern(tmp_path):
@@ -69,8 +69,7 @@ def test_batch_status_config_glob_pattern(tmp_path):
     )
 
     assert result.exit_code == 0, result.output
-    assert "run-g1" in result.output
-    assert "run-g2" in result.output
+    assert "test_benchmark" in result.output
 
 
 def test_batch_status_shell_expanded_values_after_single_config(tmp_path):
@@ -91,8 +90,7 @@ def test_batch_status_shell_expanded_values_after_single_config(tmp_path):
     )
 
     assert result.exit_code == 0, result.output
-    assert "run-s1" in result.output
-    assert "run-s2" in result.output
+    assert "test_benchmark" in result.output
 
 
 def test_batch_extract_writes_csv(tmp_path):

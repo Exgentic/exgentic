@@ -7,27 +7,37 @@ import os
 from pathlib import Path
 
 from exgentic.core.context import (
-    ENV_OTEL_SPAN_ID,
-    ENV_OTEL_TRACE_ID,
     Context,
-    init_context_from_env,
+    Role,
+    init_context,
+    save_service_runtime,
+    set_context,
 )
 from exgentic.integrations.litellm.trace_logger import TraceLogger
 
 
 def test_trace_logger_initializes_context_from_env(tmp_path: Path):
-    ctx = Context(run_id="run-env", output_dir=str(tmp_path), cache_dir=str(tmp_path))
-    env = ctx.to_env()
-    os.environ.update(env)
-    os.environ.pop(ENV_OTEL_TRACE_ID, None)
-    os.environ.pop(ENV_OTEL_SPAN_ID, None)
+    ctx = Context(
+        run_id="run-env",
+        output_dir=str(tmp_path),
+        cache_dir=str(tmp_path),
+        session_id="sess-1",
+    )
+    set_context(ctx)
 
-    # Force env init.
-    init_context_from_env()
-    logger = TraceLogger()
-    path = logger._resolve_log_path({})
+    # Write a per-service runtime.json for the benchmark role.
+    path = save_service_runtime(Role.BENCHMARK)
+    assert path.exists()
 
-    assert "run-env" in path
-
-    for k in env:
-        os.environ.pop(k, None)
+    old_val = os.environ.get("EXGENTIC_RUNTIME_FILE")
+    os.environ["EXGENTIC_RUNTIME_FILE"] = str(path)
+    try:
+        init_context()
+        logger = TraceLogger()
+        log_path = logger._resolve_log_path({})
+        assert "run-env" in log_path
+    finally:
+        if old_val is None:
+            os.environ.pop("EXGENTIC_RUNTIME_FILE", None)
+        else:
+            os.environ["EXGENTIC_RUNTIME_FILE"] = old_val

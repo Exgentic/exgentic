@@ -125,25 +125,51 @@ def render_run_status(status: Any, output_format: str) -> None:
 
 def render_batch_status(rows: list[dict[str, str]]) -> None:
     total_configs = len(rows)
-    done_configs = sum(1 for row in rows if row.get("ready") == row.get("finished"))
     total_sessions = 0
-    total_ready = 0
+    total_completed = 0
+    total_running = 0
+    total_errors = 0
+    total_cost = 0.0
+    done_configs = 0
     for row in rows:
-        ready = row.get("ready", "-")
-        if isinstance(ready, str) and "/" in ready:
-            try:
-                done_str, total_str = ready.split("/", 1)
-                total_sessions += int(total_str)
-                total_ready += int(done_str)
-            except Exception:
-                continue
+        sessions = row.get("sessions", "-")
+        if not isinstance(sessions, str) or "/" not in sessions:
+            continue
+        try:
+            tokens = sessions.split()
+            frac = tokens[0]
+            completed = int(frac.split("/")[0])
+            planned = int(frac.split("/")[1])
+            total_completed += completed
+            total_sessions += planned
+            if completed >= planned:
+                done_configs += 1
+            for token in tokens[1:]:
+                if token.endswith("run"):
+                    total_running += int(token[:-3])
+                elif token.endswith("err"):
+                    total_errors += int(token[:-3])
+        except (ValueError, IndexError):
+            continue
+        try:
+            cost_str = row.get("cost", "0")
+            if cost_str not in ("-", ""):
+                total_cost += float(cost_str)
+        except (ValueError, TypeError):
+            pass
 
     summary = Table.grid(padding=(0, 2))
     summary.add_column(style="bold cyan")
     summary.add_column()
-    summary.add_row("Configs", f"{total_configs} total")
-    summary.add_row("Fully Done", f"{done_configs} total")
-    summary.add_row("Sessions", f"{total_ready}/{total_sessions}")
+    summary.add_row("Configs", f"{done_configs}/{total_configs} done")
+    sessions_line = f"{total_completed}/{total_sessions}"
+    if total_running:
+        sessions_line += f"  ({total_running} running)"
+    summary.add_row("Sessions", sessions_line)
+    if total_errors:
+        summary.add_row("Errors", str(total_errors))
+    if total_cost > 0:
+        summary.add_row("Total Cost", f"${total_cost:.2f}")
     CONSOLE.print(Panel(summary, title="Batch Summary", border_style="cyan"))
 
     table = Table(
@@ -151,36 +177,25 @@ def render_batch_status(rows: list[dict[str, str]]) -> None:
         box=box.SIMPLE,
         show_header=True,
         header_style="bold magenta",
+        expand=True,
     )
-    table.add_column("#", justify="right", no_wrap=True)
-    table.add_column("Config", overflow="crop", max_width=30)
-    table.add_column("Run", no_wrap=True, min_width=8)
-    table.add_column("Benchmark", no_wrap=True)
-    table.add_column("Agent", no_wrap=True)
-    table.add_column("Subset", no_wrap=True)
-    table.add_column("Models", overflow="crop", max_width=24)
-    table.add_column("Ready", justify="right")
-    table.add_column("Aggregated", justify="right")
-    table.add_column("Finished", justify="right")
-    table.add_column("Errors", justify="right")
-    table.add_column("Score", justify="right")
-    table.add_column("Cost", justify="right")
+    table.add_column("#", justify="right", width=3)
+    table.add_column("Benchmark")
+    table.add_column("Agent")
+    table.add_column("Model")
+    table.add_column("Sessions", justify="right", no_wrap=True)
+    table.add_column("Score", justify="right", no_wrap=True)
+    table.add_column("Cost", justify="right", no_wrap=True)
 
     for row in rows:
         table.add_row(
             row["#"],
-            row["config"],
-            row["run_id"],
             row["benchmark"],
             row["agent"],
-            row.get("subset", "-"),
-            row["models"],
-            row["ready"],
-            row["aggregated"],
-            row["finished"],
-            row["errors"],
-            row["score"],
-            row["cost"],
+            row.get("model", "-"),
+            row.get("sessions", "-"),
+            row.get("score", "-"),
+            row.get("cost", "-"),
         )
 
     CONSOLE.print(table)

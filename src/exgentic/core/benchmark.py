@@ -71,24 +71,47 @@ class Benchmark(BaseModel, RunnerMixin, ABC):
         """
         return {}
 
+    def _get_session_kwargs(self) -> dict[str, Any]:
+        """Return benchmark-config kwargs for constructing the Session.
+
+        Subclasses override this to pass benchmark-specific config.
+        The Session self-loads its own task data given ``task_id``.
+        """
+        return {}
+
     def get_evaluator(self) -> Evaluator:
-        """Create an ``Evaluator`` wrapped in the configured runner."""
+        """Create an ``Evaluator`` wrapped in the configured runner.
+
+        Evaluators are run-level services — they handle ``list_tasks``
+        and ``aggregate_sessions`` for the whole run.
+        """
         from ..adapters.runners import with_runner
+        from .context import Role
 
         return with_runner(
             self._get_evaluator_class(),
             runner=self.resolve_runner(),
+            role=Role.AGGREGATOR,
             **self._get_evaluator_kwargs(),
             **self.runner_kwargs(),
         )
 
-    def get_session(self, **session_kwargs: Any) -> Session:
-        """Create a ``Session`` wrapped in the configured runner."""
+    def get_session(self, task_id: str, session_id: str | None = None) -> Session:
+        """Create a ``Session`` wrapped in the configured runner.
+
+        Sessions are in-session services — they run one task end-to-end.
+        The Session self-loads its own task data given ``task_id`` and the
+        benchmark config from :meth:`_get_session_kwargs`.
+        """
         from ..adapters.runners import with_runner
+        from .context import Role
 
         return with_runner(
             self._get_session_class(),
             runner=self.resolve_runner(),
-            **session_kwargs,
+            role=Role.BENCHMARK,
+            task_id=task_id,
+            session_id=session_id,
+            **self._get_session_kwargs(),
             **self.runner_kwargs(),
         )

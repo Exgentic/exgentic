@@ -112,8 +112,14 @@ class SWEBenchBenchmark(Benchmark):
             self.max_interactions = session_cfg.get("max_interactions")
 
     def _get_evaluator_kwargs(self) -> dict[str, Any]:
+        return {"subset": self.subset}
+
+    def _get_session_kwargs(self) -> dict[str, Any]:
+        from ...utils.settings import get_settings
+
         return {
+            "settings": get_settings(),
             "subset": self.subset,
-            "require_submit_for_patch_evaluation": self.require_submit_for_patch_evaluation,
             "max_interactions": self.max_interactions,
+            "require_submit_for_patch_evaluation": self.require_submit_for_patch_evaluation,
         }

@@ -16,7 +16,10 @@ import atexit
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ...core.context import Role
 
 from ._utils import (
     find_free_port,
@@ -66,6 +69,7 @@ class DockerRunner:
         dependencies: list[str] | None = None,
         docker_socket: bool = False,
         volumes: dict[str, str] | None = None,
+        role: Role | None = None,
         **kwargs: Any,
     ) -> None:
         if args:
@@ -84,6 +88,7 @@ class DockerRunner:
         self._dependencies = dependencies or []
         self._docker_socket = docker_socket
         self._volumes = volumes or {}
+        self._role = role
         self._container_id: str | None = None
 
     # ── image handling ───────────────────────────────────────────────
@@ -144,11 +149,10 @@ class DockerRunner:
 
         run_args: list[str] = ["run", "-d", "-p", f"{self._port}:8080"]
 
-        # Forward host environment into the container (API tokens, user
-        # config) while excluding system-level and IDE vars.
+        # Forward only model-provider credentials + point at runtime.json.
+        # Exgentic context and settings travel via runtime.json, not env.
         env = prepare_subprocess_env()
-        inject_exgentic_env(env)
-        cache_dir = env.get("EXGENTIC_CACHE_DIR", "")
+        inject_exgentic_env(env, role=self._role)
 
         for k, v in env.items():
             run_args.extend(["-e", f"{k}={v}"])
@@ -157,12 +161,27 @@ class DockerRunner:
         if self._docker_socket:
             run_args.extend(["-v", "/var/run/docker.sock:/var/run/docker.sock"])
 
-        # Always mount the cache dir so benchmarks that skip data downloads
-        # during Docker build (e.g. browsecompplus) can access host-side data,
-        # and benchmarks that bake data into the image (e.g. appworld) can
-        # also work since the volume mount overlays the image path.
+        # Always mount the EnvironmentManager cache dir so benchmarks that
+        # skip data downloads during Docker build (e.g. browsecompplus) can
+        # access host-side data, and benchmarks that bake data into the
+        # image (e.g. appworld) can also work since the volume mount
+        # overlays the image path.
+        from ...environment.instance import get_manager
+
+        cache_dir = str(get_manager().base_dir)
         Path(cache_dir).mkdir(parents=True, exist_ok=True)
         run_args.extend(["-v", f"{cache_dir}:{cache_dir}"])
+
+        # Mount the runtime.json file (read-only) so the container can
+        # bootstrap context, settings, and OTEL propagation.  Mounting
+        # the file (not its parent dir) avoids shadowing the outer
+        # outputs/ volume: the benchmark/agent needs to WRITE results
+        # into its runtime dir, so a read-only directory mount would
+        # block those writes.
+        runtime_file = env.get("EXGENTIC_RUNTIME_FILE")
+        if runtime_file:
+            Path(runtime_file).parent.mkdir(parents=True, exist_ok=True)
+            run_args.extend(["-v", f"{runtime_file}:{runtime_file}:ro"])
 
         # Mount volumes.  Resolve to absolute paths (Docker requires them)
         # and ensure source directories exist — Docker Desktop on macOS

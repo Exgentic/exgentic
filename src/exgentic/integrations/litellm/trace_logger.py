@@ -1,39 +1,70 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-"""Custom LiteLLM logger that writes token/cost usage and request/response trace to a JSONL file.
-
-Environment variables:
-    EXGENTIC_LLM_LOG_FILE: optional override of the output JSONL path (default: trace.jsonl in CWD).
-    EXGENTIC_OTEL_ENABLED: enable OpenTelemetry span creation for LLM calls.
-"""
+"""Custom LiteLLM logger that writes token/cost usage and OTEL spans for LLM calls."""
 
 from __future__ import annotations
 
 import json
+import logging
 import os
-import warnings
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from litellm.integrations.custom_logger import CustomLogger
 
 from ...utils.settings import get_settings
 
-# Environment variable constants
+logger = logging.getLogger(__name__)
+
 FILE_ENV = "EXGENTIC_LLM_LOG_FILE"
 DEFAULT_FILE = "trace.jsonl"
 
 
-def _otel_enabled() -> bool:
-    """Check if OTEL is enabled via settings."""
-    return bool(get_settings().otel_enabled)
+_PROVIDER_MAP = {
+    "openai": "openai",
+    "azure": "azure.ai.openai",
+    "anthropic": "anthropic",
+    "bedrock": "aws.bedrock",
+    "vertex_ai": "gcp.vertex_ai",
+    "gemini": "gcp.gemini",
+    "cohere": "cohere",
+    "groq": "groq",
+    "mistral": "mistral_ai",
+    "deepseek": "deepseek",
+    "perplexity": "perplexity",
+    "watsonx": "ibm.watsonx.ai",
+    "xai": "x_ai",
+}
 
 
-def _otel_record_content() -> bool:
-    """Check if OTEL content recording is enabled via settings."""
-    return get_settings().otel_record_content
+def _safe_get(obj: Any, key: str, default: Any = None) -> Any:
+    return obj.get(key, default) if isinstance(obj, dict) else getattr(obj, key, default)
+
+
+def _json_or_none(value: Any) -> str | None:
+    try:
+        return json.dumps(value, default=str)
+    except Exception:
+        return None
+
+
+_OPTIONAL_PARAM_ATTRS = {
+    "max_tokens": "gen_ai.request.max_tokens",
+    "temperature": "gen_ai.request.temperature",
+    "top_p": "gen_ai.request.top_p",
+    "frequency_penalty": "gen_ai.request.frequency_penalty",
+    "presence_penalty": "gen_ai.request.presence_penalty",
+}
+
+
+def _set_json_attr(span, key: str, value: Any) -> None:
+    """Set a span attribute as JSON if the value is truthy and serializable."""
+    if value:
+        serialized = _json_or_none(value)
+        if serialized:
+            span.set_attribute(key, serialized)
 
 
 class TraceLogger(CustomLogger):
@@ -42,167 +73,22 @@ class TraceLogger(CustomLogger):
         self._file_path = file_path
         self._tracer = None
         self._otel_logger = None
-        self._context = None
+
+    # -- Context resolution --------------------------------------------------
 
     @staticmethod
     def _ensure_context() -> None:
-        try:
-            from ...core.context import init_context_from_env, try_get_context
+        from ...core.context import try_get_context, try_init_context
 
-            if try_get_context() is not None:
-                return
+        if try_get_context() is None:
+            try_init_context()
 
-            init_context_from_env()
-        except RuntimeError:
-            pass
+    def get_context(self, kwargs: dict[str, Any]):
+        from ...core.context import Context, try_get_context
 
-    def _init_otel(self, kwargs) -> None:
-        import threading
-
-        from ...utils.otel import get_session_logger, init_tracing_from_env
-
-        ctx = self.get_context(kwargs)
-        if ctx is None or ctx.session_id is None or ctx.otel_context is None:
-            # no otel context means tracing cannot be initialized
-            warnings.warn(
-                f"No OTEL context found for TraceLogger, skipping OTEL initialization. context={ctx}",
-                stacklevel=2,
-            )
-            return
-
-        # Initialize the TracerProvider (use simple processor for subprocess)
-        self._tracer = init_tracing_from_env()
-
-        base = Path(ctx.output_dir) / ctx.run_id
-        session_root = base / "sessions" / ctx.session_id
-        self._otel_logger = get_session_logger(
-            session_root,
-            f"{__name__} | pid={os.getpid()} tid={threading.get_native_id()}",
-        )
-
-    def _get_parent_context(self, kwargs) -> Any:
-        """Reconstruct parent span context from environment variables or ContextVar.
-
-        For proxy subprocess: reads from environment variables
-        For direct callback: reads from Context ContextVar
-        """
-        from opentelemetry import context, trace
-        from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
-
-        ctx = self.get_context(kwargs)
-
-        trace_id_hex = ctx.otel_context.trace_id
-        span_id_hex = ctx.otel_context.span_id
-
-        if not trace_id_hex or not span_id_hex:
-            return context.get_current()
-
-        trace_id = int(trace_id_hex, 16)
-        span_id = int(span_id_hex, 16)
-
-        self._otel_logger.log_context_read(trace_id_hex, span_id_hex)
-
-        span_context = SpanContext(
-            trace_id=trace_id,
-            span_id=span_id,
-            is_remote=True,
-            trace_flags=TraceFlags(0x01),
-        )
-
-        parent_span = NonRecordingSpan(span_context)
-        return trace.set_span_in_context(parent_span)
-
-    def _create_llm_span(self, kwargs, name: str, start_time: Optional[Any] = None) -> Optional[Any]:
-        """Create span for LLM call with CLIENT span kind.
-
-        Args:
-            kwargs: Keyword arguments containing context and other parameters
-            name: Name of the span
-            start_time: Optional datetime when the span started
-        """
-        from opentelemetry.trace import SpanKind
-
-        parent_ctx = self._get_parent_context(kwargs)
-
-        if start_time:
-            # Convert datetime to nanoseconds since epoch for OTEL
-            start_time_ns = int(start_time.timestamp() * 1_000_000_000)
-            span = self._tracer.start_span(name, context=parent_ctx, start_time=start_time_ns, kind=SpanKind.CLIENT)
-        else:
-            span = self._tracer.start_span(name, context=parent_ctx, kind=SpanKind.CLIENT)
-
-        span_ctx = span.get_span_context()
-
-        # Extract parent span ID from context for logging
-        ctx = self.get_context(kwargs)
-        parent_span_id = ctx.otel_context.span_id if ctx and ctx.otel_context else None
-
-        self._otel_logger.log_span_start(
-            span_name=name,
-            span_id=format(span_ctx.span_id, "016x"),
-            trace_id=format(span_ctx.trace_id, "032x"),
-            parent_span_id=parent_span_id,
-            start_time=start_time,
-        )
-
-        return span
-
-    def _set_attribute(self, span: Any, key: str, value: Any) -> None:
-        span.set_attribute(key, value)
-        span_ctx = span.get_span_context()
-        self._otel_logger.log_attribute_set(key, value, format(span_ctx.span_id, "016x"))
-
-    @staticmethod
-    def _metadata_context(kwargs: dict[str, Any]):
-        from ...core.context import Context, OtelContext, Role
-
-        # Check multiple locations where metadata might be stored
-        # 1. Direct litellm_metadata parameter
-        metadata = kwargs.get("litellm_metadata")
-        if not metadata:
-            # 2. litellm_params.litellm_metadata
-            metadata = kwargs.get("litellm_params", {}).get("litellm_metadata")
-        if not metadata:
-            # 3. litellm_params.metadata (for 'metadata' parameter)
-            metadata = kwargs.get("litellm_params", {}).get("metadata")
-
-        if not isinstance(metadata, dict):
-            return None
-
-        context = metadata.get("context")
-        if isinstance(context, Context):
-            return context
-
-        # Reconstruct Context from serialized fields
-        # Check if we have the required fields
-        if "exgentic_ctx_run_id" not in metadata:
-            return None
-
-        # Reconstruct OtelContext if present
-        otel_context = None
-        if "exgentic_ctx_otel_trace_id" in metadata and "exgentic_ctx_otel_span_id" in metadata:
-            otel_context = OtelContext(
-                trace_id=metadata["exgentic_ctx_otel_trace_id"],
-                span_id=metadata["exgentic_ctx_otel_span_id"],
-            )
-
-        # Reconstruct Role
-        role_str = metadata.get("exgentic_ctx_role", "framework")
-        try:
-            role = Role(role_str)
-        except ValueError:
-            role = Role.FRAMEWORK
-
-        # Reconstruct Context
-        return Context(
-            run_id=metadata["exgentic_ctx_run_id"],
-            output_dir=metadata["exgentic_ctx_output_dir"],
-            cache_dir=metadata["exgentic_ctx_cache_dir"],
-            session_id=metadata.get("exgentic_ctx_session_id"),
-            task_id=metadata.get("exgentic_ctx_task_id"),
-            role=role,
-            otel_context=otel_context,
-        )
+        self._ensure_context()
+        context = kwargs.get("context")
+        return context if isinstance(context, Context) else try_get_context()
 
     @staticmethod
     def _context_log_path(ctx) -> str:
@@ -211,18 +97,6 @@ class TraceLogger(CustomLogger):
             return str(base / "sessions" / ctx.session_id / ctx.role.value / "litellm" / "trace.jsonl")
         return str(base / "run" / "litellm" / "trace.jsonl")
 
-    def get_context(self, kwargs: dict[str, Any]):
-        from ...core.context import Context, try_get_context
-
-        self._ensure_context()
-        metadata_context = self._metadata_context(kwargs)
-        if isinstance(metadata_context, Context):
-            return metadata_context
-        context = kwargs.get("context")
-        if isinstance(context, Context):
-            return context
-        return try_get_context()
-
     def _resolve_log_path(self, kwargs: dict[str, Any]) -> str:
         from ...core.context import Context
 
@@ -230,32 +104,101 @@ class TraceLogger(CustomLogger):
             return self._file_path
 
         self._ensure_context()
-        metadata_context = self._metadata_context(kwargs)
-        if metadata_context is not None:
-            return self._context_log_path(metadata_context)
-
         context = kwargs.get("context")
         if isinstance(context, Context):
             return self._context_log_path(context)
 
-        file_path = os.environ.get(FILE_ENV)
-        if file_path:
+        if file_path := os.environ.get(FILE_ENV):
             return file_path
 
-        ctx = self.get_context(kwargs)  # TODO: this is redundant
-        if ctx is not None:
-            return self._context_log_path(ctx)
+        ctx = self.get_context(kwargs)
+        return self._context_log_path(ctx) if ctx else DEFAULT_FILE
 
-        return DEFAULT_FILE
+    # -- OTEL initialization -------------------------------------------------
+
+    def _init_otel(self, kwargs) -> None:
+        import threading
+
+        from ...utils.otel import get_session_logger, init_tracing_from_env
+
+        ctx = self.get_context(kwargs)
+        if ctx is None or ctx.session_id is None or ctx.otel_context is None:
+            logger.debug("No OTEL context for TraceLogger, skipping init. context=%s", ctx)
+            return
+
+        from opentelemetry import trace as trace_api
+
+        is_new_provider = type(trace_api.get_tracer_provider()).__name__ == "ProxyTracerProvider"
+        self._tracer = init_tracing_from_env()
+
+        if is_new_provider:
+            from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+
+            from ...utils.otel import PerSessionFileExporter
+
+            provider = trace_api.get_tracer_provider()
+            if hasattr(provider, "add_span_processor"):
+                base = Path(ctx.output_dir) / ctx.run_id
+                provider.add_span_processor(SimpleSpanProcessor(PerSessionFileExporter(base)))
+
+        session_root = Path(ctx.output_dir) / ctx.run_id / "sessions" / ctx.session_id
+        self._otel_logger = get_session_logger(
+            session_root,
+            f"{__name__} | pid={os.getpid()} tid={threading.get_native_id()}",
+        )
+
+    def _get_parent_context(self, kwargs) -> Any:
+        from opentelemetry import context, trace
+        from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
+
+        ctx = self.get_context(kwargs)
+        trace_id_hex = ctx.otel_context.trace_id
+        span_id_hex = ctx.otel_context.span_id
+
+        if not trace_id_hex or not span_id_hex:
+            return context.get_current()
+
+        self._otel_logger.log_context_read(trace_id_hex, span_id_hex)
+        span_context = SpanContext(
+            trace_id=int(trace_id_hex, 16),
+            span_id=int(span_id_hex, 16),
+            is_remote=True,
+            trace_flags=TraceFlags(0x01),
+        )
+        return trace.set_span_in_context(NonRecordingSpan(span_context))
+
+    # -- Event logging -------------------------------------------------------
+
+    def _log_event(self, kwargs, response_obj, status, start_time=None, end_time=None):
+        self._write_row(kwargs, response_obj, status)
+        self._write_otel(kwargs, response_obj, status, start_time=start_time, end_time=end_time)
+
+    def log_success_event(self, kwargs, response_obj, start_time, end_time):
+        self._log_event(kwargs, response_obj, "success", start_time, end_time)
+
+    async def async_log_success_event(self, kwargs, response_obj, start_time, end_time):
+        self._log_event(kwargs, response_obj, "success", start_time, end_time)
+
+    def log_failure_event(self, kwargs, response_obj, start_time, end_time):
+        self._log_event(kwargs, response_obj, "failure", start_time, end_time)
+
+    async def async_log_failure_event(self, kwargs, response_obj, start_time, end_time):
+        self._log_event(kwargs, response_obj, "failure", start_time, end_time)
+
+    async def async_log_stream_event(self, kwargs, response_obj, start_time, end_time):
+        self._log_event(kwargs, response_obj, "stream")
+
+    # -- JSONL writing -------------------------------------------------------
 
     def _write_row(self, kwargs: dict[str, Any], response_obj: dict[str, Any], status: str) -> None:
         file_path = self._resolve_log_path(kwargs)
         Path(file_path).parent.mkdir(parents=True, exist_ok=True)
         usage = self._extract_usage(response_obj)
+        litellm_params = kwargs.get("litellm_params") or {}
         row = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "status": status,
-            "model": kwargs.get("model"),
+            "model": litellm_params.get("model") or kwargs.get("model"),
             "prompt_tokens": usage.get("prompt_tokens"),
             "completion_tokens": usage.get("completion_tokens"),
             "total_tokens": usage.get("total_tokens"),
@@ -264,382 +207,218 @@ class TraceLogger(CustomLogger):
             "response": self._capture_response(response_obj),
             "trace_id": kwargs.get("litellm_trace_id") or kwargs.get("litellm_call_id"),
         }
-
         with open(file_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
 
-    def _write_otel(
-        self,
-        kwargs: dict[str, Any],
-        response_obj: dict[str, Any],
-        status: str,
-        start_time=None,
-        end_time=None,
-    ) -> None:
-        """Write OTEL span for LLM call following GenAI inference span conventions.
+    # -- OTEL span writing ---------------------------------------------------
 
-        Follows OpenTelemetry GenAI semantic conventions for inference spans:
-        https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/#inference
-
-        Span name format: {gen_ai.operation.name} {gen_ai.request.model}
-        Span kind: CLIENT
-        """
+    def _write_otel(self, kwargs, response_obj, status, start_time=None, end_time=None) -> None:
+        if not get_settings().otel_enabled:
+            return
+        if self._tracer is None:
+            self._init_otel(kwargs)
+        if self._tracer is None:
+            return
         try:
-            if not _otel_enabled():
-                return
-
-            # Lazy initialize OTEL if not already done
-            if self._tracer is None:
-                self._init_otel(kwargs)
-            ctx = self.get_context(kwargs)
-
-            # Lazy import GenAI semantic conventions
-            from opentelemetry.trace import Status, StatusCode
-
-            optional_params = kwargs.get("optional_params", {}) or {}
-            litellm_params = kwargs.get("litellm_params", {}) or {}
-
-            # ===== DETERMINE OPERATION TYPE =====
-            # Required attribute: gen_ai.operation.name
-            operation = "chat" if kwargs.get("messages") else "text_completion"
-
-            # ===== CREATE SPAN WITH PROPER NAME =====
-            # Span name format: {gen_ai.operation.name} {gen_ai.request.model}
-            model = kwargs.get("model", "unknown")
-            span_name = f"{operation} {model}"
-            span = self._create_llm_span(kwargs, span_name, start_time=start_time)
-
-            # ===== SET SPAN STATUS =====
-            if status == "success":
-                span.set_status(Status(StatusCode.OK))
-            else:
-                span.set_status(Status(StatusCode.ERROR))
-                # Conditionally Required: error.type if operation ended in error
-                error_info = kwargs.get("exception") or response_obj.get("error")
-                if error_info:
-                    if isinstance(error_info, dict):
-                        error_type = error_info.get("type") or error_info.get("code") or "unknown_error"
-                    elif isinstance(error_info, Exception):
-                        error_type = type(error_info).__name__
-                    else:
-                        error_type = str(error_info)
-                    self._set_attribute(span, "error.type", error_type)
-
-            # ===== REQUIRED ATTRIBUTES =====
-            # gen_ai.operation.name (Required)
-            self._set_attribute(span, "gen_ai.operation.name", operation)
-
-            # gen_ai.provider.name (Required) - maps LiteLLM provider to standard names
-            provider = litellm_params.get("custom_llm_provider", "unknown")
-            if provider is None:
-                provider = "unknown"
-            # Map common LiteLLM providers to standard GenAI provider names
-            provider_mapping = {
-                "openai": "openai",
-                "azure": "azure.ai.openai",
-                "anthropic": "anthropic",
-                "bedrock": "aws.bedrock",
-                "vertex_ai": "gcp.vertex_ai",
-                "gemini": "gcp.gemini",
-                "cohere": "cohere",
-                "groq": "groq",
-                "mistral": "mistral_ai",
-                "deepseek": "deepseek",
-                "perplexity": "perplexity",
-                "watsonx": "ibm.watsonx.ai",
-                "xai": "x_ai",
-            }
-            standard_provider = provider_mapping.get(provider.lower(), provider)
-            self._set_attribute(span, "gen_ai.provider.name", standard_provider)
-
-            # ===== CONDITIONALLY REQUIRED ATTRIBUTES =====
-            # gen_ai.request.model (Conditionally Required if available)
-            if model:
-                self._set_attribute(span, "gen_ai.request.model", model)
-
-            # gen_ai.request.choice.count (Conditionally Required if available and !=1)
-            n = optional_params.get("n")
-            if n is not None and n != 1:
-                self._set_attribute(span, "gen_ai.request.choice.count", n)
-
-            # gen_ai.request.seed (Conditionally Required if applicable and request includes seed)
-            seed = optional_params.get("seed")
-            if seed is not None:
-                self._set_attribute(span, "gen_ai.request.seed", seed)
-
-            # server.port (Conditionally Required if server.address is set)
-            # Note: LiteLLM doesn't typically expose server details, skip for now
-
-            # ===== RECOMMENDED REQUEST ATTRIBUTES =====
-            self._set_attribute(span, "gen_ai.conversation.id", ctx.session_id)
-
-            if optional_params.get("max_tokens") is not None:
-                self._set_attribute(span, "gen_ai.request.max_tokens", optional_params["max_tokens"])
-
-            if optional_params.get("temperature") is not None:
-                self._set_attribute(span, "gen_ai.request.temperature", optional_params["temperature"])
-
-            if optional_params.get("top_p") is not None:
-                self._set_attribute(span, "gen_ai.request.top_p", optional_params["top_p"])
-
-            if optional_params.get("top_k") is not None:
-                self._set_attribute(span, "gen_ai.request.top_k", float(optional_params["top_k"]))
-
-            if optional_params.get("frequency_penalty") is not None:
-                self._set_attribute(
-                    span,
-                    "gen_ai.request.frequency_penalty",
-                    optional_params["frequency_penalty"],
-                )
-
-            if optional_params.get("presence_penalty") is not None:
-                self._set_attribute(
-                    span,
-                    "gen_ai.request.presence_penalty",
-                    optional_params["presence_penalty"],
-                )
-
-            # gen_ai.request.stop_sequences (Recommended)
-            stop = optional_params.get("stop")
-            if stop is not None:
-                if isinstance(stop, list):
-                    self._set_attribute(span, "gen_ai.request.stop_sequences", stop)
-                else:
-                    self._set_attribute(span, "gen_ai.request.stop_sequences", [stop])
-
-            # ===== RECOMMENDED RESPONSE ATTRIBUTES =====
-            if response_obj:
-                # Helper function to safely get attribute from dict or object
-                def safe_get(obj, key, default=None):
-                    if isinstance(obj, dict):
-                        return obj.get(key, default)
-                    return getattr(obj, key, default)
-
-                # Get span context for logging
-                span_ctx = span.get_span_context()
-                span_id_hex = format(span_ctx.span_id, "016x")
-
-                # gen_ai.response.id (Recommended)
-                response_id = safe_get(response_obj, "id")
-                if response_id:
-                    self._set_attribute(span, "gen_ai.response.id", response_id)
-                    if self._otel_logger:
-                        self._otel_logger.log_attribute_set("gen_ai.response.id", response_id, span_id_hex)
-
-                # gen_ai.response.model (Recommended)
-                response_model = safe_get(response_obj, "model")
-                if response_model:
-                    self._set_attribute(span, "gen_ai.response.model", response_model)
-                    if self._otel_logger:
-                        self._otel_logger.log_attribute_set("gen_ai.response.model", response_model, span_id_hex)
-
-                # gen_ai.usage.input_tokens and gen_ai.usage.output_tokens (Recommended)
-                usage = safe_get(response_obj, "usage")
-                if usage:
-                    prompt_tokens = safe_get(usage, "prompt_tokens")
-                    if prompt_tokens is not None:
-                        self._set_attribute(span, "gen_ai.usage.input_tokens", prompt_tokens)
-                        if self._otel_logger:
-                            self._otel_logger.log_attribute_set("gen_ai.usage.input_tokens", prompt_tokens, span_id_hex)
-
-                    completion_tokens = safe_get(usage, "completion_tokens")
-                    if completion_tokens is not None:
-                        self._set_attribute(span, "gen_ai.usage.output_tokens", completion_tokens)
-                        if self._otel_logger:
-                            self._otel_logger.log_attribute_set(
-                                "gen_ai.usage.output_tokens",
-                                completion_tokens,
-                                span_id_hex,
-                            )
-
-                # gen_ai.response.finish_reasons (Recommended)
-                choices = safe_get(response_obj, "choices", [])
-                if choices:
-                    finish_reasons = []
-                    for choice in choices:
-                        finish_reason = safe_get(choice, "finish_reason")
-                        if finish_reason:
-                            finish_reasons.append(finish_reason)
-                    if finish_reasons:
-                        self._set_attribute(span, "gen_ai.response.finish_reasons", finish_reasons)
-                        if self._otel_logger:
-                            self._otel_logger.log_attribute_set(
-                                "gen_ai.response.finish_reasons",
-                                finish_reasons,
-                                span_id_hex,
-                            )
-
-            # ===== OPT-IN ATTRIBUTES (for content recording) =====
-            # Note: These are opt-in and may contain sensitive data
-            # Only include if explicitly enabled via settings
-            if _otel_record_content():
-                # gen_ai.tool.definitions (Opt-In)
-                tools = kwargs.get("tools")
-                if tools:
-                    try:
-                        self._set_attribute(
-                            span,
-                            "gen_ai.tool.definitions",
-                            json.dumps(tools, default=str),
-                        )
-                    except Exception:
-                        pass  # Skip if serialization fails
-
-                # gen_ai.input.messages (Opt-In) - structured format
-                messages = kwargs.get("messages")
-                if messages:
-                    # Convert to GenAI message format
-                    try:
-                        self._set_attribute(
-                            span,
-                            "gen_ai.input.messages",
-                            json.dumps(messages, default=str),
-                        )
-                    except Exception:
-                        pass  # Skip if serialization fails
-
-                # gen_ai.output.messages (Opt-In) - structured format
-                if response_obj:
-                    # Helper function already defined above in the response attributes section
-                    def safe_get(obj, key, default=None):
-                        if isinstance(obj, dict):
-                            return obj.get(key, default)
-                        return getattr(obj, key, default)
-
-                    choices = safe_get(response_obj, "choices", [])
-                    if choices:
-                        output_messages = []
-                        for choice in choices:
-                            message = safe_get(choice, "message")
-                            if message:
-                                output_msg = {
-                                    "role": safe_get(message, "role", "assistant"),
-                                    "parts": [],
-                                }
-                                content = safe_get(message, "content")
-                                if content:
-                                    output_msg["parts"].append({"type": "text", "content": content})
-                                # Include tool calls if present
-                                tool_calls = safe_get(message, "tool_calls")
-                                if tool_calls:
-                                    for tc in tool_calls:
-                                        func = safe_get(tc, "function", {})
-                                        output_msg["parts"].append(
-                                            {
-                                                "type": "tool_call",
-                                                "id": safe_get(tc, "id"),
-                                                "name": safe_get(func, "name"),
-                                                "arguments": safe_get(func, "arguments"),
-                                            }
-                                        )
-                                finish_reason = safe_get(choice, "finish_reason")
-                                if finish_reason:
-                                    output_msg["finish_reason"] = finish_reason
-                                output_messages.append(output_msg)
-
-                        if output_messages:
-                            try:
-                                self._set_attribute(
-                                    span,
-                                    "gen_ai.output.messages",
-                                    json.dumps(output_messages, default=str),
-                                )
-                            except Exception:
-                                pass  # Skip if serialization fails
-
-            # ===== END SPAN =====
-            if end_time:
-                end_time_ns = int(end_time.timestamp() * 1_000_000_000)
-                span.end(end_time=end_time_ns)
-            else:
-                span.end()
-
-            span_ctx = span.get_span_context()
-            if self._otel_logger:
-                self._otel_logger.log_span_end(
-                    span_name=span_name,
-                    span_id=format(span_ctx.span_id, "016x"),
-                    status=status,
-                    end_time=end_time,
-                )
+            self._emit_llm_span(kwargs, response_obj, status, start_time, end_time)
         except Exception:
-            pass
+            logger.warning("TraceLogger._write_otel failed", exc_info=True)
 
-    def log_success_event(self, kwargs: dict[str, Any], response_obj: dict[str, Any], start_time, end_time):
-        self._write_row(kwargs, response_obj, status="success")
-        self._write_otel(
-            kwargs,
-            response_obj,
-            status="success",
+    def _emit_llm_span(self, kwargs, response_obj, status, start_time, end_time) -> None:
+        from opentelemetry.trace import SpanKind, Status, StatusCode
+
+        optional_params = kwargs.get("optional_params") or {}
+        litellm_params = kwargs.get("litellm_params") or {}
+        ctx = self.get_context(kwargs)
+
+        operation = "chat" if kwargs.get("messages") else "text_completion"
+        model = litellm_params.get("model") or kwargs.get("model", "unknown")
+        span_name = f"{operation} {model}"
+
+        # Create span
+        parent_ctx = self._get_parent_context(kwargs)
+        span_kwargs: dict[str, Any] = {"context": parent_ctx, "kind": SpanKind.CLIENT}
+        if start_time:
+            span_kwargs["start_time"] = int(start_time.timestamp() * 1_000_000_000)
+        span = self._tracer.start_span(span_name, **span_kwargs)
+
+        span_ctx = span.get_span_context()
+        span_id = format(span_ctx.span_id, "016x")
+        self._otel_logger.log_span_start(
+            span_name=span_name,
+            span_id=span_id,
+            trace_id=format(span_ctx.trace_id, "032x"),
+            parent_span_id=ctx.otel_context.span_id if ctx and ctx.otel_context else None,
             start_time=start_time,
-            end_time=end_time,
         )
 
-    async def async_log_success_event(self, kwargs: dict[str, Any], response_obj: dict[str, Any], start_time, end_time):
-        self._write_row(kwargs, response_obj, status="success")
-        self._write_otel(
-            kwargs,
-            response_obj,
-            status="success",
-            start_time=start_time,
-            end_time=end_time,
-        )
-
-    def log_failure_event(self, kwargs: dict[str, Any], response_obj: dict[str, Any], start_time, end_time):
-        self._write_row(kwargs, response_obj, status="failure")
-        self._write_otel(
-            kwargs,
-            response_obj,
-            status="failure",
-            start_time=start_time,
-            end_time=end_time,
-        )
-
-    async def async_log_failure_event(self, kwargs: dict[str, Any], response_obj: dict[str, Any], start_time, end_time):
-        self._write_row(kwargs, response_obj, status="failure")
-        self._write_otel(
-            kwargs,
-            response_obj,
-            status="failure",
-            start_time=start_time,
-            end_time=end_time,
-        )
-
-    async def async_log_stream_event(self, kwargs: dict[str, Any], response_obj: dict[str, Any], start_time, end_time):
-        self._write_row(kwargs, response_obj, status="stream")
-        self._write_otel(kwargs, response_obj, status="stream")
-
-    # Helpers -----------------------------------------------------
-
-    def _extract_usage(self, response_obj: Any) -> dict[str, Any]:
-        usage: dict[str, Any] = {}
-        if isinstance(response_obj, dict):
-            usage = response_obj.get("usage", {}) or {}
+        # Status
+        if status == "success":
+            span.set_status(Status(StatusCode.OK))
         else:
-            usage_attr = getattr(response_obj, "usage", None)
-            if isinstance(usage_attr, dict):
-                usage = usage_attr
-            elif hasattr(usage_attr, "__dict__"):
-                usage = usage_attr.__dict__
-        return usage
+            span.set_status(Status(StatusCode.ERROR))
+            self._set_error_type(span, kwargs, response_obj)
 
-    def _capture_request(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        safe: dict[str, Any] = {}
-        for key in (
-            "messages",
-            "prompt",
-            "tools",
-            "tool_choice",
-            "functions",
-            "function_call",
-            "temperature",
-            "model",
-        ):
-            if key in kwargs:
-                safe[key] = kwargs[key]
-        return safe
+        # Attributes
+        provider = litellm_params.get("custom_llm_provider") or "unknown"
+        attrs: dict[str, Any] = {
+            "gen_ai.operation.name": operation,
+            "gen_ai.provider.name": _PROVIDER_MAP.get(provider.lower(), provider),
+            "gen_ai.request.model": model,
+            "gen_ai.conversation.id": ctx.session_id,
+            "exgentic.session.id": ctx.session_id,
+        }
+        self._collect_request_attrs(attrs, optional_params)
+        self._collect_response_attrs(attrs, response_obj)
 
-    def _capture_response(self, response_obj: Any) -> dict[str, Any]:
+        for k, v in attrs.items():
+            span.set_attribute(k, v)
+
+        if get_settings().otel_record_content:
+            self._set_content_attributes(span, kwargs, response_obj)
+
+        # End span
+        end_ns = int(end_time.timestamp() * 1_000_000_000) if end_time else None
+        span.end(end_time=end_ns)
+
+        self._otel_logger.log_span_end(span_name=span_name, span_id=span_id, status=status, end_time=end_time)
+
+    @staticmethod
+    def _set_error_type(span, kwargs, response_obj) -> None:
+        error_info = kwargs.get("exception") or _safe_get(response_obj, "error")
+        if not error_info:
+            return
+        if isinstance(error_info, dict):
+            error_type = error_info.get("type") or error_info.get("code") or "unknown_error"
+        elif isinstance(error_info, Exception):
+            error_type = type(error_info).__name__
+        else:
+            error_type = str(error_info)
+        span.set_attribute("error.type", error_type)
+
+    @staticmethod
+    def _collect_request_attrs(attrs: dict[str, Any], optional_params: dict) -> None:
+        for param_key, attr_key in _OPTIONAL_PARAM_ATTRS.items():
+            v = optional_params.get(param_key)
+            if v is not None:
+                attrs[attr_key] = v
+
+        top_k = optional_params.get("top_k")
+        if top_k is not None:
+            attrs["gen_ai.request.top_k"] = float(top_k)
+
+        n = optional_params.get("n")
+        if n is not None and n != 1:
+            attrs["gen_ai.request.choice.count"] = n
+
+        seed = optional_params.get("seed")
+        if seed is not None:
+            attrs["gen_ai.request.seed"] = seed
+
+        stop = optional_params.get("stop")
+        if stop is not None:
+            attrs["gen_ai.request.stop_sequences"] = stop if isinstance(stop, list) else [stop]
+
+    @staticmethod
+    def _collect_response_attrs(attrs: dict[str, Any], response_obj) -> None:
+        if not response_obj:
+            return
+
+        resp_id = _safe_get(response_obj, "id")
+        if resp_id:
+            attrs["gen_ai.response.id"] = resp_id
+
+        resp_model = _safe_get(response_obj, "model")
+        if resp_model:
+            attrs["gen_ai.response.model"] = resp_model
+
+        usage = _safe_get(response_obj, "usage")
+        if usage:
+            input_tokens = _safe_get(usage, "prompt_tokens")
+            if input_tokens is not None:
+                attrs["gen_ai.usage.input_tokens"] = input_tokens
+            output_tokens = _safe_get(usage, "completion_tokens")
+            if output_tokens is not None:
+                attrs["gen_ai.usage.output_tokens"] = output_tokens
+
+        choices = _safe_get(response_obj, "choices", [])
+        if choices:
+            reasons = [r for c in choices if (r := _safe_get(c, "finish_reason"))]
+            if reasons:
+                attrs["gen_ai.response.finish_reasons"] = reasons
+
+    @staticmethod
+    def _set_content_attributes(span, kwargs: dict[str, Any], response_obj: dict[str, Any]) -> None:
+        _set_json_attr(span, "gen_ai.tool.definitions", kwargs.get("tools"))
+        _set_json_attr(span, "gen_ai.input.messages", kwargs.get("messages"))
+
+        if not response_obj:
+            return
+        choices = _safe_get(response_obj, "choices", [])
+        if not choices:
+            return
+
+        output_messages = []
+        for choice in choices:
+            message = _safe_get(choice, "message")
+            if not message:
+                continue
+
+            output_msg: dict[str, Any] = {"role": _safe_get(message, "role", "assistant"), "parts": []}
+            content = _safe_get(message, "content")
+            if content:
+                output_msg["parts"].append({"type": "text", "content": content})
+
+            for tc in _safe_get(message, "tool_calls") or []:
+                func = _safe_get(tc, "function", {})
+                output_msg["parts"].append(
+                    {
+                        "type": "tool_call",
+                        "id": _safe_get(tc, "id"),
+                        "name": _safe_get(func, "name"),
+                        "arguments": _safe_get(func, "arguments"),
+                    }
+                )
+
+            finish_reason = _safe_get(choice, "finish_reason")
+            if finish_reason:
+                output_msg["finish_reason"] = finish_reason
+            output_messages.append(output_msg)
+
+        _set_json_attr(span, "gen_ai.output.messages", output_messages)
+
+    # -- Extraction helpers --------------------------------------------------
+
+    @staticmethod
+    def _extract_usage(response_obj: Any) -> dict[str, Any]:
+        if isinstance(response_obj, dict):
+            return response_obj.get("usage") or {}
+        usage_attr = getattr(response_obj, "usage", None)
+        if isinstance(usage_attr, dict):
+            return usage_attr
+        if hasattr(usage_attr, "__dict__"):
+            return usage_attr.__dict__
+        return {}
+
+    @staticmethod
+    def _capture_request(kwargs: dict[str, Any]) -> dict[str, Any]:
+        return {
+            k: kwargs[k]
+            for k in (
+                "messages",
+                "prompt",
+                "tools",
+                "tool_choice",
+                "functions",
+                "function_call",
+                "temperature",
+                "model",
+            )
+            if k in kwargs
+        }
+
+    @staticmethod
+    def _capture_response(response_obj: Any) -> dict[str, Any]:
         if isinstance(response_obj, dict):
             resp = dict(response_obj)
             resp.pop("usage", None)
@@ -648,12 +427,9 @@ class TraceLogger(CustomLogger):
         for attr in ("choices", "id", "object", "created", "model", "error"):
             if hasattr(response_obj, attr):
                 out[attr] = getattr(response_obj, attr)
-        if not out:
-            out["repr"] = repr(response_obj)
-        return out
+        return out or {"repr": repr(response_obj)}
 
 
-# Sync logger for direct SDK calls (e.g. tool-calling agent).
 class SyncTraceLogger(TraceLogger):
     def __call__(self, *args, **kwargs):
         return None
@@ -664,7 +440,6 @@ class AsyncTraceLogger(TraceLogger):
         return None
 
 
-# Expose module-level instances.
 trace_logger = TraceLogger()
 sync_trace_logger = SyncTraceLogger()
 async_trace_logger = AsyncTraceLogger()

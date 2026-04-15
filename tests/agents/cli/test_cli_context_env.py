@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+import os
 
 from exgentic.agents.cli.base import (
     BaseCLIConfig,
@@ -11,7 +11,7 @@ from exgentic.agents.cli.base import (
     CLIResult,
     ExecutionBackend,
 )
-from exgentic.core.context import Context, set_context
+from exgentic.core.context import Context, Role, save_service_runtime, set_context
 
 
 class _DummyRunner:
@@ -27,28 +27,44 @@ class _DummyRunner:
 
 
 class _DummyCLI(BaseCLIWrapper):
-    def build_env(self, *, cfg_root: Path, prompt: str, config: BaseCLIConfig):
+    def build_env(self, *, cfg_root, prompt, config):
         return {}
 
-    def build_command(self, *, cfg_root: Path, prompt: str, config: BaseCLIConfig):
+    def build_command(self, *, cfg_root, prompt, config):
         return ["echo", "ok"]
 
 
-def test_cli_includes_context_env():
-    ctx = Context(run_id="run-cli", output_dir="/tmp/out", cache_dir="/tmp/cache")
+def test_cli_includes_context_env(tmp_path):
+    ctx = Context(
+        run_id="run-cli",
+        output_dir=str(tmp_path),
+        cache_dir="/tmp/cache",
+        session_id="sess-1",
+    )
     set_context(ctx)
 
-    runner = _DummyRunner()
-    cli = _DummyCLI(runner=ExecutionBackend.PROCESS)
-    cli.runner = runner
-    cli.run(
-        prompt="hi",
-        config=BaseCLIConfig(
-            mcp_host="127.0.0.1",
-            mcp_port=1234,
-            provider_url="http://example.com",
-            image="img",
-        ),
-    )
+    # Write a per-service runtime.json for the agent role so the CLI
+    # wrapper inherits EXGENTIC_RUNTIME_FILE from its parent process.
+    runtime_path = save_service_runtime(Role.AGENT)
+    old = os.environ.get("EXGENTIC_RUNTIME_FILE")
+    os.environ["EXGENTIC_RUNTIME_FILE"] = str(runtime_path)
+    try:
+        runner = _DummyRunner()
+        cli = _DummyCLI(runner=ExecutionBackend.PROCESS)
+        cli.runner = runner
+        cli.run(
+            prompt="hi",
+            config=BaseCLIConfig(
+                mcp_host="127.0.0.1",
+                mcp_port=1234,
+                provider_url="http://example.com",
+                image="img",
+            ),
+        )
 
-    assert runner.env["EXGENTIC_CTX_RUN_ID"] == "run-cli"
+        assert runner.env["EXGENTIC_RUNTIME_FILE"] == str(runtime_path)
+    finally:
+        if old is None:
+            os.environ.pop("EXGENTIC_RUNTIME_FILE", None)
+        else:
+            os.environ["EXGENTIC_RUNTIME_FILE"] = old

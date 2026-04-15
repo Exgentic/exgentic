@@ -120,8 +120,8 @@ def _normalize_run_config(
     run_id: str | None,
     model: str | None,
     max_workers: int | None,
-    max_steps: int,
-    max_actions: int,
+    max_steps: int | None,
+    max_actions: int | None,
     overwrite_sessions: bool,
     benchmark_kwargs: dict[str, Any] | None,
     agent_kwargs: dict[str, Any] | None,
@@ -135,24 +135,25 @@ def _normalize_run_config(
                     agent,
                     subset,
                     task_ids,
-                    num_tasks,
                     cache_dir,
                     run_id,
                     model,
-                    max_workers,
                     benchmark_kwargs,
                     agent_kwargs,
                 )
             )
             or overwrite_sessions
             or output_dir != "./outputs"
-            or max_steps != 100
-            or max_actions != 100
         ):
             raise ValueError("Do not pass run parameters together with config.")
         if isinstance(config, SessionConfig):
-            return _run_config_from_session(config)
-        return config
+            config = _run_config_from_session(config)
+        return config.with_overrides(
+            num_tasks=num_tasks,
+            max_workers=max_workers,
+            max_steps=max_steps,
+            max_actions=max_actions,
+        )
     if benchmark is None or agent is None:
         raise ValueError("benchmark and agent are required.")
 
@@ -179,6 +180,12 @@ def _normalize_run_config(
         agent_slug = agent
         agent_cfg = dict(agent_kwargs or {})
 
+    optional = {}
+    if max_steps is not None:
+        optional["max_steps"] = max_steps
+    if max_actions is not None:
+        optional["max_actions"] = max_actions
+
     return RunConfig(
         benchmark=bench_slug,
         agent=agent_slug,
@@ -190,9 +197,8 @@ def _normalize_run_config(
         run_id=run_id,
         model=model,
         max_workers=max_workers,
-        max_steps=max_steps,
-        max_actions=max_actions,
         overwrite_sessions=overwrite_sessions,
+        **optional,
         benchmark_kwargs=bench_kwargs,
         agent_kwargs=agent_cfg,
     )
@@ -211,8 +217,8 @@ def evaluate(
     run_id: str | None = None,
     model: str | None = None,
     max_workers: int | None = None,
-    max_steps: int = 100,
-    max_actions: int = 100,
+    max_steps: int | None = None,
+    max_actions: int | None = None,
     overwrite_sessions: bool = False,
     benchmark_kwargs: dict[str, Any] | None = None,
     agent_kwargs: dict[str, Any] | None = None,
@@ -289,8 +295,8 @@ def execute(
     run_id: str | None = None,
     model: str | None = None,
     max_workers: int | None = None,
-    max_steps: int = 100,
-    max_actions: int = 100,
+    max_steps: int | None = None,
+    max_actions: int | None = None,
     overwrite_sessions: bool = False,
     benchmark_kwargs: dict[str, Any] | None = None,
     agent_kwargs: dict[str, Any] | None = None,
@@ -367,8 +373,8 @@ def aggregate(
     run_id: str | None = None,
     model: str | None = None,
     max_workers: int | None = None,
-    max_steps: int = 100,
-    max_actions: int = 100,
+    max_steps: int | None = None,
+    max_actions: int | None = None,
     overwrite_sessions: bool = False,
     benchmark_kwargs: dict[str, Any] | None = None,
     agent_kwargs: dict[str, Any] | None = None,
@@ -445,8 +451,8 @@ def status(
     run_id: str | None = None,
     model: str | None = None,
     max_workers: int | None = None,
-    max_steps: int = 100,
-    max_actions: int = 100,
+    max_steps: int | None = None,
+    max_actions: int | None = None,
     overwrite_sessions: bool = False,
     benchmark_kwargs: dict[str, Any] | None = None,
     agent_kwargs: dict[str, Any] | None = None,
@@ -537,6 +543,8 @@ def list_tasks(
     subset: str | None = None,
     benchmark_kwargs: dict[str, Any] | None = None,
 ) -> list[str]:
+    from ...core.types.run import _load_cached_task_ids, _save_cached_task_ids
+
     benchmark_entries = get_benchmark_entries()
     if benchmark not in benchmark_entries:
         raise ValueError(
@@ -547,10 +555,15 @@ def list_tasks(
         bench_kwargs = apply_subset_kwargs(benchmark, subset, bench_kwargs)
     bench_cls = load_benchmark_class(benchmark)
     benchmark_obj: Benchmark = bench_cls(**bench_kwargs)
+    subset_name = benchmark_obj.subset_name
+    cached = _load_cached_task_ids(benchmark, subset_name)
+    if cached is not None:
+        benchmark_obj.close()
+        return cached
     evaluator = benchmark_obj.get_evaluator()
     try:
         try:
-            return evaluator.list_tasks()
+            tasks = evaluator.list_tasks()
         except NotImplementedError as exc:
             raise ValueError(str(exc)) from exc
     finally:
@@ -559,6 +572,8 @@ def list_tasks(
         except Exception:
             pass
         benchmark_obj.close()
+    _save_cached_task_ids(benchmark, subset_name, tasks)
+    return tasks
 
 
 def needs_setup(name: str, kind: str) -> bool:

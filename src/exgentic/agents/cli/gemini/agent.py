@@ -19,7 +19,7 @@ class GeminiAgentInstance(ProxyBackedMCPAgentInstance):
         session_id: str,
         model_id: str,
         max_steps: int = 150,
-        execution_backend: ExecutionBackend = ExecutionBackend.AUTO,
+        execution_backend: ExecutionBackend = ExecutionBackend.DOCKER,
         model_settings: ModelSettings | None = None,
     ):
         self._gemini_model_alias = "gemini-2.5-pro"
@@ -71,7 +71,7 @@ class GeminiAgentInstance(ProxyBackedMCPAgentInstance):
 class GeminiAgent(ProxyBackedAgent):
     display_name: ClassVar[str] = "Gemini CLI"
     slug_name: ClassVar[str] = "gemini_cli"
-    execution_backend: ExecutionBackend = ExecutionBackend.AUTO
+    execution_backend: ExecutionBackend = ExecutionBackend.DOCKER
 
     @classmethod
     def _get_instance_class(cls):

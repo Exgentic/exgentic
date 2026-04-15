@@ -6,15 +6,20 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
 
+from filelock import FileLock
+
 from .docker import DockerBackend
 from .local import LocalBackend
 from .protocol import EnvironmentBackend
 from .venv import VenvBackend
+
+_log = logging.getLogger(__name__)
 
 
 class EnvType(StrEnum):
@@ -75,16 +80,14 @@ class EnvironmentManager:
             The environment directory path.
         """
         env_type = EnvType(env_type)
+        # Fast path: avoid taking the file lock once the env is built.
         if not force and self.is_installed(name, env_type=env_type):
             return self.env_path(name)
 
         env_dir = self.env_path(name)
         env_dir.mkdir(parents=True, exist_ok=True)
-        self._remove_marker_entry(name, env_type)
-
         backend = self._backends[env_type]
 
-        # Build kwargs for the backend.
         kwargs: dict[str, object] = {}
         if project_root is not None:
             kwargs["project_root"] = project_root
@@ -95,8 +98,16 @@ class EnvironmentManager:
             kwargs["force"] = force
             kwargs["docker_socket"] = docker_socket
 
-        extra = backend.install(env_dir, module_path=module_path, **kwargs)
-        self._add_marker_entry(name, env_type, {"installed_at": _now_iso(), **extra})
+        # Serialize the decide-then-install sequence across threads and
+        # processes, with a double-check inside the lock. Without this,
+        # N concurrent callers all race past the fast path and each
+        # redundantly rebuilds the same env.
+        with FileLock(str(env_dir / ".install.lock"), timeout=1200):
+            if not force and self.is_installed(name, env_type=env_type):
+                return env_dir
+            self._remove_marker_entry(name, env_type)
+            extra = backend.install(env_dir, module_path=module_path, **kwargs)
+            self._add_marker_entry(name, env_type, {"installed_at": _now_iso(), **extra})
 
         return env_dir
 
@@ -136,8 +147,16 @@ class EnvironmentManager:
     # Queries
     # ------------------------------------------------------------------
 
+    def has_marker(self, name: str) -> bool:
+        """Return True if the environment has ever been installed (marker exists)."""
+        return bool(self._read_marker(name))
+
     def is_installed(self, name: str, *, env_type: EnvType | None = None) -> bool:
-        """Check if an environment is installed.
+        """Check if an environment is installed and up-to-date.
+
+        Returns ``False`` when the environment has never been installed
+        **or** when the stored exgentic version no longer matches the
+        running version.
 
         Args:
             name: Environment name.
@@ -148,7 +167,17 @@ class EnvironmentManager:
         marker = self._read_marker(name)
         if env_type is None:
             return bool(marker)
-        return env_type in marker
+        if env_type not in marker:
+            return False
+        if self._exgentic_version_stale(name, env_type):
+            return False
+        # Verify the actual environment artifacts exist on disk.
+        backend = self._backends[env_type]
+        env_dir = self.env_path(name)
+        if not backend.exists(env_dir, marker.get(env_type, {})):
+            _log.info("Environment %s (%s): artifacts missing on disk, will rebuild", name, env_type)
+            return False
+        return True
 
     def get_info(self, name: str) -> dict | None:
         """Return installation info or *None* if not installed."""
@@ -191,6 +220,31 @@ class EnvironmentManager:
     def local_python(self, name: str) -> str | None:
         """Return the Python path used for local install, or *None*."""
         return self._read_marker(name).get(EnvType.LOCAL, {}).get("python")
+
+    # ------------------------------------------------------------------
+    # Version checks
+    # ------------------------------------------------------------------
+
+    def _exgentic_version_stale(self, name: str, env_type: EnvType) -> bool:
+        """Return True if the installed exgentic version differs from the running one."""
+        from .helpers import get_exgentic_version
+
+        marker = self._read_marker(name)
+        stored = marker.get(env_type, {}).get("exgentic_version")
+        current = get_exgentic_version()
+        if stored is None:
+            _log.info("Environment %s (%s): no exgentic version recorded, will rebuild", name, env_type)
+            return True
+        if stored != current:
+            _log.info(
+                "Environment %s (%s): exgentic version changed (%s -> %s), will rebuild",
+                name,
+                env_type,
+                stored,
+                current,
+            )
+            return True
+        return False
 
     # ------------------------------------------------------------------
     # Marker management

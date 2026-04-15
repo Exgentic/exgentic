@@ -123,17 +123,49 @@ class TAU2Session(PairableProxySession):
 
     def __init__(
         self,
-        run_config: RunConfig,
-        output_dir: str,
+        task_id: str,
+        subset: str,
+        user_simulator_model: str,
+        llm_temperature_user: float,
+        llm_user_input_cost_per_token: float | None,
+        llm_user_output_cost_per_token: float | None,
+        max_steps: int,
+        max_errors: int,
+        num_trials: int,
+        seed: int,
         use_cache: bool,
         session_id: str | None = None,
     ):
         if session_id is not None:
             self._session_id = session_id
-        # Prepare config first so base Session.__init__ can persist it.
-        if isinstance(run_config, dict):
-            run_config = RunConfig(**run_config)
-        self._cfg = run_config
+        llm_args_user: dict[str, Any] = {
+            "temperature": llm_temperature_user,
+            "caching": settings.litellm_caching,
+        }
+        if llm_user_input_cost_per_token is not None:
+            llm_args_user["input_cost_per_token"] = llm_user_input_cost_per_token
+        if llm_user_output_cost_per_token is not None:
+            llm_args_user["output_cost_per_token"] = llm_user_output_cost_per_token
+        self._cfg = RunConfig(
+            domain=subset,
+            user="user_simulator",
+            task_set_name=None,
+            task_ids=[str(task_id)],
+            num_tasks=1,
+            agent=PROXY_AGENT_NAME,
+            llm_agent="unknown",
+            llm_args_agent={},
+            llm_user=user_simulator_model,
+            llm_args_user=llm_args_user,
+            num_trials=num_trials,
+            max_steps=max_steps,
+            max_errors=max_errors,
+            seed=seed,
+            log_level=settings.log_level,
+            max_concurrency=1,
+            is_remote=False,
+            save_to=None,
+        )
         self.use_cache = use_cache
         self._cfg.save_to = self.session_id
 
@@ -440,11 +472,15 @@ class TAU2Session(PairableProxySession):
             if self.file_path and Path(self.file_path).exists():
                 Path(self.results_file).parent.mkdir(parents=True, exist_ok=True)
                 move(self.file_path, self.results_file)
+        # No simulation file or empty simulations → agent produced no
+        # useful actions.  Score as unsuccessful rather than crashing.
+        if not Path(self.results_file).exists():
+            self.logger.warning("No simulation file produced; scoring as unsuccessful (score=0).")
+            return SessionScore(score=0.0, success=False, is_finished=True)
         res = Results.load(self.results_file)
         if not res.simulations:
-            self.logger.error("Tau2 produced no simulations; marking session as failed.")
-            # Finished is false when the underlying Tau2 run produced no simulations.
-            return SessionScore(score=0.0, success=False, is_finished=False)
+            self.logger.warning("No simulations in results; scoring as unsuccessful (score=0).")
+            return SessionScore(score=0.0, success=False, is_finished=True)
 
         sim = res.simulations[-1]
 
@@ -565,70 +601,14 @@ class TAU2Evaluator(Evaluator):
     def __init__(
         self,
         subset: str,
-        user_simulator_model: str,
-        llm_temperature_user: float,
-        llm_user_input_cost_per_token: float | None,
-        llm_user_output_cost_per_token: float | None,
-        max_steps: int,
-        max_errors: int,
-        num_trials: int,
-        seed: int,
-        score_path: str | None,
-        use_cache: bool,
+        score_path: str | None = None,
     ):
         self._subset = subset
-        self._user_simulator_model = user_simulator_model
-        self._llm_temperature_user = llm_temperature_user
-        self._llm_user_input_cost_per_token = llm_user_input_cost_per_token
-        self._llm_user_output_cost_per_token = llm_user_output_cost_per_token
-        self._max_steps = max_steps
-        self._max_errors = max_errors
-        self._num_trials = num_trials
-        self._seed = seed
         self._score_path = score_path
-        self._use_cache = use_cache
 
     def list_tasks(self) -> list[str]:
         tasks = load_tasks(task_set_name=self._subset)
         return [str(t.id) for t in tasks]
-
-    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
-        task_id = index.task_id
-
-        cfg = RunConfig(
-            domain=self._subset,
-            user="user_simulator",
-            task_set_name=None,
-            task_ids=[str(task_id)],
-            num_tasks=1,
-            agent=PROXY_AGENT_NAME,
-            llm_agent="unknown",
-            llm_args_agent={},
-            llm_user=self._user_simulator_model,
-            llm_args_user={
-                "temperature": self._llm_temperature_user,
-                "caching": settings.litellm_caching,
-            },
-            num_trials=self._num_trials,
-            max_steps=self._max_steps,
-            max_errors=self._max_errors,
-            seed=self._seed,
-            log_level=settings.log_level,
-            max_concurrency=1,
-            is_remote=False,
-            save_to=None,  # Will be overridden by TauSession.
-        )
-        if self._llm_user_input_cost_per_token is not None:
-            cfg.llm_args_user["input_cost_per_token"] = self._llm_user_input_cost_per_token
-        if self._llm_user_output_cost_per_token is not None:
-            cfg.llm_args_user["output_cost_per_token"] = self._llm_user_output_cost_per_token
-
-        return {
-            "run_config": cfg.model_dump(),
-            "output_dir": settings.output_dir,
-            "use_cache": self._use_cache,
-            "session_id": index.session_id,
-        }
 
     def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
         """Aggregate per-session Tau2 result files and expose a final score.
@@ -640,34 +620,37 @@ class TAU2Evaluator(Evaluator):
         files: list[Path] = []
         for paths in self.get_sessions_paths(sessions):
             fp = paths.benchmark_results
-            if not fp.exists():
-                raise FileNotFoundError(f"Missing results for planned session '{paths.session_id}' at {fp}")
-            files.append(fp)
+            if fp.exists():
+                files.append(fp)
 
         base: Results | None = None
         all_sims = []
         task_map: dict[str, Any] = {}
-        errored_tasks = 0
         for fp in files:
             r = Results.load(fp)
             if base is None:
                 base = r
-            assert len(r.simulations) <= 1  # At most one simulation per file.
-            assert len(r.tasks) == 1
-
+            if len(r.tasks) != 1:
+                raise ValueError(f"Expected exactly 1 task per result file, got {len(r.tasks)} in {fp}")
+            if len(r.simulations) > 1:
+                raise ValueError(f"Expected at most 1 simulation per result file, got {len(r.simulations)} in {fp}")
             if len(r.simulations) == 0:
-                errored_tasks += 1
                 continue
-
             all_sims.extend(r.simulations)
             for t in r.tasks:
                 task_map[t.id] = t
 
         total_sessions = len(sessions)
 
-        # Minimal path: assume at least one simulation was produced for each planned session
-        assert len(all_sims) > 0
-        assert base is not None
+        # No simulations at all → return score=0 instead of crashing.
+        if len(all_sims) == 0 or base is None:
+            return BenchmarkResults(
+                benchmark_name=f"tau2-{self._subset}",
+                total_tasks=total_sessions,
+                score=0.0,
+                metrics={"avg_reward": 0.0},
+            )
+
         combined = Results(info=base.info, tasks=list(task_map.values()), simulations=all_sims)
         m = compute_metrics(combined)
 

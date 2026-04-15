@@ -6,13 +6,15 @@ from __future__ import annotations
 import contextvars
 import os
 import shutil
-import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Iterator
+from typing import Any
+
+from pydantic import BaseModel
 
 from ..utils.paths import sanitize_path_component
 from ..utils.settings import get_settings
@@ -26,6 +28,7 @@ class Role(str, Enum):
     FRAMEWORK = "framework"
     AGENT = "agent"
     BENCHMARK = "benchmark"
+    AGGREGATOR = "aggregator"
 
 
 # ---------------------------------------------------------------------------
@@ -39,21 +42,6 @@ class OtelContext:
 
     trace_id: str
     span_id: str
-
-
-# ---------------------------------------------------------------------------
-# Env-var keys used for subprocess transport
-# ---------------------------------------------------------------------------
-
-_ENV_RUN_ID = "EXGENTIC_CTX_RUN_ID"
-_ENV_OUTPUT_DIR = "EXGENTIC_CTX_OUTPUT_DIR"
-_ENV_CACHE_DIR = "EXGENTIC_CTX_CACHE_DIR"
-_ENV_SESSION_ID = "EXGENTIC_CTX_SESSION_ID"
-_ENV_TASK_ID = "EXGENTIC_CTX_TASK_ID"
-_ENV_ROLE = "EXGENTIC_CTX_ROLE"
-ENV_OTEL_TRACE_ID = "EXGENTIC_CTX_OTEL_TRACE_ID"
-ENV_OTEL_SPAN_ID = "EXGENTIC_CTX_OTEL_SPAN_ID"
-OTEL_ENABLED_ENV = "EXGENTIC_OTEL_ENABLED"
 
 
 # ---------------------------------------------------------------------------
@@ -72,92 +60,93 @@ class Context:
     otel_context: OtelContext | None = None
 
     def with_session(self, session_id: str, task_id: str | None = None) -> Context:
-        return Context(
-            run_id=self.run_id,
-            output_dir=self.output_dir,
-            cache_dir=self.cache_dir,
-            session_id=session_id,
-            task_id=task_id,
-            role=self.role,
-            otel_context=self.otel_context,
-        )
+        return replace(self, session_id=session_id, task_id=task_id)
 
     def with_role(self, role: Role) -> Context:
-        return Context(
-            run_id=self.run_id,
-            output_dir=self.output_dir,
-            cache_dir=self.cache_dir,
-            session_id=self.session_id,
-            task_id=self.task_id,
-            role=role,
-            otel_context=self.otel_context,
-        )
+        return replace(self, role=role)
 
     def with_otel_context(self, otel_context: OtelContext | None) -> Context:
         """Create a new Context with updated OTEL context."""
+        return replace(self, otel_context=otel_context)
+
+
+# ---------------------------------------------------------------------------
+# RuntimeConfig — Pydantic model for runtime.json
+# ---------------------------------------------------------------------------
+
+
+class RuntimeConfig(BaseModel):
+    """Schema for runtime.json -- the on-disk context + settings snapshot."""
+
+    # Context
+    run_id: str
+    output_dir: str
+    cache_dir: str
+    session_id: str | None = None
+    task_id: str | None = None
+    role: str = "framework"
+
+    # OTEL
+    otel_trace_id: str | None = None
+    otel_span_id: str | None = None
+
+    # Settings (only non-default overrides)
+    settings: dict[str, Any] = {}
+
+    def to_context(self) -> Context:
+        """Convert to an in-process Context."""
+        otel_context = None
+        if self.otel_trace_id and self.otel_span_id:
+            otel_context = OtelContext(trace_id=self.otel_trace_id, span_id=self.otel_span_id)
+        try:
+            role = Role(self.role)
+        except ValueError:
+            role = Role.FRAMEWORK
         return Context(
             run_id=self.run_id,
             output_dir=self.output_dir,
             cache_dir=self.cache_dir,
             session_id=self.session_id,
             task_id=self.task_id,
-            role=self.role,
-            otel_context=otel_context,
-        )
-
-    def to_env(self) -> dict[str, str]:
-        env: dict[str, str] = {
-            _ENV_RUN_ID: self.run_id,
-            _ENV_OUTPUT_DIR: self.output_dir,
-            _ENV_CACHE_DIR: self.cache_dir,
-            _ENV_ROLE: self.role.value,
-        }
-        if self.session_id is not None:
-            env[_ENV_SESSION_ID] = self.session_id
-        if self.task_id is not None:
-            env[_ENV_TASK_ID] = self.task_id
-        if self.otel_context is not None:
-            env[ENV_OTEL_TRACE_ID] = self.otel_context.trace_id
-            env[ENV_OTEL_SPAN_ID] = self.otel_context.span_id
-        return env
-
-    @classmethod
-    def from_env(cls, env: dict[str, str] | None = None) -> Context:
-        src = env if env is not None else os.environ
-        run_id = src.get(_ENV_RUN_ID, "")
-        if not run_id:
-            raise RuntimeError(f"{_ENV_RUN_ID} not set in environment.")
-        run_id = sanitize_path_component(run_id)
-        output_dir = src.get(_ENV_OUTPUT_DIR) or get_settings().output_dir
-        cache_dir = src.get(_ENV_CACHE_DIR) or get_settings().cache_dir
-        session_id = src.get(_ENV_SESSION_ID) or None
-        task_id = src.get(_ENV_TASK_ID) or None
-        role_str = src.get(_ENV_ROLE)
-        try:
-            role = Role(role_str) if role_str else Role.FRAMEWORK
-        except ValueError:
-            role = Role.FRAMEWORK
-
-        # Read OTEL context if present
-        otel_context: OtelContext | None = None
-        trace_id = src.get(ENV_OTEL_TRACE_ID)
-        span_id = src.get(ENV_OTEL_SPAN_ID)
-        if trace_id and span_id:
-            otel_context = OtelContext(trace_id=trace_id, span_id=span_id)
-
-        return cls(
-            run_id=run_id,
-            output_dir=output_dir,
-            cache_dir=cache_dir,
-            session_id=session_id,
-            task_id=task_id,
             role=role,
             otel_context=otel_context,
         )
 
+    @classmethod
+    def from_current(cls, role: Role | None = None) -> RuntimeConfig:
+        """Snapshot the current context + settings into a RuntimeConfig.
+
+        If *role* is provided it overrides the role on the current context.
+        This is the path runners take: they know the role of the service
+        they're spawning regardless of what's on the in-process ContextVar.
+        """
+        ctx = get_context()
+        settings = get_settings()
+        effective_role = role if role is not None else ctx.role
+        return cls(
+            run_id=ctx.run_id,
+            output_dir=ctx.output_dir,
+            cache_dir=ctx.cache_dir,
+            session_id=ctx.session_id,
+            task_id=ctx.task_id,
+            role=effective_role.value,
+            otel_trace_id=ctx.otel_context.trace_id if ctx.otel_context else None,
+            otel_span_id=ctx.otel_context.span_id if ctx.otel_context else None,
+            settings=settings.get_overrides(),
+        )
+
+    def apply_settings(self) -> None:
+        """Apply settings overrides to os.environ so get_settings() picks them up."""
+        for name, value in self.settings.items():
+            env_key = f"EXGENTIC_{name}".upper()
+            if isinstance(value, bool):
+                os.environ.setdefault(env_key, "true" if value else "false")
+            else:
+                os.environ.setdefault(env_key, str(value))
+
 
 # ---------------------------------------------------------------------------
-# Single ContextVar — the single source of truth
+# Single ContextVar -- the single source of truth
 # ---------------------------------------------------------------------------
 
 _CONTEXT: contextvars.ContextVar[Context | None] = contextvars.ContextVar(
@@ -166,11 +155,9 @@ _CONTEXT: contextvars.ContextVar[Context | None] = contextvars.ContextVar(
 )
 
 # Fallback for threads that don't inherit ContextVar (uvicorn thread-pool
-# workers, service runner threads). Set by init_context_from_env() and
+# workers, service runner threads). Set by init_context() and
 # set_context_fallback().
 _SUBPROCESS_CONTEXT: Context | None = None
-
-_ENV_LOCK = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +171,7 @@ def get_context() -> Context:
     if ctx is None:
         ctx = _SUBPROCESS_CONTEXT
     if ctx is None:
-        raise RuntimeError("No context set. Use run_scope() or init_context_from_env().")
+        raise RuntimeError("No context set. Use run_scope() or init_context().")
     return ctx
 
 
@@ -192,34 +179,6 @@ def try_get_context() -> Context | None:
     """Return the current Context, or None if none is set."""
     ctx = _CONTEXT.get()
     return ctx if ctx is not None else _SUBPROCESS_CONTEXT
-
-
-def context_env() -> dict[str, str]:
-    """Return context env vars for subprocess propagation, or empty dict."""
-    ctx = try_get_context()
-    if ctx is None:
-        return {}
-    return ctx.to_env()
-
-
-@contextmanager
-def context_env_scope() -> Iterator[None]:
-    """Temporarily apply context env vars to os.environ (thread-safe)."""
-    env = context_env()
-    if not env:
-        yield
-        return
-    with _ENV_LOCK:
-        prev = {k: os.environ.get(k) for k in env}
-        os.environ.update(env)
-        try:
-            yield
-        finally:
-            for k, v in prev.items():
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
 
 
 def set_context(ctx: Context) -> None:
@@ -250,7 +209,7 @@ def run_scope(
     """Enter a run context.
 
     Either pass an explicit *ctx*, or pass keyword args and the Context will
-    be resolved from those args / env vars / settings defaults.
+    be resolved from those args / settings defaults.
     """
     if ctx is None:
         ctx = _resolve_context(run_id, output_dir, cache_dir, overwrite_run)
@@ -263,7 +222,11 @@ def run_scope(
 
 @contextmanager
 def session_scope(session_id: str, task_id: str | None = None) -> Iterator[Context]:
-    """Derive a session-scoped context from the current run context."""
+    """Derive a session-scoped context from the current run context.
+
+    runtime.json is not written here — each runner writes its own
+    per-service file at spawn time via :func:`save_service_runtime`.
+    """
     parent = get_context()
     ctx = parent.with_session(session_id, task_id)
     token = _CONTEXT.set(ctx)
@@ -273,37 +236,109 @@ def session_scope(session_id: str, task_id: str | None = None) -> Iterator[Conte
         _CONTEXT.reset(token)
 
 
-@contextmanager
-def agent_scope() -> Iterator[Context]:
-    """Set role=AGENT for the duration of the block, restore on exit."""
-    parent = get_context()
-    ctx = parent.with_role(Role.AGENT)
-    token = _CONTEXT.set(ctx)
-    try:
-        yield ctx
-    finally:
-        _CONTEXT.reset(token)
+# ---------------------------------------------------------------------------
+# Runtime file helpers
+# ---------------------------------------------------------------------------
 
 
-@contextmanager
-def benchmark_scope() -> Iterator[Context]:
-    """Set role=BENCHMARK for the duration of the block, restore on exit."""
-    parent = get_context()
-    ctx = parent.with_role(Role.BENCHMARK)
-    token = _CONTEXT.set(ctx)
-    try:
-        yield ctx
-    finally:
-        _CONTEXT.reset(token)
+def _derive_runtime_path(ctx: Context | None, role: Role | None = None) -> Path | None:
+    """Return the path to a service's ``runtime.json``.
+
+    - With session_id: ``{output_dir}/{run_id}/sessions/{session_id}/{role}/runtime.json``
+    - Without session_id (run-level services, e.g. aggregation):
+      ``{output_dir}/{run_id}/{role}/runtime.json``
+
+    Returns ``None`` when the context is missing output_dir or run_id.
+    """
+    if ctx is None or not ctx.output_dir or not ctx.run_id:
+        return None
+    effective_role = role if role is not None else ctx.role
+    base = Path(ctx.output_dir) / ctx.run_id
+    if ctx.session_id:
+        base = base / "sessions" / ctx.session_id
+    return base / effective_role.value / "runtime.json"
 
 
-def init_context_from_env() -> Context:
-    """Bootstrap ContextVar from env vars (called once in subprocess / Docker)."""
+_RUNTIME_FILE_ENV = "EXGENTIC_RUNTIME_FILE"
+
+
+def get_runtime_env() -> dict[str, str]:
+    """Return env vars needed by a child process to find runtime.json.
+
+    Callers should merge this into the subprocess env dict.
+    Returns an empty dict when no runtime file is known.
+    """
+    path = os.environ.get(_RUNTIME_FILE_ENV)
+    if path:
+        return {_RUNTIME_FILE_ENV: path}
+    return {}
+
+
+def save_service_runtime(role: Role) -> Path:
+    """Write a per-service ``runtime.json`` for *role* and return its path.
+
+    The file is written to
+    ``{output_dir}/{run_id}/sessions/{session_id}/{role}/runtime.json``
+    (or the run-level fallback ``{output_dir}/{run_id}/{role}/runtime.json``
+    when no session_id is on the context, e.g. aggregation).
+
+    Called by runners before spawning a service subprocess.  Does NOT
+    mutate the current process's env vars — the caller puts the returned
+    path into the child's env via ``EXGENTIC_RUNTIME_FILE``.
+    """
+    path = _derive_runtime_path(get_context(), role=role)
+    if path is None:
+        raise RuntimeError("Cannot derive runtime.json path: current context must have " "output_dir and run_id set.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(RuntimeConfig.from_current(role=role).model_dump_json(indent=2))
+    return path
+
+
+def _load_runtime(runtime_file: Path) -> Context | None:
+    """Read ``runtime.json`` from *runtime_file* and return a Context, or None."""
+    if not runtime_file.exists():
+        return None
+    config = RuntimeConfig.model_validate_json(runtime_file.read_text())
+    config.apply_settings()
+    return config.to_context()
+
+
+def init_context() -> Context:
+    """Bootstrap ContextVar from ``runtime.json`` on disk.
+
+    The env var pointing to the runtime file is set automatically by
+    :func:`get_runtime_env`.  Contains everything: context, settings, OTEL.
+
+    Raises :class:`RuntimeError` if the env var is missing or the file
+    cannot be loaded.
+    """
     global _SUBPROCESS_CONTEXT
-    ctx = Context.from_env()
+
+    runtime_file = os.environ.get(_RUNTIME_FILE_ENV)
+    if not runtime_file:
+        raise RuntimeError(
+            f"No {_RUNTIME_FILE_ENV} set. Use run_scope() or ensure the orchestrator wrote runtime.json."
+        )
+    ctx = _load_runtime(Path(runtime_file))
+    if ctx is None:
+        raise RuntimeError(
+            f"runtime.json not found at {runtime_file}. "
+            "The spawning runner must write runtime.json before spawning children."
+        )
     _CONTEXT.set(ctx)
     _SUBPROCESS_CONTEXT = ctx
+    # Keep the env var set so worker threads spawned by this process
+    # (uvicorn workers, tau2 thread pools) can bootstrap via try_init_context.
+    os.environ[_RUNTIME_FILE_ENV] = runtime_file
     return ctx
+
+
+def try_init_context() -> Context | None:
+    """Like :func:`init_context` but returns ``None`` on failure."""
+    runtime_file = os.environ.get(_RUNTIME_FILE_ENV)
+    if not runtime_file:
+        return None
+    return init_context()
 
 
 # ---------------------------------------------------------------------------
@@ -318,12 +353,12 @@ def _resolve_context(
     overwrite_run: bool,
 ) -> Context:
     settings = get_settings()
-    resolved_run_id = run_id or os.environ.get(_ENV_RUN_ID) or datetime.now().isoformat().replace(":", "--")
+    resolved_run_id = run_id or datetime.now().isoformat().replace(":", "--")
     resolved_run_id = sanitize_path_component(resolved_run_id)
-    resolved_output_dir = output_dir or os.environ.get(_ENV_OUTPUT_DIR) or settings.output_dir
-    resolved_output_dir = str(Path(resolved_output_dir).resolve())
-    resolved_cache_dir = cache_dir or os.environ.get(_ENV_CACHE_DIR) or settings.cache_dir
-    resolved_cache_dir = str(Path(resolved_cache_dir).resolve())
+    resolved_output_dir = output_dir or settings.output_dir
+    resolved_output_dir = str(Path(resolved_output_dir).expanduser().resolve())
+    resolved_cache_dir = cache_dir or settings.cache_dir
+    resolved_cache_dir = str(Path(resolved_cache_dir).expanduser().resolve())
     if overwrite_run:
         run_root = Path(resolved_output_dir) / resolved_run_id
         if run_root.exists():

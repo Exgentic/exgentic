@@ -33,7 +33,7 @@ from ...core.types import (
 )
 from ...utils.logging import hook_loggers_into_session
 from ...utils.paths import get_run_id
-from ...utils.settings import ExgenticSettings, get_settings
+from ...utils.settings import ExgenticSettings
 from . import swebench_evaluation, swebench_logs, swebench_metrics
 from .swebench_benchmark import BashAction, SubmitPatchAction
 
@@ -100,14 +100,22 @@ class SWEBenchSession(Session):
 
     def __init__(
         self,
+        task_id: str,
         settings: ExgenticSettings,
-        instance: dict[str, Any],
         subset: str,
         max_interactions: int | None = None,
         require_submit_for_patch_evaluation: bool = True,
         session_id: str | None = None,
     ) -> None:
+        from datasets import load_dataset
+
         cfg = get_config()
+
+        dataset = load_dataset(subset, split="test")
+        matches = [row for row in dataset if str(row["instance_id"]) == str(task_id)]
+        if not matches:
+            raise KeyError(f"Unknown SWE-bench task id: {task_id}")
+        instance = matches[0]
 
         self._instance = instance
         self._subset = subset
@@ -397,36 +405,14 @@ class SWEBenchSession(Session):
 class SWEBenchEvaluator(Evaluator):
     """Evaluation logic for SWE-bench -- task discovery, session config, aggregation."""
 
-    def __init__(
-        self,
-        subset: str,
-        require_submit_for_patch_evaluation: bool = True,
-        max_interactions: int | None = None,
-    ) -> None:
+    def __init__(self, subset: str) -> None:
         self._subset = subset
-        self._require_submit_for_patch_evaluation = require_submit_for_patch_evaluation
-        self._max_interactions = max_interactions
         self._dataset: Any = None
         self._instances_by_id: dict[str, dict[str, Any]] = {}
 
     def list_tasks(self) -> list[str]:
         self._ensure_dataset()
         return list(self._instances_by_id.keys())
-
-    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
-        self._ensure_dataset()
-        task_id_str = str(index.task_id)
-        instance = self._instances_by_id.get(task_id_str)
-        if instance is None:
-            raise KeyError(f"Unknown SWE-bench task id: {index.task_id}")
-        return {
-            "settings": get_settings(),
-            "instance": instance,
-            "subset": self._subset,
-            "max_interactions": self._max_interactions,
-            "require_submit_for_patch_evaluation": self._require_submit_for_patch_evaluation,
-            "session_id": index.session_id,
-        }
 
     def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
         scores: list[float] = []

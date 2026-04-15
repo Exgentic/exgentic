@@ -1,1 +1,1 @@
-litellm[proxy]
+litellm[proxy]>=1.83.4

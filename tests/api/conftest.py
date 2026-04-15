@@ -12,6 +12,8 @@ from exgentic.interfaces.registry import RegistryEntry
 
 @pytest.fixture(autouse=True)
 def register_test_components() -> Iterator[None]:
+    from exgentic.environment.instance import get_manager
+
     original_benchmarks = dict(registry.BENCHMARKS)
     original_agents = dict(registry.AGENTS)
     registry.BENCHMARKS["test_benchmark"] = RegistryEntry(
@@ -28,6 +30,11 @@ def register_test_components() -> Iterator[None]:
         attr="TestAgent",
         kind="agent",
     )
+    # Clear cached task IDs so tests with different task lists
+    # don't interfere with each other.
+    cache_dir = get_manager().env_path("benchmarks/test_benchmark")
+    for f in cache_dir.glob("task_ids_*.json"):
+        f.unlink(missing_ok=True)
     try:
         yield
     finally:

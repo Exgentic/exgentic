@@ -43,12 +43,5 @@ def test_proxy_writes_exgentic_trace_callback_to_litellm_settings_config(tmp_pat
         assert config_path.exists()
         config_data = json.loads(config_path.read_text(encoding="utf-8"))
         callback = "exgentic.integrations.litellm.trace_logger.trace_logger"
-        async_callback = "exgentic.integrations.litellm.trace_logger.async_trace_logger"
-        assert set(config_data["litellm_settings"]["success_callback"]) == {
-            callback,
-            async_callback,
-        }
-        assert set(config_data["litellm_settings"]["failure_callback"]) == {
-            callback,
-            async_callback,
-        }
+        assert set(config_data["litellm_settings"]["success_callback"]) == {callback}
+        assert set(config_data["litellm_settings"]["failure_callback"]) == {callback}

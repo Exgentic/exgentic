@@ -88,6 +88,7 @@ class BFCLBenchmark(Benchmark, BaseModel):
         return list(self.available_subsets)
 
     def _get_evaluator_kwargs(self) -> dict[str, Any]:
-        return {
-            "subset": self.subset,
-        }
+        return {"subset": self.subset}
+
+    def _get_session_kwargs(self) -> dict[str, Any]:
+        return {"subset": self.subset}

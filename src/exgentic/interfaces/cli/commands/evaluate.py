@@ -89,10 +89,12 @@ def _ensure_installed(
     bench_name = f"benchmarks/{benchmark}"
     agent_name = f"agents/{agent}"
 
-    if not mgr.is_installed(bench_name, env_type=env_type) and _needs_setup(benchmark, "benchmark"):
-        to_install.append(("benchmark", benchmark, bench_name))
-    if not mgr.is_installed(agent_name, env_type=env_type) and _needs_setup(agent, "agent"):
-        to_install.append(("agent", agent, agent_name))
+    if not mgr.is_installed(bench_name, env_type=env_type):
+        if mgr.has_marker(bench_name) or _needs_setup(benchmark, "benchmark"):
+            to_install.append(("benchmark", benchmark, bench_name))
+    if not mgr.is_installed(agent_name, env_type=env_type):
+        if mgr.has_marker(agent_name) or _needs_setup(agent, "agent"):
+            to_install.append(("agent", agent, agent_name))
 
     if not to_install:
         return
@@ -187,7 +189,7 @@ def evaluate_cmd(
             max_workers=max_workers,
         ):
             raise click.ClickException("Do not pass run options together with --config.")
-        config = RunConfig.model_validate(_load_config_file(config_path))
+        config = RunConfig.model_validate(_load_config_file(config_path)).with_overrides(**ctx.params)
         evaluate(config)
         return
     if ctx.invoked_subcommand is not None:

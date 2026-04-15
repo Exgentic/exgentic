@@ -50,10 +50,12 @@ class ReplaySession(Session):
 
     def __init__(
         self,
+        task_id: str,
         recording_dir: str,
         *,
         session_id: str | None = None,
     ) -> None:
+        del task_id  # Task is fully reconstructed from the recording.
         recording = Path(recording_dir)
         manifest = json.loads((recording / "session.json").read_text())
 

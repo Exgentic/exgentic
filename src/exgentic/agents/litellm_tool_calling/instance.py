@@ -16,7 +16,6 @@ from litellm import (
 )
 
 from ...core.agent_instance import AgentInstance
-from ...core.context import get_context
 from ...core.types import (
     Action,
     ActionType,
@@ -88,7 +87,7 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         self._cost_data = LiteLLMCostReport.initialize_empty(model_name=self.model)
 
         # Check model accessibility
-        check_model_accessible_sync(self.model, logger=self.logger)
+        check_model_accessible_sync(self.model, logger=self.logger, model_settings=self.model_settings)
 
     def start(self, task, context, actions):
         """Receive work payload, build tool registry, and seed conversation."""
@@ -365,11 +364,11 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
             exclude={"num_retries", "retry_after", "retry_strategy"},
         )
         call_kwargs.update(kwargs)
-        # Use 'metadata' parameter instead of 'litellm_metadata' - LiteLLM passes this to callbacks
-        call_kwargs.setdefault("metadata", {})["context"] = get_context()
         return self._completion_with_retries(call_kwargs)
 
     def _completion_with_retries(self, call_kwargs: dict[str, Any]):
+        from ...integrations.litellm.health import ErrorCategory, classify_error
+
         num_retries = self.model_settings.num_retries or 0
         max_attempts = max(1, num_retries + 1)
         for attempt in range(max_attempts):
@@ -380,16 +379,20 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
             except NonRetryableCompletionError:
                 raise
             except Exception as exc:
-                if attempt >= num_retries:
+                category = classify_error(exc)
+                # Only retry transient errors (timeout, rate limit, 500).
+                # Permanent (auth, not found) and unknown errors fail immediately.
+                if category != ErrorCategory.TRANSIENT or attempt >= num_retries:
                     raise
                 delay = self.model_settings.retry_after
                 retry_strategy = self.model_settings.retry_strategy.value
                 if retry_strategy == RetryStrategy.EXPONENTIAL_BACKOFF.value:
                     delay *= 2**attempt
                 self.logger.warning(
-                    "LiteLLM completion failed (attempt %d/%d): %s",
+                    "LiteLLM completion failed (attempt %d/%d, %s): %s",
                     attempt + 1,
                     num_retries + 1,
+                    category.value,
                     exc,
                 )
                 if delay > 0:
@@ -418,7 +421,7 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         if finish_reason != "tool_calls":
             if message is None or message.content is None:
                 self.logger.error(
-                    "LiteLLM completion missing assistant content " "(finish_reason=%s). Raw response: %s",
+                    "LiteLLM completion missing assistant content (finish_reason=%s). Raw response: %s",
                     finish_reason,
                     response,
                 )

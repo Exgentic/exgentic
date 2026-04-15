@@ -5,7 +5,12 @@ from typing import Any, Optional, Self, Sequence, TypeVar
 
 from pydantic import BaseModel, computed_field
 
-name_map = {"claude-3-5-haiku": "claude-3-5-haiku-20241022"}
+name_map = {
+    "claude-3-5-haiku": "claude-3-5-haiku-20241022",
+    "DeepSeek-V3.2": "deepseek/deepseek-v3.2",
+    "DeepSeek-V3": "deepseek/deepseek-v3",
+    "Kimi-K2.5": "moonshot/kimi-k2.5",
+}
 
 
 class TokensCost(BaseModel):
@@ -41,12 +46,10 @@ def litellm_tokens_cost(input_tokens: int, output_tokens: int, model_name: str) 
                 total_cost=input_cost + output_cost,
             )
         except Exception:
-            input_cost, output_cost, total_cost = None, None, None
             continue
-    return TokensCost(
-        input_cost=input_cost,
-        output_cost=output_cost,
-        total_cost=total_cost,
+    raise ValueError(
+        f"No pricing info found for model '{model_name}'. "
+        f"Add it to the name_map in exgentic/utils/cost.py or check litellm model support."
     )
 
 

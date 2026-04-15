@@ -12,7 +12,7 @@ from typing import Any
 
 from ...adapters.agents.mcp_agent import MCPAgentInstance
 from ...core.agent import Agent
-from ...core.context import context_env
+from ...core.context import get_runtime_env
 from ...core.types import ModelSettings
 from ...integrations.litellm import LitellmProxy
 from ...integrations.litellm.health import check_model_accessible_sync
@@ -23,7 +23,6 @@ from .command_runner import (
     CLIResult,
     DockerRunner,
     ExecutionBackend,
-    PodmanRunner,
     ProcessRunner,
 )
 
@@ -43,21 +42,15 @@ class BaseCLIWrapper(abc.ABC):
         log_path: Path | None = None,
         config_dir: Path | None = None,
         logger: logging.Logger | None = None,
-        runner: ExecutionBackend = ExecutionBackend.AUTO,
+        runner: ExecutionBackend = ExecutionBackend.DOCKER,
     ) -> None:
         self.env = env or os.environ.copy()
         self.config_dir = config_dir
         self.log_path = log_path
         self._last_run_context: dict[str, Any] = {}
         self._logger = logger or logging.getLogger(self.__class__.__name__)
-        if runner == ExecutionBackend.AUTO:
-            from .command_runner import resolve_container_backend
-
-            runner = resolve_container_backend()
         if runner == ExecutionBackend.PROCESS:
             self.runner = ProcessRunner(log_path=log_path, logger=self._logger)
-        elif runner == ExecutionBackend.PODMAN:
-            self.runner = PodmanRunner(log_path=log_path, logger=self._logger)
         elif runner == ExecutionBackend.DOCKER:
             self.runner = DockerRunner(log_path=log_path, logger=self._logger)
         else:
@@ -71,7 +64,7 @@ class BaseCLIWrapper(abc.ABC):
             "config": config,
         }
         env = self.build_env(cfg_root=cfg_root, prompt=prompt, config=config)
-        env.update(context_env())
+        env.update(get_runtime_env())
         if config.env:
             env = {**env, **config.env}
         cmd = self.build_command(cfg_root=cfg_root, prompt=prompt, config=config)
@@ -119,7 +112,7 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
         *,
         max_steps: int = 150,
         model_alias: str | None = None,
-        execution_backend: ExecutionBackend = ExecutionBackend.AUTO,
+        execution_backend: ExecutionBackend = ExecutionBackend.DOCKER,
         model_settings: ModelSettings | None = None,
     ) -> None:
         super().__init__(session_id)
@@ -139,7 +132,7 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
             raise ValueError("model_settings must be a ModelSettings instance.")
 
         # Check model accessibility
-        check_model_accessible_sync(self.model_id, logger=self.logger)
+        check_model_accessible_sync(self.model_id, logger=self.logger, model_settings=self.model_settings)
 
     @property
     @abc.abstractmethod
@@ -239,7 +232,6 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
                 self._cli = None
             proxy.close()
             self._proxy = None
-            self._drain_server()
 
     def get_cost(self) -> UpdatableCostReport:
         cost = load_trace_cost(self._trace_log_path, self.model_id)
@@ -285,7 +277,6 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
         if self._proxy is not None:
             self._proxy.close()
             self._proxy = None
-        self._drain_server()
         super().close()
 
     def _proxy_alias_map(self) -> dict[str, str]:
@@ -320,25 +311,18 @@ class ProxyBackedAgent(Agent):
     def _get_instance_class(cls):
         raise NotImplementedError
 
-    execution_backend: ExecutionBackend = ExecutionBackend.AUTO
+    execution_backend: ExecutionBackend = ExecutionBackend.DOCKER
     model_settings: ModelSettings | None = None
 
     def _get_instance_kwargs(
         self,
         session_id: str,
     ) -> dict[str, Any]:
-        # Resolve AUTO on the host side so the concrete backend (PODMAN/DOCKER)
-        # is serialized to the venv, where podman may not be on PATH.
-        backend = self.execution_backend
-        if backend == ExecutionBackend.AUTO:
-            from .command_runner import resolve_container_backend
-
-            backend = resolve_container_backend()
         return {
             "session_id": session_id,
             "model_id": self.model,
             "max_steps": self.max_steps,
-            "execution_backend": backend,
+            "execution_backend": self.execution_backend,
             "model_settings": self.model_settings,
         }
 

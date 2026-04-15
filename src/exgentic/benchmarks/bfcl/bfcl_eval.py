@@ -127,13 +127,26 @@ class BFCLSession(Session):
 
     def __init__(
         self,
+        task_id: str,
         subset: BFCLSubset,
-        prompt_entry: dict[str, Any],
-        possible_answer_entry: dict[str, Any] | None,
         session_id: str | None = None,
     ) -> None:
         if session_id is not None:
             self._session_id = session_id
+
+        symbols = load_bfcl_symbols()
+        entries = symbols["load_dataset_entry"](subset)
+        prompt_entry = next(
+            (entry for entry in entries if str(entry["id"]) == str(task_id)),
+            None,
+        )
+        if prompt_entry is None:
+            raise KeyError(f"Unknown BFCL task id '{task_id}' for subset '{subset}'.")
+        possible_answer_entry = (
+            None
+            if _is_relevance_subset(subset)
+            else {str(entry["id"]): entry for entry in symbols["load_ground_truth_entry"](subset)}.get(str(task_id))
+        )
 
         self.subset = subset
         self.prompt_entry = prompt_entry
@@ -519,23 +532,6 @@ class BFCLEvaluator(Evaluator):
         self._ensure_loaded()
         assert self._entries is not None
         return [str(entry["id"]) for entry in self._entries]
-
-    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
-        self._ensure_loaded()
-        assert self._entries is not None
-        prompt_entry = next(
-            (entry for entry in self._entries if str(entry["id"]) == str(index.task_id)),
-            None,
-        )
-        if prompt_entry is None:
-            raise KeyError(f"Unknown BFCL task id '{index.task_id}' for subset '{self._subset}'.")
-        answer_entry = None if _is_relevance_subset(self._subset) else self._answers_by_id.get(str(index.task_id))
-        return {
-            "subset": self._subset,
-            "prompt_entry": prompt_entry,
-            "possible_answer_entry": answer_entry,
-            "session_id": index.session_id,
-        }
 
     def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
         payloads: list[dict[str, Any]] = []

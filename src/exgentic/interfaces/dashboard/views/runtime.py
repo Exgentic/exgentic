@@ -164,16 +164,16 @@ def process_new_events(state: RunState) -> bool:
                     sessions[sid]["is_finished"] = is_finished
                 if "error_source" in evt:
                     sessions[sid]["error_source"] = error_source
-                if "details" in evt:
-                    details = evt.get("details") or {}
+                details = evt.get("details") or {}
+                if isinstance(details, dict):
                     sessions[sid]["error"] = details.get("error")
-                if not success:
-                    details = evt.get("details") or {}
+                if error_source is not None:
+                    error_msg = details.get("error") if isinstance(details, dict) else None
                     turns.setdefault(sid, []).append(
                         {
                             "type": "error",
                             "step": sessions[sid].get("steps", 0),
-                            "content": details or "Session ended with an error.",
+                            "content": error_msg or "Session ended with an error.",
                         }
                     )
 

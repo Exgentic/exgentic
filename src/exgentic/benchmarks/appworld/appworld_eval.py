@@ -40,11 +40,10 @@ from ...core.types import (
     SessionScore,
     SingleAction,
 )
+from ...environment.instance import get_manager
 from ...utils.paths import get_run_id, get_run_paths
-from ...utils.settings import get_settings
 from .appworld_benchmark import AppWorldObservation
 
-settings = get_settings()
 logger = logging.getLogger(__name__)
 
 APPWORLD_TOTAL_TASKS = {
@@ -72,8 +71,8 @@ class AppWorldSession(Session):
 
     def __init__(
         self,
+        task_id: str,
         session_id: str | None = None,
-        task_spec: dict[str, Any] | None = None,
         env_kwargs: dict[str, Any] | None = None,
         use_cache: bool = True,
         tool_name_separator: str = ".",
@@ -81,7 +80,6 @@ class AppWorldSession(Session):
     ) -> None:
         if session_id is not None:
             self._session_id = session_id
-        self._task_spec = task_spec or {}
         self._env_kwargs = env_kwargs or {}
         self._tool_name_separator = tool_name_separator
         self._max_interactions = max_interactions
@@ -97,14 +95,11 @@ class AppWorldSession(Session):
         self._done: bool = False
         self._world_closed: bool = False
         self._cached_score: SessionScore | None = None
-
-        # Resolve task_id
-        task_id = self._task_spec.get("task_id") if isinstance(self._task_spec, dict) else None
-        if isinstance(self._task_spec, str):
-            task_id = self._task_spec
-        if not task_id:
-            raise ValueError("AppWorldSession requires task_spec with 'task_id' or be a task_id string")
         self._task_id = str(task_id)
+
+        # Build experiment_name from run_id + session_id for AppWorld output isolation.
+        self._env_kwargs.setdefault("experiment_name", f"{get_run_id()}__{self.session_id}")
+        self._env_kwargs.setdefault("max_interactions", max_interactions)
 
         # Construct AppWorld in-process (lazy import to defer side effects)
         from appworld import update_root  # type: ignore
@@ -113,8 +108,7 @@ class AppWorldSession(Session):
         from appworld.environment import AppWorld  # type: ignore
 
         # Point appworld at the correct data directory before loading the task.
-        cache = Path(settings.cache_dir).expanduser()
-        update_root(str(cache / "appworld"))
+        update_root(str(get_manager().env_path("benchmarks/appworld")))
 
         # Patch appworld's SQLite connection helper to allow cross-thread usage.
         # The venv runner serves via uvicorn which may dispatch requests across
@@ -128,7 +122,7 @@ class AppWorldSession(Session):
             Path(path_store.experiment_outputs) / self._experiment_name / "tasks" / self._task_id
         )
 
-        self.logger.info(f"Task ID: {task_spec}")
+        self.logger.info(f"Task ID: {task_id}")
         super().__init__()
 
     @staticmethod
@@ -163,7 +157,7 @@ class AppWorldSession(Session):
 
     def get_config(self) -> dict[str, Any]:
         return {
-            "task_spec": self._task_spec,
+            "task_id": self._task_id,
             "env_kwargs": self._env_kwargs,
             "tool_name_separator": self._tool_name_separator,
             "max_interactions": self._max_interactions,
@@ -416,7 +410,14 @@ class AppWorldSession(Session):
             test_tracker.success,
         )
 
-        # Finished when close() already captured task completion.
+        # Capture task completion before resetting the DB cache — reset
+        # disposes the engine, making subsequent DB queries crash.
+        # The orchestrator calls score() before close(), so this is the
+        # last chance to query the DB.
+        try:
+            self._done = self.world.task_completed()
+        except Exception:
+            self.logger.warning("task_completed check failed in score()")
         finished = bool(self._done)
         # Reset cached DB handler for this task so later aggregate evaluation can run.
         CachedDBHandler.reset(self._task_id)
@@ -445,13 +446,14 @@ class AppWorldSession(Session):
                 indent=2,
             )
         session_metadata = {"test_tracker": tracker_dict}
-        return SessionScore(
+        self._cached_score = SessionScore(
             score=score_value,
             success=test_tracker.success,
             is_finished=finished,
             session_metrics=session_metrics,
             session_metadata=session_metadata,
         )
+        return self._cached_score
 
     def close(self):
         # Save AppWorld task state and mirror logs
@@ -463,16 +465,19 @@ class AppWorldSession(Session):
         )
         if self._world_closed:
             self.logger.warning("AppWorld session close called more than once.")
+            return
         try:
             self.world.save()
         except Exception:
             self.logger.exception("AppWorld world.save failed")
             raise
-        try:
-            self._done = self.world.task_completed()
-        except Exception:
-            self.logger.exception("AppWorld task_completed check failed")
-            raise
+        # Skip if score() already captured task_completed (and disposed the DB).
+        if self._cached_score is None:
+            try:
+                self._done = self.world.task_completed()
+            except Exception:
+                self.logger.exception("AppWorld task_completed check failed")
+                raise
         logs_src = self._task_output_dir / "logs"
         if logs_src.exists():
             dest = self.paths.benchmark_dir / "logs"
@@ -536,27 +541,13 @@ class AppWorldSession(Session):
 class AppWorldEvaluator(Evaluator):
     """Evaluator for AppWorld -- task discovery, session config, and aggregation."""
 
-    def __init__(
-        self,
-        subset: str = "test_normal",
-        env_kwargs: dict[str, Any] | None = None,
-        max_interactions: int = 200,
-        tool_name_separator: str = "__",
-        use_cache: bool = True,
-    ) -> None:
+    def __init__(self, subset: str = "test_normal") -> None:
         self._subset = subset
-        self._env_kwargs = env_kwargs or {}
-        self._max_interactions = max_interactions
-        self._tool_name_separator = tool_name_separator
-        self._use_cache = use_cache
-        self._experiment_name: str = ""
 
     def _ensure_appworld_root(self) -> None:
         from appworld import update_root  # type: ignore
 
-        cache = Path(settings.cache_dir).expanduser()
-        root = str(cache / "appworld")
-        update_root(root)
+        update_root(str(get_manager().env_path("benchmarks/appworld")))
 
     def list_tasks(self) -> list[str]:
         from appworld.task import load_task_ids  # type: ignore
@@ -566,28 +557,6 @@ class AppWorldEvaluator(Evaluator):
         if not items:
             return []
         return [str(t) for t in items]
-
-    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
-        self._ensure_appworld_root()
-        if not self._experiment_name:
-            self._experiment_name = get_run_id()
-        task_id = index.task_id
-        session_id = index.session_id
-        experiment_name = f"{self._experiment_name}__{session_id}"
-        spec = {"task_id": task_id}
-
-        return {
-            "session_id": session_id,
-            "task_spec": spec,
-            "env_kwargs": {
-                **self._env_kwargs,
-                "max_interactions": self._max_interactions,
-                "experiment_name": experiment_name,
-            },
-            "use_cache": self._use_cache,
-            "tool_name_separator": self._tool_name_separator,
-            "max_interactions": self._max_interactions,
-        }
 
     def _stage_task_outputs(
         self,

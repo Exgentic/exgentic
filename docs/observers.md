@@ -21,6 +21,7 @@ class Observer:
     def on_run_error(self, error) -> None: ...
 
     # Session-level callbacks
+    def on_session_enter(self, session_id: str, task_id: str | None) -> None: ...
     def on_session_creation(self, session) -> None: ...
     def on_session_start(self, session, agent, observation) -> None: ...
     def on_session_scoring(self, session) -> None: ...
@@ -41,6 +42,8 @@ class Observer:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
+| `session_id` | `str` | Session identifier (available in `on_session_enter`) |
+| `task_id` | `str \| None` | Task identifier (available in `on_session_enter`) |
 | `run_config` | `RunConfig` | The run configuration |
 | `results` | `RunResults` | Aggregated results (available in `on_run_success`) |
 | `session` | `Session` | Session object with `session_id`, `task_id`, `paths` |

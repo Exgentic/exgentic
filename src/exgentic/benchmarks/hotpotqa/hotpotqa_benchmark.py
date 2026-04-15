@@ -99,17 +99,21 @@ class HotpotQASession(Session):
 
     def __init__(
         self,
+        task_id: str,
         with_search_tools: bool,
-        instance: dict[str, Any],
         session_id: str | None = None,
         **_kwargs: Any,
     ) -> None:
+        from datasets import load_dataset
+
         if session_id is not None:
             self._session_id = session_id
-        self._question = instance["question"]
+        idx = int(task_id)
+        row = load_dataset("hotpotqa/hotpot_qa", "distractor", split=f"validation[{idx}:{idx + 1}]")[0]
+        self._question = row["question"]
         self.logger.info(f"question: {self._question}")
-        self._gold_answer = instance["answer"]
-        self._task_id = instance["task_id"]
+        self._gold_answer = row["answer"]
+        self._task_id = idx
         self._done = False
         self._final_answer = None
         self._with_search_tools = with_search_tools
@@ -146,9 +150,9 @@ class HotpotQASession(Session):
         log_path = self.paths.benchmark_dir / "wikipedia_mcp.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
-        from ...core.context import context_env
+        from ...core.context import get_runtime_env
 
-        ctx_env = context_env()
+        ctx_env = get_runtime_env()
         ctx_env_json = json.dumps(ctx_env)
 
         # Generate a tiny Python wrapper to keep stdout for JSONRPC and send stderr to a file.
@@ -304,31 +308,11 @@ class HotpotQASession(Session):
 class HotpotQAEvaluator(Evaluator):
     """Evaluator for HotpotQA — task discovery, session kwargs, aggregation."""
 
-    def __init__(self, subset: str = "distractor", with_search_tools: bool = True) -> None:
+    def __init__(self, subset: str = "distractor") -> None:
         self._subset = subset
-        self._with_search_tools = with_search_tools
-        self._dataset = None
-
-    def _ensure_dataset(self) -> None:
-        if self._dataset is None:
-            from datasets import load_dataset
-
-            self._dataset = load_dataset("hotpotqa/hotpot_qa", "distractor")["validation"]
 
     def list_tasks(self) -> list[str]:
         return [str(i) for i in range(HOTPOTQA_TOTAL_TASKS)]
-
-    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
-        self._ensure_dataset()
-        idx = int(index.task_id)
-        if idx < 0 or idx >= len(self._dataset):
-            raise IndexError(f"Task id {index.task_id} out of range for HotpotQA.")
-        instance = {"task_id": idx, **self._dataset[idx]}
-        return {
-            "with_search_tools": self._with_search_tools,
-            "instance": instance,
-            "session_id": index.session_id,
-        }
 
     def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
         scores: list[float] = []
@@ -367,7 +351,7 @@ class HotpotQABenchmark(Benchmark, BaseModel):
     runner: RunnerName | None = None  # Threadsafe; uses global default runner (venv)
 
     def _get_evaluator_kwargs(self) -> dict[str, Any]:
-        return {
-            "subset": self.subset,
-            "with_search_tools": self.with_search_tools,
-        }
+        return {"subset": self.subset}
+
+    def _get_session_kwargs(self) -> dict[str, Any]:
+        return {"with_search_tools": self.with_search_tools}

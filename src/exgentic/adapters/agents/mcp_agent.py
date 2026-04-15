@@ -86,6 +86,7 @@ class MCPAgentInstance(CodeAgentInstance, abc.ABC):
         if self._mcp_server is not None:
             self.logger.info("Stopping MCP server")
             self._mcp_server.stop(raise_on_timeout=False)
+            self._mcp_server = None
 
     @abstractmethod
     def run_mcp_agent(self, mcp_host: str, mcp_port: int) -> Any:

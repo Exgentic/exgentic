@@ -29,7 +29,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: uv sync --frozen --extra dev --extra analysis
+        run: uv sync --frozen --group dev --extra analysis
 
       - name: Run core tests
         run: uv run --frozen pytest tests -v --ignore=tests/integrations --ignore=tests/adapters/runners --tb=short
@@ -58,7 +58,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: uv sync --frozen --extra dev --extra analysis
+        run: uv sync --frozen --group dev --extra analysis
 
       - name: Run Docker integration tests
         run: uv run --frozen pytest tests/environment/test_manager.py -v -k "Integration" --tb=short

@@ -141,6 +141,8 @@ Each run creates its own directory under `outputs/<run_id>/`:
 outputs/<run_id>/
 ├── results.json                    # Overall scores, costs, per-session statistics
 ├── benchmark_results.json          # Benchmark-specific aggregated results
+├── aggregator/
+│   └── runtime.json               # Run-level evaluator context (list_tasks, aggregation)
 ├── run/
 │   ├── config.json                # Snapshot of benchmark and agent configuration
 │   ├── run.log                    # Main execution log
@@ -149,12 +151,21 @@ outputs/<run_id>/
     ├── config.json                # Session configuration
     ├── results.json               # Session results
     ├── trajectory.jsonl           # One JSON line per step (action + observation)
+    ├── otel.log                   # OpenTelemetry span log (when OTEL is enabled)
+    ├── otel_spans.jsonl           # Full OTEL spans as JSONL (when OTEL is enabled)
     ├── agent/
+    │   ├── runtime.json          # Per-service context (run_id, session_id, OTEL trace, settings)
     │   └── agent.log             # Agent execution log
     └── benchmark/
+        ├── runtime.json          # Per-service context (run_id, session_id, OTEL trace, settings)
         ├── results.json          # Benchmark-specific results
         └── session.log           # Benchmark session log
 ```
+
+Each service (agent, benchmark) reads its own `runtime.json` on startup to
+bootstrap context, settings, and OTEL trace propagation — so subprocesses
+launched via `venv`/`docker` runners can attach to the parent's trace
+without sharing process memory.
 
 ---
 

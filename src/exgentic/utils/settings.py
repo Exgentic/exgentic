@@ -41,11 +41,11 @@ class ExgenticSettings(BaseSettings):
     litellm_log_level: LogLevel = "WARNING"
     litellm_delete_time_from_cache_key: bool = False
     litellm_caching: bool = True
-    cache_dir: str = ".exgentic"
+    cache_dir: str = "~/.exgentic"
     litellm_cache_dir: str = "~/.cache/exgentic/litellm"
     dotenv_path: str = str(DOTENV_PATH)
     otel_enabled: bool = False
-    otel_record_content: bool = False
+    otel_record_content: bool = True
 
     _litellm_cache_configured: bool = False
 

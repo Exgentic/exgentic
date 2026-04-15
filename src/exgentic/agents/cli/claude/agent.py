@@ -14,12 +14,36 @@ from .cli import ClaudeCLIConfig, ClaudeCodeCLI
 class ClaudeCodeAgentInstance(ProxyBackedMCPAgentInstance):
     """Self-contained Claude Code CLI agent routed through a LiteLLM proxy."""
 
+    # All Claude model IDs that Claude Code (and its sub-agents) may request.
+    # Every alias here is routed to the single backend model under test.
+    _CLAUDE_MODEL_ALIASES: ClassVar[list[str]] = [
+        # Aliases
+        "claude-sonnet-4-5",
+        "claude-sonnet-4-6",
+        "claude-opus-4-5",
+        "claude-opus-4-6",
+        "claude-haiku-4-5",
+        # Dated snapshots
+        "claude-sonnet-4-5-20250514",
+        "claude-sonnet-4-6-20250715",
+        "claude-opus-4-5-20250514",
+        "claude-opus-4-6-20250715",
+        "claude-haiku-4-5-20251001",
+        # Legacy models
+        "claude-3-5-sonnet-20241022",
+        "claude-3-5-sonnet-20240620",
+        "claude-3-5-haiku-20241022",
+        "claude-3-opus-20240229",
+        "claude-3-sonnet-20240229",
+        "claude-3-haiku-20240307",
+    ]
+
     def __init__(
         self,
         session_id: str,
         model_id: str,
         max_steps: int = 150,
-        execution_backend: ExecutionBackend = ExecutionBackend.AUTO,
+        execution_backend: ExecutionBackend = ExecutionBackend.DOCKER,
         model_settings: ModelSettings | None = None,
     ):
         # The alias is what we ask Claude Code CLI for; the proxy maps it to the backend model.
@@ -73,6 +97,10 @@ class ClaudeCodeAgentInstance(ProxyBackedMCPAgentInstance):
         result = cli.run(prompt=prompt, config=config)
         return result.stdout
 
+    def _proxy_alias_map(self) -> dict[str, str]:
+        """Route all known Claude models to the backend model under test."""
+        return {alias: self.model_id for alias in self._CLAUDE_MODEL_ALIASES}
+
     def _stringify_empty_output(self) -> bool:
         return True
 
@@ -80,7 +108,7 @@ class ClaudeCodeAgentInstance(ProxyBackedMCPAgentInstance):
 class ClaudeCodeAgent(ProxyBackedAgent):
     display_name: ClassVar[str] = "Claude Code CLI"
     slug_name: ClassVar[str] = "claude_code"
-    execution_backend: ExecutionBackend = ExecutionBackend.AUTO
+    execution_backend: ExecutionBackend = ExecutionBackend.DOCKER
 
     @classmethod
     def _get_instance_class(cls):

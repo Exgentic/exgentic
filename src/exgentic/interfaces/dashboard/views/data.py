@@ -35,9 +35,6 @@ def _build_overview_secondary_metrics(
     successful_sessions = None
     percent_successful = None
     percent_finished = None
-    percent_finished_unsuccessful = None
-    percent_unfinished = None
-    percent_error = None
     avg_score = None
     avg_steps = None
     avg_agent_cost = None
@@ -48,9 +45,6 @@ def _build_overview_secondary_metrics(
         successful_sessions = results.get("successful_sessions")
         percent_successful = results.get("percent_successful")
         percent_finished = results.get("percent_finished")
-        percent_finished_unsuccessful = results.get("percent_finished_unsuccessful")
-        percent_unfinished = results.get("percent_unfinished")
-        percent_error = results.get("percent_error")
         avg_score = results.get("average_score")
         avg_steps = results.get("average_steps")
         avg_agent_cost = results.get("average_agent_cost")
@@ -106,29 +100,10 @@ def _build_overview_secondary_metrics(
             sum(1 for s in completed_sessions if s.get("status") in ("success", "unsuccessful")) / completed_total
         )
 
-    finished_unsuccessful_rate = percent_finished_unsuccessful
-    if finished_unsuccessful_rate is None and completed_total > 0:
-        finished_unsuccessful_rate = (
-            sum(1 for s in completed_sessions if s.get("status") == "unsuccessful") / completed_total
-        )
-
-    unfinished_rate = percent_unfinished
-    if unfinished_rate is None and completed_total > 0:
-        unfinished_rate = sum(1 for s in completed_sessions if s.get("status") == "unfinished") / completed_total
-
-    error_rate = percent_error
-    if error_rate is None and completed_total > 0:
-        error_rate = (
-            sum(
-                1
-                for s in completed_sessions
-                if s.get("status") in ("error", "agent error", "benchmark error", "cancelled")
-            )
-            / completed_total
-        )
-
     return [
         ("Avg Score", avg_score),
+        ("Success Rate", success_rate),
+        ("Finished Rate", finished_rate),
         ("Avg Steps", avg_steps),
         ("Avg Agent Cost", avg_agent_cost),
         ("Avg Benchmark Cost", avg_benchmark_cost),

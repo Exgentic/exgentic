@@ -60,28 +60,20 @@ def _configure_callbacks() -> None:
     except ImportError:
         return
     from .trace_logger import (
-        AsyncTraceLogger,
         SyncTraceLogger,
-        async_trace_logger,
         sync_trace_logger,
     )
 
-    if not any(isinstance(cb, SyncTraceLogger) for cb in litellm.success_callback):
-        litellm.success_callback.append(sync_trace_logger)
-    if not any(isinstance(cb, AsyncTraceLogger) for cb in litellm.success_callback):
-        litellm.success_callback.append(async_trace_logger)
-    if not any(isinstance(cb, SyncTraceLogger) for cb in litellm.failure_callback):
-        litellm.failure_callback.append(sync_trace_logger)
-    if not any(isinstance(cb, AsyncTraceLogger) for cb in litellm.failure_callback):
-        litellm.failure_callback.append(async_trace_logger)
-    if not any(isinstance(cb, SyncTraceLogger) for cb in litellm._async_success_callback):
-        litellm._async_success_callback.append(sync_trace_logger)
-    if not any(isinstance(cb, AsyncTraceLogger) for cb in litellm._async_success_callback):
-        litellm._async_success_callback.append(async_trace_logger)
-    if not any(isinstance(cb, SyncTraceLogger) for cb in litellm._async_failure_callback):
-        litellm._async_failure_callback.append(sync_trace_logger)
-    if not any(isinstance(cb, AsyncTraceLogger) for cb in litellm._async_failure_callback):
-        litellm._async_failure_callback.append(async_trace_logger)
+    # A single CustomLogger handles both sync (log_success_event) and async
+    # (async_log_success_event) — litellm picks the right method per call.
+    # Registering two instances caused duplicate OTEL spans (litellm invokes
+    # every callback in the list for each call).
+    # TODO: previously both SyncTraceLogger and AsyncTraceLogger were
+    # registered — possibly to work around a quirk in an older litellm
+    # version. Verified single-instance works on litellm 1.82.2. If async
+    # callbacks stop firing, re-add AsyncTraceLogger here.
+    if not any(isinstance(cb, SyncTraceLogger) for cb in litellm.callbacks):
+        litellm.callbacks.append(sync_trace_logger)
 
 
 def _configure_logging(config: LitellmSettings) -> None:

@@ -48,8 +48,10 @@ class AppWorldBenchmark(Benchmark, BaseModel):
         return list(self.available_subsets)
 
     def _get_evaluator_kwargs(self) -> dict[str, Any]:
+        return {"subset": self.subset}
+
+    def _get_session_kwargs(self) -> dict[str, Any]:
         return {
-            "subset": self.subset,
             "env_kwargs": self.env_kwargs,
             "max_interactions": self.max_interactions,
             "tool_name_separator": self.tool_name_separator,

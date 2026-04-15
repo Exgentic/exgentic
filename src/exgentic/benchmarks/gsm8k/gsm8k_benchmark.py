@@ -146,16 +146,20 @@ class GSM8kSession(Session):
 
     def __init__(
         self,
+        task_id: str,
         settings: ExgenticSettings,
         include_calculator_tool: bool,
-        instance: dict[str, Any],
         session_id: str | None = None,
     ) -> None:
+        from datasets import load_dataset
+
         if session_id is not None:
             self._session_id = session_id
-        self._question = instance["question"]
-        self._answer = instance["answer"]
-        self._task_id = instance["task_id"]
+        idx = int(task_id)
+        row = load_dataset("gsm8k", "main", split=f"test[{idx}:{idx + 1}]")[0]
+        self._question = row["question"]
+        self._answer = row["answer"]
+        self._task_id = idx
         self._done = False
         self._gold_answer = self._answer.split("####")[-1].strip()
         self._final_answer = None
@@ -265,34 +269,13 @@ class GSM8kSession(Session):
 
 
 class GSM8kEvaluator(Evaluator):
-    """Evaluator for GSM8k — task discovery, session kwargs, aggregation."""
+    """Evaluator for GSM8k — task discovery and aggregation."""
 
-    def __init__(self, subset: str = "main", include_calculator_tool: bool = True) -> None:
+    def __init__(self, subset: str = "main") -> None:
         self._subset = subset
-        self._include_calculator_tool = include_calculator_tool
-        self._dataset = None
-
-    def _ensure_dataset(self) -> None:
-        if self._dataset is None:
-            from datasets import load_dataset
-
-            self._dataset = load_dataset("gsm8k", "main")["test"]
 
     def list_tasks(self) -> list[str]:
         return [str(i) for i in range(GSM8K_TOTAL_TASKS)]
-
-    def get_session_kwargs(self, index: SessionIndex) -> dict[str, Any]:
-        self._ensure_dataset()
-        idx = int(index.task_id)
-        if idx < 0 or idx >= len(self._dataset):
-            raise IndexError(f"Task id {index.task_id} out of range for GSM8k.")
-        instance = {"task_id": idx, **self._dataset[idx]}
-        return {
-            "settings": get_settings(),
-            "include_calculator_tool": self._include_calculator_tool,
-            "instance": instance,
-            "session_id": index.session_id,
-        }
 
     def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
         run_logger = _get_run_logger()
@@ -345,7 +328,10 @@ class GSM8kBenchmark(Benchmark, BaseModel):
     runner: RunnerName | None = None  # Threadsafe; uses global default runner
 
     def _get_evaluator_kwargs(self) -> dict[str, Any]:
+        return {"subset": self.subset}
+
+    def _get_session_kwargs(self) -> dict[str, Any]:
         return {
-            "subset": self.subset,
+            "settings": get_settings(),
             "include_calculator_tool": self.include_calculator_tool,
         }

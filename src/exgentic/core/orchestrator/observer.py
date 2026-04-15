@@ -33,6 +33,16 @@ class Observer:
     def on_run_error(self, error) -> None:
         return None
 
+    def on_session_enter(self, session_id: str, task_id: str | None) -> None:
+        """Fires right after ``session_scope`` is entered, before any service is spawned.
+
+        Observers that need to publish context (e.g. an OTEL root span whose
+        trace_id must land in the benchmark/agent runtime.json) must hook here
+        rather than ``on_session_creation`` — the latter fires after benchmark
+        services have already been spawned.
+        """
+        return
+
     def on_session_creation(self, session) -> None:
         return None
 
