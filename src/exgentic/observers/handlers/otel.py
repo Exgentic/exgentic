@@ -199,12 +199,12 @@ class OtelTracingObserver(Observer):
 
         from ...utils.paths import get_run_paths
 
-        run_root = get_run_paths().root
+        run_paths = get_run_paths()
         provider = trace.get_tracer_provider()
         if hasattr(provider, "add_span_processor"):
             from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
-            provider.add_span_processor(SimpleSpanProcessor(PerSessionFileExporter(run_root)))
+            provider.add_span_processor(SimpleSpanProcessor(PerSessionFileExporter(run_paths.root, run_paths.run_id)))
 
         self._run_attributes = {
             "exgentic.benchmark.slug_name": bench_entry.slug_name if bench_entry else run_config.benchmark,

@@ -54,15 +54,30 @@ class FileSpanExporter(SpanExporter):
 
 
 class PerSessionFileExporter(SpanExporter):
-    """Routes spans to per-session ``otel_spans.jsonl`` files based on ``exgentic.session.id``."""
+    """Routes spans belonging to ``run_id`` into per-session files under ``run_root``.
 
-    def __init__(self, run_root: str | Path) -> None:
+    In batch mode the parent process registers one exporter per
+    :class:`RunConfig` on the global ``TracerProvider``, and OTEL fans
+    every emitted span out to every registered processor. Without the
+    ``run_id`` filter, every exporter would write every span into its
+    own ``run_root`` -- N-way write amplification plus cross-run trace
+    leakage. ``exgentic.run.id`` is set as a heritable attribute in
+    ``OtelTracingObserver.on_session_enter`` and propagated to every
+    descendant span via ``SessionSpanManager.start_span``, so the
+    routing key is always present on spans this exporter should own.
+    """
+
+    def __init__(self, run_root: str | Path, run_id: str) -> None:
         self._run_root = Path(run_root)
+        self._run_id = run_id
 
     def export(self, spans: Sequence) -> SpanExportResult:
         try:
             for span in spans:
-                sid = getattr(span, "attributes", {}).get("exgentic.session.id")
+                attrs = getattr(span, "attributes", {}) or {}
+                if attrs.get("exgentic.run.id") != self._run_id:
+                    continue
+                sid = attrs.get("exgentic.session.id")
                 if not sid:
                     continue
                 path = self._run_root / "sessions" / str(sid) / "otel_spans.jsonl"

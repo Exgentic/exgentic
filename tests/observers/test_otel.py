@@ -2955,10 +2955,13 @@ class TestPerSessionFileExporter:
     def test_routes_by_session_id(self, tmp_path):
         from exgentic.utils.otel import PerSessionFileExporter
 
-        exporter = PerSessionFileExporter(tmp_path)
+        exporter = PerSessionFileExporter(tmp_path, run_id="run-1")
 
         span = MagicMock()
-        span.attributes = {"exgentic.session.id": "sess-abc"}
+        span.attributes = {
+            "exgentic.run.id": "run-1",
+            "exgentic.session.id": "sess-abc",
+        }
         span.to_json.return_value = '{"name": "test"}'
 
         result = exporter.export([span])
@@ -2971,10 +2974,10 @@ class TestPerSessionFileExporter:
     def test_skips_spans_without_session_id(self, tmp_path):
         from exgentic.utils.otel import PerSessionFileExporter
 
-        exporter = PerSessionFileExporter(tmp_path)
+        exporter = PerSessionFileExporter(tmp_path, run_id="run-1")
 
         span = MagicMock()
-        span.attributes = {}
+        span.attributes = {"exgentic.run.id": "run-1"}  # no session id
         span.to_json.return_value = '{"name": "orphan"}'
 
         result = exporter.export([span])
@@ -2985,14 +2988,113 @@ class TestPerSessionFileExporter:
     def test_returns_failure_on_write_error(self, tmp_path):
         from exgentic.utils.otel import PerSessionFileExporter
 
-        exporter = PerSessionFileExporter(tmp_path)
+        exporter = PerSessionFileExporter(tmp_path, run_id="run-1")
 
         span = MagicMock()
-        span.attributes = {"exgentic.session.id": "sess-1"}
+        span.attributes = {
+            "exgentic.run.id": "run-1",
+            "exgentic.session.id": "sess-1",
+        }
         span.to_json.side_effect = RuntimeError("boom")
 
         result = exporter.export([span])
         assert result == SpanExportResult.FAILURE
+
+    # ------------------------------------------------------------------
+    # Regression: batch-mode write amplification (Exgentic/exgentic#185)
+    # ------------------------------------------------------------------
+
+    def test_drops_foreign_run_spans(self, tmp_path):
+        """An exporter scoped to run-A must drop spans tagged with run-B.
+
+        Reproduces #185: in batch mode one PerSessionFileExporter is
+        registered per RunConfig on the global TracerProvider, so every
+        exporter sees every emitted span. Without this filter each span
+        would be written once per config -- N-way write amplification plus
+        cross-run trace leakage.
+        """
+        from exgentic.utils.otel import PerSessionFileExporter
+
+        exporter = PerSessionFileExporter(tmp_path, run_id="run-A")
+
+        foreign = MagicMock()
+        foreign.attributes = {
+            "exgentic.run.id": "run-B",
+            "exgentic.session.id": "sess-1",
+        }
+        foreign.to_json.return_value = '{"name": "from-B"}'
+
+        result = exporter.export([foreign])
+        assert result == SpanExportResult.SUCCESS
+        # The exporter must NOT touch its run_root for foreign spans.
+        assert not (tmp_path / "sessions").exists()
+
+    def test_drops_spans_with_no_run_id(self, tmp_path):
+        """Spans missing ``exgentic.run.id`` don't belong to any run, drop them."""
+        from exgentic.utils.otel import PerSessionFileExporter
+
+        exporter = PerSessionFileExporter(tmp_path, run_id="run-A")
+
+        untagged = MagicMock()
+        untagged.attributes = {"exgentic.session.id": "sess-1"}
+        untagged.to_json.return_value = '{"name": "untagged"}'
+
+        exporter.export([untagged])
+        assert not (tmp_path / "sessions").exists()
+
+    def test_batch_mode_fanout_has_no_amplification(self, tmp_path):
+        """End-to-end reproduction of the batch-mode write amplification bug.
+
+        Simulates two concurrent RunConfigs (A and B) each owning its own
+        ``PerSessionFileExporter`` rooted in a distinct directory, both
+        attached to the same global ``TracerProvider`` — so both exporters
+        see every emitted span, exactly as in batch mode. We emit one span
+        belonging to run A and one belonging to run B, and assert each
+        ``run_root`` contains exactly its own span — no cross-contamination,
+        no duplication.
+
+        Before the fix, both run_roots would contain both spans (2-way writes
+        per span). On the unfiltered implementation this test fails because
+        ``run-A``'s tree ends up holding ``run-B``'s span and vice versa.
+        """
+        from exgentic.utils.otel import PerSessionFileExporter
+
+        root_a = tmp_path / "run-A"
+        root_b = tmp_path / "run-B"
+        exporter_a = PerSessionFileExporter(root_a, run_id="run-A")
+        exporter_b = PerSessionFileExporter(root_b, run_id="run-B")
+
+        span_a = MagicMock()
+        span_a.attributes = {
+            "exgentic.run.id": "run-A",
+            "exgentic.session.id": "sess-A1",
+        }
+        span_a.to_json.return_value = '{"name": "from-A"}'
+
+        span_b = MagicMock()
+        span_b.attributes = {
+            "exgentic.run.id": "run-B",
+            "exgentic.session.id": "sess-B1",
+        }
+        span_b.to_json.return_value = '{"name": "from-B"}'
+
+        # Global TracerProvider fan-out: every span hits every exporter.
+        for exporter in (exporter_a, exporter_b):
+            exporter.export([span_a, span_b])
+
+        # Run A's tree only sees run A's span.
+        a_files = list(root_a.rglob("otel_spans.jsonl"))
+        assert [p.relative_to(root_a) for p in a_files] == [Path("sessions/sess-A1/otel_spans.jsonl")]
+        a_content = a_files[0].read_text()
+        assert '"from-A"' in a_content
+        assert '"from-B"' not in a_content
+
+        # Run B's tree only sees run B's span.
+        b_files = list(root_b.rglob("otel_spans.jsonl"))
+        assert [p.relative_to(root_b) for p in b_files] == [Path("sessions/sess-B1/otel_spans.jsonl")]
+        b_content = b_files[0].read_text()
+        assert '"from-B"' in b_content
+        assert '"from-A"' not in b_content
 
 
 # ===================================================================
