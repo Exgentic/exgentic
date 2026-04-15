@@ -15,7 +15,7 @@ import uvicorn
 from a2a.server.apps.jsonrpc import A2AStarletteApplication
 from a2a.server.request_handlers.default_request_handler import DefaultRequestHandler
 from a2a.server.tasks.inmemory_task_store import InMemoryTaskStore
-from a2a.types import AgentCard, AgentCapabilities, AgentSkill
+from a2a.types import AgentCapabilities, AgentCard, AgentSkill
 from starlette.routing import Route
 
 from ....core.context import run_scope
@@ -68,7 +68,7 @@ def a2a_cmd(
     port: int,
     set_values: tuple[str, ...],
 ) -> None:
-    """Start an A2A (Agent-to-Agent) server using the A2A framework.
+    r"""Start an A2A (Agent-to-Agent) server using the A2A framework.
 
     This command:
     1. Connects to an external MCP server to extract available tools
@@ -79,7 +79,7 @@ def a2a_cmd(
     Example:
         exgentic a2a --agent tool_calling --mcp http://localhost:8000/mcp \\
                      --set agent.model='gpt-4o'
-    
+
     Note: Requires the 'a2a' optional dependency:
         pip install exgentic[a2a]
     """
@@ -128,7 +128,6 @@ def a2a_cmd(
         init_tracing_from_env(service_name="exgentic-a2a")
         click.echo(f"✓ OTEL tracing enabled (endpoint: {os.getenv('OTEL_EXPORTER_OTLP_ENDPOINT', 'not set')})")
 
-        
     # Initialize context using run_scope
     with run_scope(run_id=run_id, output_dir=str(output_dir)):
         # Create log directory
@@ -136,24 +135,25 @@ def a2a_cmd(
         log_dir.mkdir(parents=True, exist_ok=True)
 
         # Create logger
-        cli_logger = get_logger(__name__)
+        _ = get_logger(__name__)
 
         click.echo(f"\n🔗 Connecting to external MCP server at {mcp}...")
-        
+
         # Import here to avoid circular imports
         from ....adapters.agents.mcp_wrapper import extract_mcp_tool_metadata
-        
+
         # Extract tool metadata (plain dictionaries, serializable)
         try:
             tool_metadata = extract_mcp_tool_metadata(mcp, timeout=30.0)
             tool_names = [t["name"] for t in tool_metadata]
-            click.echo(f"✓ Connected to MCP server")
+            click.echo("✓ Connected to MCP server")
             click.echo(f"✓ Extracted {len(tool_metadata)} tools: {', '.join(tool_names)}")
         except Exception as exc:
             raise click.ClickException(f"Failed to connect to MCP server at {mcp}: {exc}") from exc
 
         # Get agent info for the card
         from ...registry import get_agent_entries
+
         agent_entries = get_agent_entries()
         agent_entry = agent_entries.get(agent)
         agent_display_name = agent_entry.display_name if agent_entry else agent
@@ -196,9 +196,9 @@ def a2a_cmd(
         try:
             # Import the executor
             from ....adapters.agents.a2a_executor import ExgenticAgentExecutor
-            
+
             agent_card = get_agent_card()
-            
+
             request_handler = DefaultRequestHandler(
                 agent_executor=ExgenticAgentExecutor(
                     agent_cls=agent_cls,
@@ -233,7 +233,7 @@ def a2a_cmd(
             click.echo(f"  Port: {port}")
             click.echo(f"  URL: http://{host}:{port}/")
             click.echo(f"  Agent Card: http://{host}:{port}/.well-known/agent-card.json")
-            click.echo(f"\n📁 Logs:")
+            click.echo("\n📁 Logs:")
             click.echo(f"  Log directory: {log_dir}")
             click.echo(f"  Agent execution logs: {output_dir / run_id}")
             click.echo("\nOther agents can now discover and interact with this agent via A2A protocol.")

@@ -9,11 +9,10 @@ import asyncio
 import json
 import logging
 import re
-import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from a2a.server.agent_execution import AgentExecutor, RequestContext
+from a2a.server.agent_execution import RequestContext
 from a2a.server.events.event_queue import EventQueue
 from a2a.server.tasks import TaskUpdater
 from a2a.types import TaskState, TextPart
@@ -74,6 +73,7 @@ class ExgenticAgentExecutor:
 
         openai_tools = []
         for tool_meta in tool_metadata:
+
             class MCPTool:
                 def __init__(self, meta):
                     self.name = meta["name"]
@@ -101,11 +101,12 @@ class ExgenticAgentExecutor:
 
     async def execute(self, context: RequestContext, event_queue: EventQueue):
         """Execute a task using the exgentic agent."""
+        from datetime import datetime
+        from pathlib import Path
+
         from ...core.context import Context, get_context, set_context, set_context_fallback
         from ...core.orchestrator.tracker import Tracker
         from ...utils.settings import get_settings
-        from datetime import datetime
-        from pathlib import Path
 
         settings = get_settings()
         run_id = f"a2a_{datetime.now().isoformat().replace(':', '--')}"
@@ -253,7 +254,10 @@ class ExgenticAgentExecutor:
                         updated_ctx = current_ctx.with_session(session_id).with_otel_context(otel_ctx)
                         set_context(updated_ctx)
                         set_context_fallback(updated_ctx)
-                        logger.info(f"Updated Context: session_id={session_id}, trace_id={otel_ctx.trace_id}, span_id={otel_ctx.span_id}")
+                        logger.info(
+                            f"Updated Context: session_id={session_id}, trace_id={otel_ctx.trace_id}, "
+                            f"span_id={otel_ctx.span_id}"
+                        )
 
             # Create agent instance — inherits OTEL context via RuntimeConfig
             agent_instance = self.agent_cls(**self.agent_kwargs).get_instance(session_id=session_id)
@@ -274,7 +278,7 @@ class ExgenticAgentExecutor:
             executor = ThreadPoolExecutor(max_workers=1)
 
             try:
-                for i in range(max_iterations):
+                for _ in range(max_iterations):
                     loop = asyncio.get_event_loop()
                     action = await loop.run_in_executor(executor, agent_instance.react, current_observation)
 
@@ -304,7 +308,9 @@ class ExgenticAgentExecutor:
                             result_text = ""
                             if hasattr(result, "content") and result.content and len(result.content) > 0:
                                 first_content = result.content[0]
-                                result_text = first_content.text if hasattr(first_content, "text") else str(first_content)
+                                result_text = (
+                                    first_content.text if hasattr(first_content, "text") else str(first_content)
+                                )
                             else:
                                 result_text = str(result)
 
@@ -330,7 +336,7 @@ class ExgenticAgentExecutor:
                                 final_result = "Session completed (timeout)"
                                 break
 
-                        if hasattr(single_action, 'name') and 'finish' in single_action.name.lower():
+                        if hasattr(single_action, "name") and "finish" in single_action.name.lower():
                             break
 
                     if final_result is not None:
@@ -339,17 +345,17 @@ class ExgenticAgentExecutor:
                     # Build observation for next react() call
                     if len(actions_to_execute) == 1:
                         from ...core.types.observation import SingleObservation
+
                         current_observation = SingleObservation(
-                            result=results[0] if results else "",
-                            invoking_actions=actions_to_execute
+                            result=results[0] if results else "", invoking_actions=actions_to_execute
                         )
                     else:
-                        from ...core.types.observation import SingleObservation, MultiObservation
+                        from ...core.types.observation import MultiObservation, SingleObservation
+
                         observations = []
                         for idx, single_action in enumerate(actions_to_execute):
                             obs = SingleObservation(
-                                result=results[idx] if idx < len(results) else "",
-                                invoking_actions=[single_action]
+                                result=results[idx] if idx < len(results) else "", invoking_actions=[single_action]
                             )
                             observations.append(obs)
                         current_observation = MultiObservation(observations=observations)
@@ -360,7 +366,7 @@ class ExgenticAgentExecutor:
 
             # Determine final result
             if final_result is None:
-                if current_observation and hasattr(current_observation, 'result'):
+                if current_observation and hasattr(current_observation, "result"):
                     final_result = str(current_observation.result)
                 else:
                     final_result = "Task completed"
@@ -374,6 +380,7 @@ class ExgenticAgentExecutor:
 
             # Notify tracker of session success
             from ...core.types import SessionScore
+
             score = SessionScore(success=True, score=1.0, is_finished=True)
             tracker.on_session_success(mock_session, score, agent_instance)
 
@@ -382,10 +389,11 @@ class ExgenticAgentExecutor:
 
             # Flush traces to ensure they're exported
             from ...utils.otel import flush_traces
+
             flush_traces()
 
         except Exception as e:
-            logger.error(f"Error executing task: {e}", exc_info=True)
+            logger.exception(f"Error executing task: {e}")
 
             # Record error on root span
             if span_manager:
@@ -394,7 +402,7 @@ class ExgenticAgentExecutor:
             if mock_session:
                 tracker.on_session_error(mock_session, e)
 
-            await event_emitter.emit_event(f"Error: {str(e)}", failed=True)
+            await event_emitter.emit_event(f"Error: {e!s}", failed=True)
         finally:
             if mcp_session:
                 try:

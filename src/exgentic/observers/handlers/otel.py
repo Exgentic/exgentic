@@ -78,7 +78,7 @@ class SessionSpanManager:
 
     def start_span(self, name: str, **kwargs) -> Span:
         parent = self._span_stack[-1] if self._span_stack else None
-        
+
         if parent:
             # Use the parent span from our stack
             ctx = trace.set_span_in_context(parent)

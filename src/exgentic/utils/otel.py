@@ -101,7 +101,7 @@ class FilteredSpanExporter(SpanExporter):
                 # Skip spans from a2a-python-sdk
                 if any(excluded in scope_name_str for excluded in self._excluded_scopes):
                     continue
-            
+
             # Also check span name for a2a patterns
             span_name = getattr(span, "name", "")
             if span_name and any(pattern in span_name.lower() for pattern in ["enqueue", "a2a"]):
@@ -109,12 +109,12 @@ class FilteredSpanExporter(SpanExporter):
                 attrs = getattr(span, "attributes", {})
                 if not any(k.startswith("exgentic.") for k in attrs.keys()):
                     continue
-            
+
             filtered_spans.append(span)
-        
+
         if not filtered_spans:
             return SpanExportResult.SUCCESS
-        
+
         return self._wrapped.export(filtered_spans)
 
     def shutdown(self) -> None:

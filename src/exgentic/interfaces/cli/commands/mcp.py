@@ -13,7 +13,6 @@ import rich_click as click
 
 from ....adapters.agents.mcp_server import MCPServer
 from ....core.context import run_scope
-from ....core.types import SessionIndex
 from ....observers.logging import get_logger
 from ....utils.settings import get_settings
 from ...registry import load_benchmark
@@ -273,6 +272,7 @@ def mcp_cmd(
                 }
             except Exception as exc:
                 import traceback
+
                 return {"error": f"Failed to evaluate session {session_id}: {exc}\n{traceback.format_exc()}"}
 
         # Set up function signatures for management tools

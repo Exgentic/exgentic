@@ -310,63 +310,63 @@ async def call_a2a_agent(a2a_url: str, task_input: str, timeout: float = 600.0) 
 
     start_time = time.time()
     httpx_client = None
-    
+
     try:
         import httpx
 
         # Use a long timeout for A2A client to handle long-running tasks
         httpx_client = httpx.AsyncClient(timeout=timeout)
         client_config = ClientConfig(httpx_client=httpx_client)
-        
+
         # Fetch the agent card manually and override the URL
         logger.debug(f"Resolving Agent Card at {a2a_url} (timeout={timeout}s)")
-        
+
         resolver = A2ACardResolver(httpx_client=httpx_client, base_url=a2a_url)
         card = await resolver.get_agent_card()
-        
+
         # Override the URL in the card to use the actual server URL
         logger.debug(f"Agent card original URL: '{card.url}'")
         logger.debug(f"Overriding agent card URL to: '{a2a_url}'")
         card.url = a2a_url
-        
+
         # Create the client using the modified card
         logger.debug("Creating client with overridden URL")
         client = ClientFactory(client_config).create(card=card)
-        
+
         # Create a text message with explicit role
         logger.debug(f"Creating message with role=user, content length={len(task_input)}")
         message = create_text_message_object(role=Role.user, content=task_input)
-        
+
         logger.debug(f"Message created: role={message.role}, message_id={message.message_id}")
         logger.debug(f"Message parts: {len(message.parts)}")
-        
+
         # Send message and collect results
         result_text = ""
         task_id = None
         event_count = 0
-        
+
         logger.debug("Sending message to agent...")
-        
+
         async for response in client.send_message(message):
             event_count += 1
             logger.debug(f"Received response #{event_count}: type={type(response).__name__}")
-            
+
             if isinstance(response, tuple):
                 # This is a (Task, Event) tuple
                 task, event = response
                 if task_id is None:
                     task_id = task.id
                     logger.debug(f"Task ID: {task_id}")
-                
+
                 if event:
                     # For status updates, just print the text
-                    if hasattr(event, 'kind') and event.kind == 'status-update':
-                        if hasattr(event, 'status') and hasattr(event.status, 'message'):
+                    if hasattr(event, "kind") and event.kind == "status-update":
+                        if hasattr(event, "status") and hasattr(event.status, "message"):
                             msg = event.status.message
-                            if hasattr(msg, 'parts'):
+                            if hasattr(msg, "parts"):
                                 texts = []
                                 for part in msg.parts:
-                                    if hasattr(part, 'root') and hasattr(part.root, 'text'):
+                                    if hasattr(part, "root") and hasattr(part.root, "text"):
                                         texts.append(part.root.text)
                                 if texts:
                                     logger.debug(f"Status update: {' '.join(texts)}")
@@ -375,42 +375,44 @@ async def call_a2a_agent(a2a_url: str, task_input: str, timeout: float = 600.0) 
                             else:
                                 logger.debug(f"Status update: {event.status.state}")
                         else:
-                            logger.debug(f"Status update: {event.status.state if hasattr(event, 'status') else 'unknown'}")
+                            logger.debug(
+                                f"Status update: {event.status.state if hasattr(event, 'status') else 'unknown'}"
+                            )
                     else:
                         # For other events, pretty print the full details
-                        event_dict = event.model_dump() if hasattr(event, 'model_dump') else str(event)
+                        event_dict = event.model_dump() if hasattr(event, "model_dump") else str(event)
                         logger.debug(f"Event details ({event.kind if hasattr(event, 'kind') else 'unknown'}):")
                         logger.debug(f"{json.dumps(event_dict, indent=6, default=str)}")
-                
+
                 # Check for artifact updates
-                if event and hasattr(event, 'artifact') and event.artifact:
+                if event and hasattr(event, "artifact") and event.artifact:
                     logger.debug(f"Event has artifact with {len(event.artifact.parts)} parts")
                     for part in event.artifact.parts:
                         # Part is a wrapper, actual data is in part.root
-                        if hasattr(part, 'root') and isinstance(part.root, TextPart):
+                        if hasattr(part, "root") and isinstance(part.root, TextPart):
                             text = part.root.text
                             result_text += text
                             logger.debug(f"Extracted text from artifact: {text[:100]}...")
             else:
                 # This is a Message response
-                msg_dict = response.model_dump() if hasattr(response, 'model_dump') else str(response)
+                msg_dict = response.model_dump() if hasattr(response, "model_dump") else str(response)
                 logger.debug("Message response details:")
                 logger.debug(f"{json.dumps(msg_dict, indent=6, default=str)}")
-                
-                if hasattr(response, 'parts'):
+
+                if hasattr(response, "parts"):
                     logger.debug(f"Message response with {len(response.parts)} parts")
                     for part in response.parts:
                         # Part is a wrapper, actual data is in part.root
-                        if hasattr(part, 'root') and isinstance(part.root, TextPart):
+                        if hasattr(part, "root") and isinstance(part.root, TextPart):
                             text = part.root.text
                             result_text += text
                             logger.debug(f"Extracted text from message: {text[:100]}...")
-        
+
         elapsed_time = time.time() - start_time
-        
+
         logger.debug(f"Completed in {elapsed_time:.2f}s, received {event_count} events")
         logger.debug(f"Result length: {len(result_text)} characters")
-        
+
         return {
             "success": True,
             "result": result_text,
@@ -424,17 +426,17 @@ async def call_a2a_agent(a2a_url: str, task_input: str, timeout: float = 600.0) 
             "success": False,
             "result": None,
             "elapsed_time": elapsed_time,
-            "error": f"A2A Timeout: {str(e)}",
+            "error": f"A2A Timeout: {e!s}",
             "task_id": None,
         }
     except Exception as e:
         elapsed_time = time.time() - start_time
-        logger.exception(f"Error calling A2A agent: {type(e).__name__}: {str(e)}")
+        logger.exception(f"Error calling A2A agent: {type(e).__name__}: {e!s}")
         return {
             "success": False,
             "result": None,
             "elapsed_time": elapsed_time,
-            "error": f"{type(e).__name__}: {str(e)}",
+            "error": f"{type(e).__name__}: {e!s}",
             "task_id": None,
         }
     finally:
@@ -447,118 +449,121 @@ async def call_a2a_agent(a2a_url: str, task_input: str, timeout: float = 600.0) 
 
 async def fetch_tasks(mcp_session) -> List[str]:
     """Fetch available tasks from MCP server.
-    
+
     Args:
         mcp_session: MCP client session
-        
+
     Returns:
         List of task IDs
     """
     list_tasks_result = await mcp_session.call_tool("list_tasks", {})
-    
+
     if list_tasks_result.isError:
         raise RuntimeError(f"Error listing tasks: {list_tasks_result.content}")
-    
+
     tasks_data = json.loads(list_tasks_result.content[0].text)
     task_ids = tasks_data.get("tasks", tasks_data.get("task_ids", []))
-    
+
     logger.info(f"Found {len(task_ids)} tasks")
-    
+
     return task_ids
 
 
 async def create_mcp_session(mcp_session, task_id: str) -> Dict[str, Any]:
     """Create a session in the MCP server for a task.
-    
+
     Args:
         mcp_session: MCP client session
         task_id: Task ID to create session for
-        
+
     Returns:
         Dictionary with session information
     """
     create_result = await mcp_session.call_tool("create_session", {"task_id": str(task_id)})
-    
+
     if create_result.isError:
         raise RuntimeError(f"Error creating session: {create_result.content}")
-    
+
     session_data = json.loads(create_result.content[0].text)
     logger.debug(f"Session created: {session_data.get('session_id')}")
-    
+
     return session_data
 
 
 def build_enhanced_task_input(task_input: str, session_id: str, context: Dict[str, Any]) -> str:
     """Build enhanced task input with context and session_id instructions.
-    
+
     Args:
         task_input: Original task description
         session_id: Session ID to include
         context: Additional context information
-        
+
     Returns:
         Enhanced task input string
     """
     prompt_parts = [task_input]
-    
+
     # Add context if available
     if context:
         prompt_parts.append("\nContext:")
         for key, value in context.items():
             prompt_parts.append(f"- {key}: {value}")
-    
+
     # Add session_id instructions
-    prompt_parts.append(f"""
+    prompt_parts.append(
+        f"""
 
 IMPORTANT: Use session id "{session_id}" in all your interactions with the benchmark tools.
 
-When calling any benchmark-related tools or APIs, you MUST include the session_id parameter with the value "{session_id}". This ensures your actions are properly tracked and evaluated within the correct benchmark session.
+When calling any benchmark-related tools or APIs, you MUST include the session_id parameter with the value
+"{session_id}". This ensures your actions are properly tracked and evaluated within the correct benchmark session.
 
-If you are asked to submit an answer, make sure you call the submit MCP tool.""")
-    
+If you are asked to submit an answer, make sure you call the submit MCP tool."""
+    )
+
     return "\n".join(prompt_parts)
 
 
 async def evaluate_mcp_session(mcp_session, session_id: str) -> Optional[Dict[str, Any]]:
     """Evaluate a session in the MCP server.
-    
+
     Args:
         mcp_session: MCP client session
         session_id: Session ID to evaluate
-        
+
     Returns:
         Evaluation data dictionary, or None if evaluation failed
     """
     try:
         # Small delay to ensure A2A agent has finished
         await asyncio.sleep(0.5)
-        
+
         eval_result = await mcp_session.call_tool("evaluate_session", {"session_id": session_id})
-        
+
         if eval_result.isError:
             error_content = eval_result.content[0].text if eval_result.content else "Unknown error"
             logger.warning(f"Evaluation error: {error_content}")
             print(f"   ⚠️  Evaluation error: {error_content}")
             return None
-        
+
         eval_text = eval_result.content[0].text
         logger.debug(f"Raw evaluation response: {eval_text}")
-        
+
         eval_data = json.loads(eval_text)
-        
+
         # Check if there's an error in the response
         if "error" in eval_data:
             logger.warning(f"Evaluation returned error: {eval_data['error']}")
             print(f"   ⚠️  Evaluation returned error: {eval_data['error']}")
             return None
-        
-        print(f"   Evaluation Results:")
+
+        print("   Evaluation Results:")
         print(f"     Success: {eval_data.get('success', 'N/A')}")
         print(f"     Score: {eval_data.get('score', 'N/A')}")
         print(f"     Finished: {eval_data.get('is_finished', 'N/A')}")
-        
+
         return eval_data
-        
+
     except json.JSONDecodeError as e:
         logger.warning(f"Failed to parse evaluation response as JSON: {e}")
         print(f"   ⚠️  Failed to parse evaluation response as JSON: {e}")
@@ -571,26 +576,26 @@ async def evaluate_mcp_session(mcp_session, session_id: str) -> Optional[Dict[st
 
 async def delete_mcp_session(mcp_session, session_id: str) -> bool:
     """Delete a session in the MCP server.
-    
+
     Args:
         mcp_session: MCP client session
         session_id: Session ID to delete
-        
+
     Returns:
         True if successful, False otherwise
     """
     try:
         delete_result = await mcp_session.call_tool("delete_session", {"session_id": session_id})
-        
+
         if delete_result.isError:
             logger.error(f"Error deleting session: {delete_result.content}")
             print(f"   ❌ Error deleting session: {delete_result.content}")
             return False
-        
+
         logger.debug("Session deleted")
-        print(f"   ✓ Session deleted")
+        print("   ✓ Session deleted")
         return True
-        
+
     except Exception as e:
         logger.exception(f"Exception deleting session: {e}")
         print(f"   ❌ Exception deleting session: {e}")
@@ -599,14 +604,14 @@ async def delete_mcp_session(mcp_session, session_id: str) -> bool:
 
 def print_task_results_summary(task_results: List[Dict[str, Any]]):
     """Print summary of task results.
-    
+
     Args:
         task_results: List of task result dictionaries
     """
     print("\n" + "-" * 80)
     print("TASK RESULTS SUMMARY")
     print("-" * 80)
-    
+
     successful = sum(1 for r in task_results if r["success"])
     failed = len(task_results) - successful
     total_time = sum(r["elapsed_time"] for r in task_results)
@@ -617,19 +622,22 @@ def print_task_results_summary(task_results: List[Dict[str, Any]]):
     print(f"Failed: {failed}")
     print(f"Total time: {total_time:.2f}s")
     print(f"Average time per task: {avg_time:.2f}s")
-    
+
     # Evaluation statistics
     evaluated = sum(1 for r in task_results if r.get("evaluation"))
     eval_successful = sum(1 for r in task_results if r.get("evaluation") and r["evaluation"].get("success"))
-    
+
     if evaluated > 0:
-        print(f"\nEvaluation Results:")
+        print("\nEvaluation Results:")
         print(f"  Evaluated: {evaluated}/{len(task_results)}")
         print(f"  Eval Success: {eval_successful}/{evaluated}")
-        
+
         # Show scores if available
-        scores = [r["evaluation"].get("score") for r in task_results
-                 if r.get("evaluation") and r["evaluation"].get("score") is not None]
+        scores = [
+            r["evaluation"].get("score")
+            for r in task_results
+            if r.get("evaluation") and r["evaluation"].get("score") is not None
+        ]
         if scores:
             avg_score = sum(scores) / len(scores)
             print(f"  Average Score: {avg_score:.2f}")
@@ -758,39 +766,43 @@ async def test_a2a_agent(
                         session_id = session_data.get("session_id")
                         task_input = session_data.get("task", "")
                         context = session_data.get("context", {})
-                        
-                        created_sessions.append({
-                            "session_id": session_id,
-                            "task_id": task_id,
-                        })
+
+                        created_sessions.append(
+                            {
+                                "session_id": session_id,
+                                "task_id": task_id,
+                            }
+                        )
 
                         print(f"   Task: {task_input[:100]}...")
-                        
+
                         # Build enhanced task input
                         enhanced_task_input = build_enhanced_task_input(task_input, session_id, context)
-                        
+
                         # Call A2A agent to solve the task
-                        print(f"   🤖 Calling A2A agent...")
+                        print("   🤖 Calling A2A agent...")
                         result = await call_a2a_agent(a2a_url, enhanced_task_input, timeout=timeout)
 
                         if result["success"]:
                             print(f"   ✓ Task completed in {result['elapsed_time']:.2f}s")
                             result_preview = result["result"][:200] if result["result"] else "No result"
                             print(f"   Result: {result_preview}...")
-                            
+
                             # Evaluate the session
-                            print(f"   📊 Evaluating session...")
+                            print("   📊 Evaluating session...")
                             eval_data = await evaluate_mcp_session(mcp_session, session_id)
                         else:
                             print(f"   ❌ Task failed: {result['error']}")
                             eval_data = None
 
-                        task_results.append({
-                            "task_id": task_id,
-                            "session_id": session_id,
-                            "evaluation": eval_data,
-                            **result,
-                        })
+                        task_results.append(
+                            {
+                                "task_id": task_id,
+                                "session_id": session_id,
+                                "evaluation": eval_data,
+                                **result,
+                            }
+                        )
 
                         # Measure memory after each task
                         if monitor:
@@ -804,6 +816,7 @@ async def test_a2a_agent(
                     except Exception as e:
                         print(f"   ❌ Exception processing task {task_id}: {e}")
                         import traceback
+
                         traceback.print_exc()
                         continue
 
@@ -848,6 +861,7 @@ async def test_a2a_agent(
     except Exception as e:
         print(f"\n❌ Error: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
     finally:
@@ -893,9 +907,7 @@ def main():
     parser.add_argument(
         "--timeout", type=float, default=300.0, help="Timeout for each task execution in seconds (default: 300)"
     )
-    parser.add_argument(
-        "--debug", action="store_true", help="Enable debug output"
-    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug output")
 
     args = parser.parse_args()
 
@@ -904,14 +916,14 @@ def main():
         logger.setLevel(logging.DEBUG)
         handler = logging.StreamHandler()
         handler.setLevel(logging.DEBUG)
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         handler.setFormatter(formatter)
         logger.addHandler(handler)
     else:
         logger.setLevel(logging.INFO)
         handler = logging.StreamHandler()
         handler.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
         handler.setFormatter(formatter)
         logger.addHandler(handler)
 
