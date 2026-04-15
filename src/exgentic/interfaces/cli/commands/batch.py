@@ -264,18 +264,39 @@ def _recover_session_hashes(roots: list[Path], *, do_apply: bool) -> int:
 def _load_results_summary(
     path: str,
 ) -> tuple[str, str, str, int | None, int | None, int | None, int | None]:
-    if not path or not Path(path).is_file():
+    if not path:
         return "-", "-", "-", None, None, None, None
-    try:
-        payload = _load_config_file(path)
-    except Exception:
-        return "-", "-", "-", None, None, None, None
+    payload: dict = {}
+    if Path(path).is_file():
+        try:
+            payload = _load_config_file(path) or {}
+        except Exception:
+            payload = {}
     score = payload.get("benchmark_score")
     if score is None:
         score = payload.get("average_score")
     cost = payload.get("total_run_cost")
     if cost is None:
         cost = payload.get("total_agent_cost")
+    # Run-level results.json is only written at end of run, so during a live
+    # run its Score/Cost are stale. Prefer live session-level aggregates (#190).
+    live_cost = 0.0
+    live_scores: list[float] = []
+    found = False
+    for sp in (Path(path).parent / "sessions").glob("*/results.json"):
+        try:
+            sdata = json.loads(sp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        found = True
+        live_cost += float(sdata.get("agent_cost") or 0) + float(sdata.get("benchmark_cost") or 0)
+        s = sdata.get("score")
+        if s is not None:
+            live_scores.append(float(s))
+    if found:
+        cost = live_cost
+        if live_scores:
+            score = sum(live_scores) / len(live_scores)
     models = payload.get("model_names")
     if models is None:
         models = payload.get("model_name")
