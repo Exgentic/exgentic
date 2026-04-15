@@ -8,7 +8,7 @@ from __future__ import annotations
 import base64
 import threading
 import time
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import cloudpickle as cp
 import httpx
@@ -119,13 +119,57 @@ def serve(obj: Any, host: str = "0.0.0.0", port: int = 8080) -> None:
 
 
 class HTTPTransport(Transport):
-    """Talks to an HTTP server hosting an ObjectHost."""
+    """Talks to an HTTP server hosting an ObjectHost.
 
-    def __init__(self, base_url: str, timeout: float = 30.0) -> None:
+    Parameters
+    ----------
+    base_url:
+        URL where the serve() side of the transport is listening.
+    timeout:
+        Per-call httpx timeout in seconds.
+    is_alive:
+        Optional callable that returns True if the backing peer (e.g.
+        a venv subprocess) is still alive. When set, it is invoked
+        before every RPC; a falsy return — or any exception raised
+        inside it — is treated as peer-gone and raises
+        ``ConnectionError`` immediately without touching httpx.
+
+        This is the guard for Exgentic/exgentic#193: if a venv runner's
+        subprocess dies mid-session, the parent orchestrator's next
+        step/react call fails fast through the existing session error
+        paths instead of hanging on a dead socket for the full
+        transport timeout.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        timeout: float = 30.0,
+        *,
+        is_alive: Optional[Callable[[], bool]] = None,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._client = httpx.Client(timeout=timeout)
+        self._is_alive = is_alive
+
+    def _check_alive(self) -> None:
+        """Raise ``ConnectionError`` if the backing peer is known to be dead.
+
+        Any exception raised by the watcher itself is also reported as
+        a dead peer: a broken watcher is not a license to hang on a
+        socket that may already be gone.
+        """
+        if self._is_alive is None:
+            return
+        try:
+            alive = self._is_alive()
+        except Exception as exc:
+            raise ConnectionError(f"{self._base_url}: liveness check failed: {exc}") from exc
+        if not alive:
+            raise ConnectionError(f"{self._base_url}: peer not alive")
 
     def _rpc(self, endpoint: str, payload: dict) -> Any:
+        self._check_alive()
         resp = self._client.post(f"{self._base_url}{endpoint}", json=payload)
         resp.raise_for_status()
         data = RPCResponse(**resp.json())

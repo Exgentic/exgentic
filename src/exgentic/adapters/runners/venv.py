@@ -203,7 +203,14 @@ class VenvRunner:
                 f"stderr:\n{stderr.decode(errors='replace')}"
             ) from None
 
-        transport = HTTPTransport(url, timeout=_TRANSPORT_TIMEOUT)
+        # Supply a liveness callable so RPCs fail fast if the venv
+        # subprocess dies mid-session instead of hanging on httpx.
+        # See Exgentic/exgentic#193.
+        def _is_alive() -> bool:
+            proc = self._process
+            return proc is not None and proc.poll() is None
+
+        transport = HTTPTransport(url, timeout=_TRANSPORT_TIMEOUT, is_alive=_is_alive)
         proxy = ObjectProxy(transport)
         object.__setattr__(proxy, "close", make_close(transport, self._stop_process))
         return proxy
