@@ -46,6 +46,8 @@ The table below documents every attribute actually emitted by the implementation
 | **Session (ROOT)** | `exgentic.score.success` | `SessionScore.success` | bool | Custom | No | Set on session close |
 | **Session (ROOT)** | `exgentic.score` | `SessionScore.score` | float | Custom | No | Set on session close |
 | **Session (ROOT)** | `exgentic.score.is_finished` | `SessionScore.is_finished` | bool | Custom | No | Set on session close |
+| **Session (ROOT)** | `exgentic.score.metrics.{key}` | `SessionScore.session_metrics[key]` | primitive or string (JSON) | Custom | No | One entry per metric; nested values JSON-encoded |
+| **Session (ROOT)** | `exgentic.score.metadata.{key}` | `SessionScore.session_metadata[key]` | primitive or string (JSON) | Custom | No | One entry per metadata field; nested values JSON-encoded |
 | **Session (ROOT)** | `exgentic.session.steps` | step counter | int | Custom | No | Set on session close |
 | **Session (ROOT)** | `exgentic.agent.agent_cost` | `AgentInstance.get_cost()` | string (JSON) | Custom | No | Set on session close |
 | **Session (ROOT)** | `exgentic.session.cost` | `Session.get_cost()` | string (JSON) | Custom | No | Set on session close |

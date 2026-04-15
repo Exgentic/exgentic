@@ -103,6 +103,8 @@ class MockScore:
     success = True
     score = 0.95
     is_finished = True
+    session_metrics: ClassVar[dict] = {}
+    session_metadata: ClassVar[dict] = {}
 
 
 # ---------------------------------------------------------------------------
