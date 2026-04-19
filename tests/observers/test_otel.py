@@ -2116,7 +2116,11 @@ class TestSessionSpanSemanticConventions:
         assert session_span.attributes["exgentic.session.action.test_action.is_finish"] is False
 
     def test_session_span_tools_list_comprehensive(self, ctx, tmp_path):
-        """Session span emits a comprehensive JSON tools list from Session.actions."""
+        """Session span emits a comprehensive JSON tools list from Session.actions.
+
+        Verifies both the exgentic-specific ``exgentic.session.tools`` attribute
+        and the OTel GenAI standard ``gen_ai.tool.definitions`` attribute.
+        """
 
         class ActA:
             name = "search"
@@ -2143,6 +2147,26 @@ class TestSessionSpanSemanticConventions:
         assert submit["description"] == "Submit final answer"
         assert submit["is_finish"] is True
         assert submit["is_message"] is False
+
+        # OTel GenAI standard attribute: gen_ai.tool.definitions
+        assert "gen_ai.tool.definitions" in session_span.attributes
+        raw_std = session_span.attributes["gen_ai.tool.definitions"]
+        std_tools = json.loads(raw_std)
+        assert isinstance(std_tools, list)
+        assert len(std_tools) == 2
+        std_names = [t["name"] for t in std_tools]
+        assert std_names == ["search", "submit"]
+        for entry in std_tools:
+            assert entry["type"] == "function"
+            assert "name" in entry
+            assert "description" in entry
+            assert "is_message" in entry
+            assert "is_finish" in entry
+        std_submit = next(t for t in std_tools if t["name"] == "submit")
+        assert std_submit["type"] == "function"
+        assert std_submit["description"] == "Submit final answer"
+        assert std_submit["is_finish"] is True
+        assert std_submit["is_message"] is False
 
     def test_session_span_context_attributes(self, ctx, tmp_path):
         """exgentic.context.{key} emitted for each context key."""

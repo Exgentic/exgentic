@@ -41,6 +41,7 @@ The table below documents every attribute actually emitted by the implementation
 | **Session (ROOT)** | `exgentic.session.action.{name}.is_message` | `ActionType.is_message` | bool | Custom | No | |
 | **Session (ROOT)** | `exgentic.session.action.{name}.is_finish` | `ActionType.is_finish` | bool | Custom | No | |
 | **Session (ROOT)** | `exgentic.session.tools` | `Session.actions` | string (JSON) | Custom | No | Comprehensive JSON list of all tools available at session start (name, description, is_message, is_finish) |
+| **Session (ROOT)** | `gen_ai.tool.definitions` | `Session.actions` | string (JSON) | OTel GenAI (Development) | No | Standard JSON list of tool definitions; each entry has `type: "function"` plus name/description/is_message/is_finish |
 | **Session (ROOT)** | `exgentic.context.{key}` | `Session.context[key]` | string | Custom | No | One entry per context key |
 | **Session (ROOT)** | `exgentic.session.agent.id` | `AgentInstance.agent_id` | string | Custom | No | |
 | **Session (ROOT)** | `exgentic.session.agent.path` | `AgentInstance.paths.agent_dir` | string | Custom | No | |
