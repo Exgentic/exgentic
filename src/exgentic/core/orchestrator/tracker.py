@@ -62,6 +62,10 @@ class Tracker(Observer, Controller):
         return self._run_id
 
     @property
+    def observers(self) -> tuple[Observer, ...]:
+        return tuple(self._observers)
+
+    @property
     def session_results(self):
         if self._results is not None:
             return self._results.session_results()
