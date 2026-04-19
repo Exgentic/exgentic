@@ -267,6 +267,12 @@ class TraceLogger(CustomLogger):
             "gen_ai.request.model": model,
             "gen_ai.conversation.id": ctx.session_id,
             "exgentic.session.id": ctx.session_id,
+            # Required so PerSessionFileExporter (which filters by run_id)
+            # routes this span into the session's otel_spans.jsonl instead
+            # of dropping it -- otherwise LLM context attributes set below
+            # (gen_ai.input.messages, gen_ai.output.messages, ...) never
+            # reach the per-session file. See Exgentic/exgentic#196.
+            "exgentic.run.id": ctx.run_id,
         }
         self._collect_request_attrs(attrs, optional_params)
         self._collect_response_attrs(attrs, response_obj)

@@ -2674,6 +2674,123 @@ class TestLLMInferenceContentFiltering:
 
 
 # ===================================================================
+# 4b. LLM inference run_id tagging (regression for #196)
+# ===================================================================
+
+
+class TestLLMInferenceRunIdTagging:
+    """Regression: chat spans must carry ``exgentic.run.id``.
+
+    ``PerSessionFileExporter`` (which filters by run_id after #186) writes
+    them to ``otel_spans.jsonl`` instead of silently dropping them.
+
+    Without this, ``gen_ai.input.messages`` / ``gen_ai.output.messages``
+    and every other LLM-context attribute set on chat spans go missing
+    from session files even though the underlying span is emitted.
+    """
+
+    def test_chat_span_has_exgentic_run_id(self):
+        """Chat span must have exgentic.run.id so PerSessionFileExporter does not drop it.
+
+        PerSessionFileExporter routes only spans whose exgentic.run.id
+        matches its configured run_id.
+        """
+        from exgentic.integrations.litellm.trace_logger import TraceLogger
+
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        t = provider.get_tracer("test")
+
+        tl = TraceLogger()
+        tl._tracer = t
+        tl._otel_logger = MagicMock()
+
+        mock_ctx = MagicMock()
+        mock_ctx.session_id = "sess-001"
+        mock_ctx.run_id = "run-abc"
+        mock_ctx.otel_context = MagicMock()
+        mock_ctx.otel_context.trace_id = "0" * 32
+        mock_ctx.otel_context.span_id = "0" * 16
+
+        kwargs = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "hello"}],
+            "optional_params": {},
+            "litellm_params": {"custom_llm_provider": "openai"},
+        }
+        response_obj = {
+            "id": "chatcmpl-123",
+            "model": "gpt-4o",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+            "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "hi"}}],
+        }
+
+        settings = MagicMock(otel_enabled=True, otel_record_content=True)
+        with (
+            patch("exgentic.integrations.litellm.trace_logger.get_settings", return_value=settings),
+            patch.object(tl, "get_context", return_value=mock_ctx),
+        ):
+            tl._write_otel(kwargs, response_obj, "success")
+
+        spans = exporter.get_finished_spans()
+        assert len(spans) == 1
+        assert spans[0].attributes.get("exgentic.run.id") == "run-abc"
+
+    def test_chat_span_content_reaches_persession_file_exporter(self, tmp_path):
+        """End-to-end: LLM-inference span must land in the per-session otel_spans.jsonl.
+
+        Its ``gen_ai.input.messages`` / ``gen_ai.output.messages`` attributes
+        must stay intact. Reproduces #196.
+        """
+        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from exgentic.utils.otel import PerSessionFileExporter
+
+        run_root = tmp_path / "run-xyz"
+        per_session = PerSessionFileExporter(run_root, run_id="run-xyz")
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(per_session))
+        t = provider.get_tracer("test")
+
+        tl = TraceLogger()
+        tl._tracer = t
+        tl._otel_logger = MagicMock()
+
+        mock_ctx = MagicMock()
+        mock_ctx.session_id = "sess-abc"
+        mock_ctx.run_id = "run-xyz"
+        mock_ctx.otel_context = MagicMock()
+        mock_ctx.otel_context.trace_id = "0" * 32
+        mock_ctx.otel_context.span_id = "0" * 16
+
+        kwargs = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "hello"}],
+            "optional_params": {},
+            "litellm_params": {"custom_llm_provider": "openai"},
+        }
+        response_obj = {
+            "id": "chatcmpl-123",
+            "model": "gpt-4o",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+            "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "hi"}}],
+        }
+
+        settings = MagicMock(otel_enabled=True, otel_record_content=True)
+        with (
+            patch("exgentic.integrations.litellm.trace_logger.get_settings", return_value=settings),
+            patch.object(tl, "get_context", return_value=mock_ctx),
+        ):
+            tl._write_otel(kwargs, response_obj, "success")
+
+        jsonl = run_root / "sessions" / "sess-abc" / "otel_spans.jsonl"
+        assert jsonl.exists(), "chat span must be routed to per-session otel_spans.jsonl"
+        content = jsonl.read_text()
+        assert "gen_ai.input.messages" in content
+        assert "gen_ai.output.messages" in content
+
+
+# ===================================================================
 # 5. TraceLogger silent failure behavior
 # ===================================================================
 
