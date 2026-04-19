@@ -3,17 +3,11 @@
 
 """Liveness-check regression tests for HTTPTransport.
 
-Context: Exgentic/exgentic#193 — a benchmark subprocess died mid-session
-while the parent orchestrator was waiting on an RPC call. Because the
-HTTPTransport did not know the backing process was gone, the call did
-not fail fast — it hung (or took the full transport timeout) before
-surfacing the death, which blocked the whole batch on a single dead
-peer.
-
-The fix: HTTPTransport takes an optional ``is_alive`` callable and
-checks it before every RPC. If the callable returns False, an
-immediate ``ConnectionError`` is raised, so ``run_session``'s existing
-step/react error paths kick in and the session fails cleanly.
+HTTPTransport takes an optional ``is_alive`` callable and checks it
+before every RPC. If the callable returns False, an immediate
+``ConnectionError`` is raised, so ``run_session``'s existing
+step/react error paths kick in and the session fails cleanly instead
+of hanging on a dead socket for the full transport timeout.
 """
 
 from __future__ import annotations
@@ -63,7 +57,7 @@ def _url(server: HTTPServer) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Regression: #193 — dead peer must fail fast
+# Regression: dead peer must fail fast
 # ---------------------------------------------------------------------------
 
 

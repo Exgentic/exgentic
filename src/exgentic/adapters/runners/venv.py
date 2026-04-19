@@ -17,7 +17,6 @@ from __future__ import annotations
 import atexit
 import os
 import shutil
-import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -36,7 +35,7 @@ from ._utils import (
 from .service import HTTPTransport, _wait_for_health
 from .transport import ObjectProxy
 
-_HEALTH_TIMEOUT = 360.0
+_HEALTH_TIMEOUT = 120.0
 _TRANSPORT_TIMEOUT = 600.0
 
 
@@ -181,7 +180,6 @@ class VenvRunner:
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            start_new_session=True,
         )
         atexit.register(self._stop_process)
 
@@ -190,12 +188,11 @@ class VenvRunner:
             _wait_for_health(url, timeout=self._health_timeout)
         except TimeoutError:
             proc = self._process
-            stdout, stderr = b"", b""
             if proc is not None:
-                try:
-                    stdout, stderr = proc.communicate(timeout=1)
-                except (subprocess.TimeoutExpired, Exception):
-                    pass
+                proc.terminate()
+                stdout, stderr = proc.communicate(timeout=5)
+            else:
+                stdout, stderr = b"", b""
             self._stop_process()
             raise TimeoutError(
                 f"Venv service did not become healthy within {self._health_timeout}s.\n"
@@ -203,9 +200,8 @@ class VenvRunner:
                 f"stderr:\n{stderr.decode(errors='replace')}"
             ) from None
 
-        # Supply a liveness callable so RPCs fail fast if the venv
-        # subprocess dies mid-session instead of hanging on httpx.
-        # See Exgentic/exgentic#193.
+        # Liveness callable so RPCs fail fast if the venv subprocess
+        # dies mid-session instead of hanging on httpx's transport timeout.
         def _is_alive() -> bool:
             proc = self._process
             return proc is not None and proc.poll() is None
@@ -220,25 +216,11 @@ class VenvRunner:
             return
         proc = self._process
         self._process = None
-        # The subprocess was started with start_new_session=True so it leads
-        # its own process group. Signal the whole group so grandchildren
-        # (per-session LiteLLM proxies, docker helpers, MCP servers) are
-        # cleaned up atomically instead of orphaning.
         try:
-            pgid = os.getpgid(proc.pid)
-        except (OSError, ProcessLookupError):
-            pgid = None
-        try:
-            if pgid is not None:
-                os.killpg(pgid, signal.SIGTERM)
-            else:
-                proc.terminate()
+            proc.terminate()
             proc.wait(timeout=5)
         except Exception:
             try:
-                if pgid is not None:
-                    os.killpg(pgid, signal.SIGKILL)
-                else:
-                    proc.kill()
+                proc.kill()
             except Exception:
                 pass

@@ -121,24 +121,10 @@ def serve(obj: Any, host: str = "0.0.0.0", port: int = 8080) -> None:
 class HTTPTransport(Transport):
     """Talks to an HTTP server hosting an ObjectHost.
 
-    Parameters
-    ----------
-    base_url:
-        URL where the serve() side of the transport is listening.
-    timeout:
-        Per-call httpx timeout in seconds.
-    is_alive:
-        Optional callable that returns True if the backing peer (e.g.
-        a venv subprocess) is still alive. When set, it is invoked
-        before every RPC; a falsy return — or any exception raised
-        inside it — is treated as peer-gone and raises
-        ``ConnectionError`` immediately without touching httpx.
-
-        This is the guard for Exgentic/exgentic#193: if a venv runner's
-        subprocess dies mid-session, the parent orchestrator's next
-        step/react call fails fast through the existing session error
-        paths instead of hanging on a dead socket for the full
-        transport timeout.
+    If ``is_alive`` is supplied, it is invoked before every RPC; a
+    falsy return (or any exception raised inside it) raises
+    ``ConnectionError`` immediately without touching httpx, so a dead
+    peer fails fast instead of hanging on the transport timeout.
     """
 
     def __init__(
@@ -153,14 +139,10 @@ class HTTPTransport(Transport):
         self._is_alive = is_alive
 
     def _check_alive(self) -> None:
-        """Raise ``ConnectionError`` if the backing peer is known to be dead.
-
-        Any exception raised by the watcher itself is also reported as
-        a dead peer: a broken watcher is not a license to hang on a
-        socket that may already be gone.
-        """
         if self._is_alive is None:
             return
+        # A broken watcher is treated as a dead peer: we can't safely
+        # assume the socket is live if the liveness hook itself errors.
         try:
             alive = self._is_alive()
         except Exception as exc:
