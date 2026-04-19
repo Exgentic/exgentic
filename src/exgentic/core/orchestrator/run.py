@@ -219,12 +219,7 @@ def _plan_config(run_config: RunConfig) -> tuple[RunConfig, Tracker, list[Sessio
         if updates:
             run_config = run_config.model_copy(update=updates)
 
-        # Batch mode: register the full default observer set EXCEPT
-        # ConsoleLoggerObserver (would print a panel per config during
-        # planning -- dozens of noisy panels for a 50-config batch).
-        # ResultsObserver is essential: it writes sessions/{id}/results.json
-        # which batch status counts.  Omitting it silently orphans every
-        # session's outcome (#202).
+        # Skip ConsoleLoggerObserver — one panel per config during planning is noisy.
         from ...observers.handlers.configs import ConfigsObserver
         from ...observers.handlers.file_logger import FileLoggerObserver
         from ...observers.handlers.recap import RunRecapObserver
