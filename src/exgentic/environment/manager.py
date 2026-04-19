@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from pathlib import Path
 
+from filelock import FileLock
+
 from .docker import DockerBackend
 from .local import LocalBackend
 from .protocol import EnvironmentBackend
@@ -78,16 +80,14 @@ class EnvironmentManager:
             The environment directory path.
         """
         env_type = EnvType(env_type)
+        # Fast path: avoid taking the file lock once the env is built.
         if not force and self.is_installed(name, env_type=env_type):
             return self.env_path(name)
 
         env_dir = self.env_path(name)
         env_dir.mkdir(parents=True, exist_ok=True)
-        self._remove_marker_entry(name, env_type)
-
         backend = self._backends[env_type]
 
-        # Build kwargs for the backend.
         kwargs: dict[str, object] = {}
         if project_root is not None:
             kwargs["project_root"] = project_root
@@ -98,8 +98,16 @@ class EnvironmentManager:
             kwargs["force"] = force
             kwargs["docker_socket"] = docker_socket
 
-        extra = backend.install(env_dir, module_path=module_path, **kwargs)
-        self._add_marker_entry(name, env_type, {"installed_at": _now_iso(), **extra})
+        # Serialize the decide-then-install sequence across threads and
+        # processes, with a double-check inside the lock. Without this,
+        # N concurrent callers all race past the fast path and each
+        # redundantly rebuilds the same env.
+        with FileLock(str(env_dir / ".install.lock"), timeout=1200):
+            if not force and self.is_installed(name, env_type=env_type):
+                return env_dir
+            self._remove_marker_entry(name, env_type)
+            extra = backend.install(env_dir, module_path=module_path, **kwargs)
+            self._add_marker_entry(name, env_type, {"installed_at": _now_iso(), **extra})
 
         return env_dir
 

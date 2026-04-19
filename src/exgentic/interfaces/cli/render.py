@@ -186,6 +186,7 @@ def render_batch_status(rows: list[dict[str, str]]) -> None:
     table.add_column("Sessions", justify="right", no_wrap=True)
     table.add_column("Score", justify="right", no_wrap=True)
     table.add_column("Cost", justify="right", no_wrap=True)
+    table.add_column("Last", justify="right", no_wrap=True, width=5)
 
     for row in rows:
         table.add_row(
@@ -196,6 +197,7 @@ def render_batch_status(rows: list[dict[str, str]]) -> None:
             row.get("sessions", "-"),
             row.get("score", "-"),
             row.get("cost", "-"),
+            row.get("last_event", "-"),
         )
 
     CONSOLE.print(table)

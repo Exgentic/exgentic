@@ -99,17 +99,17 @@ class SessionStatus(BaseModel):
         return False
 
     @classmethod
-    def _extract_result_status(cls, results_path) -> Optional[SessionOutcomeStatus]:
+    def _extract_result_status(cls, results_path) -> SessionOutcomeStatus:
         try:
             payload = json.loads(results_path.read_text(encoding="utf-8"))
         except Exception:
-            return None
+            return SessionOutcomeStatus.UNKNOWN
         status = payload.get("status")
         if status:
             try:
                 return SessionOutcomeStatus(str(status))
             except ValueError:
-                return None
+                return SessionOutcomeStatus.UNKNOWN
         success = payload.get("success")
         is_finished = payload.get("is_finished")
         details = payload.get("details") or {}
@@ -123,7 +123,7 @@ class SessionStatus(BaseModel):
             return SessionOutcomeStatus.SUCCESS if success else SessionOutcomeStatus.UNSUCCESSFUL
         if is_finished is False:
             return SessionOutcomeStatus.UNFINISHED
-        return None
+        return SessionOutcomeStatus.UNKNOWN
 
     @classmethod
     def from_config(cls, session_config, *, run_paths=None) -> SessionStatus:
@@ -149,6 +149,7 @@ class SessionStatus(BaseModel):
             if result_status in (
                 SessionOutcomeStatus.ERROR,
                 SessionOutcomeStatus.CANCELLED,
+                SessionOutcomeStatus.UNKNOWN,
             ):
                 status = SessionExecutionStatus.INCOMPLETE
             else:

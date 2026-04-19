@@ -57,6 +57,41 @@ docker run --platform linux/amd64 --rm alpine uname -m
 
 ---
 
+## Troubleshooting: x86_64 emulation segfaults on Apple Silicon
+
+x86_64 containers may segfault when importing heavy Python packages (pyarrow, pandas). This happens because Podman silently falls back to QEMU even when Rosetta is configured.
+
+**Check if Rosetta is active:**
+
+```bash
+podman machine ssh "cat /proc/sys/fs/binfmt_misc/rosetta 2>/dev/null || echo NOT ACTIVE"
+```
+
+- If it says `enabled` with interpreter `/mnt/rosetta` — you're fine.
+- If it says `NOT ACTIVE` — Rosetta is not running, apply the fix below.
+
+**Fix:**
+
+```bash
+podman machine ssh "sudo touch /etc/containers/enable-rosetta"
+podman machine stop
+podman machine start
+```
+
+**Verify:**
+
+```bash
+# Should say "enabled" with interpreter /mnt/rosetta
+podman machine ssh "cat /proc/sys/fs/binfmt_misc/rosetta"
+
+# Quick test — this segfaults under QEMU, works under Rosetta
+docker run --rm python:3.12-slim python3 -c "import struct; print('OK')"
+```
+
+**Why:** Podman 5.7+ has a bug where `Rosetta: true` in machine config doesn't actually enable Rosetta inside the VM. The trigger file `/etc/containers/enable-rosetta` is missing, so the activation service skips. Creating it and restarting fixes it. See [containers/podman#28181](https://github.com/containers/podman/issues/28181).
+
+---
+
 ## See also
 
 - [Runners](./runners.md) — all runner types and configuration

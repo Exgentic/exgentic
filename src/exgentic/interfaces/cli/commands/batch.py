@@ -8,6 +8,7 @@ import glob
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +78,18 @@ def _short_config_path(path: str) -> str:
     if rel.startswith(".."):
         return Path(path).name
     return rel
+
+
+def _format_ago(sec: float) -> str:
+    if sec < 0:
+        sec = 0
+    if sec < 60:
+        return f"{int(sec)}s"
+    if sec < 3600:
+        return f"{int(sec / 60)}m"
+    if sec < 86400:
+        return f"{int(sec / 3600)}h"
+    return f"{int(sec / 86400)}d"
 
 
 def _truncate_leading(text: str, max_len: int) -> str:
@@ -264,18 +277,39 @@ def _recover_session_hashes(roots: list[Path], *, do_apply: bool) -> int:
 def _load_results_summary(
     path: str,
 ) -> tuple[str, str, str, int | None, int | None, int | None, int | None]:
-    if not path or not Path(path).is_file():
+    if not path:
         return "-", "-", "-", None, None, None, None
-    try:
-        payload = _load_config_file(path)
-    except Exception:
-        return "-", "-", "-", None, None, None, None
+    payload: dict = {}
+    if Path(path).is_file():
+        try:
+            payload = _load_config_file(path) or {}
+        except Exception:
+            payload = {}
     score = payload.get("benchmark_score")
     if score is None:
         score = payload.get("average_score")
     cost = payload.get("total_run_cost")
     if cost is None:
         cost = payload.get("total_agent_cost")
+    # Run-level results.json is only written at end of run, so during a live
+    # run its Score/Cost are stale. Prefer live session-level aggregates (#190).
+    live_cost = 0.0
+    live_scores: list[float] = []
+    found = False
+    for sp in (Path(path).parent / "sessions").glob("*/results.json"):
+        try:
+            sdata = json.loads(sp.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        found = True
+        live_cost += float(sdata.get("agent_cost") or 0) + float(sdata.get("benchmark_cost") or 0)
+        s = sdata.get("score")
+        if s is not None:
+            live_scores.append(float(s))
+    if found:
+        cost = live_cost
+        if live_scores:
+            score = sum(live_scores) / len(live_scores)
     models = payload.get("model_names")
     if models is None:
         models = payload.get("model_name")
@@ -401,6 +435,7 @@ def batch_status_cmd(
             "sessions": "-",
             "score": "-",
             "cost": "-",
+            "last_event": "-",
         }
         try:
             cfg = _load_run_like_config(config_path)
@@ -437,6 +472,16 @@ def batch_status_cmd(
             subset = run_status.subset_name
             if subset:
                 benchmark = f"{benchmark}/{subset}"
+            sessions_dir = Path(run_status.results_path).parent / "sessions"
+            latest = 0.0
+            for p in sessions_dir.rglob("*"):
+                try:
+                    m = p.stat().st_mtime
+                except OSError:
+                    continue
+                if m > latest:
+                    latest = m
+            last_event = _format_ago(time.time() - latest) if latest else "-"
             row.update(
                 {
                     "benchmark": benchmark,
@@ -445,6 +490,7 @@ def batch_status_cmd(
                     "sessions": sessions_str,
                     "score": score,
                     "cost": cost,
+                    "last_event": last_event,
                 }
             )
         except Exception:

@@ -608,19 +608,21 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
         return str(get_manager().env_path("benchmarks/browsecompplus"))
 
     def _retriever_runner_kwargs(self) -> dict[str, Any]:
-        """Runner kwargs for the retriever container (volumes).
+        """Runner kwargs for the retriever service.
 
-        Only returns Docker-specific kwargs when the retriever actually runs
-        in Docker; for 'service' or 'direct' these would leak into the
-        target class constructor and cause errors.
+        For venv and docker runners, we need env_name and module_path so
+        the runner uses the benchmark's own venv (which has safetensors,
+        torch, and the other heavy retriever deps installed via setup.sh).
         """
-        if self.retriever_runner != "docker":
+        if self.retriever_runner not in ("venv", "docker"):
             return {}
         kw: dict[str, Any] = {
             "env_name": f"benchmarks/{self.slug_name}",
             "module_path": type(self).__module__,
+            "health_timeout": 600.0,
         }
-        kw["volumes"] = {self._assets_dir: self._assets_dir}
+        if self.retriever_runner == "docker":
+            kw["volumes"] = {self._assets_dir: self._assets_dir}
         return kw
 
     def _get_retriever_searcher_args(self) -> dict[str, Any]:
