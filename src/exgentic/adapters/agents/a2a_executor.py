@@ -89,6 +89,8 @@ class ExgenticAgentExecutor:
         for action_type in self.action_types:
             if action_type.name == "message":
                 action_type.is_message = True
+            if action_type.name == "finish":
+                action_type.is_finish = True
 
     def _get_span_manager(self, tracker, session_id):
         """Get the SessionSpanManager from the OtelTracingObserver, or None."""
@@ -294,6 +296,15 @@ class ExgenticAgentExecutor:
                     else:
                         await event_emitter.emit_event(f"🔧 Action: {actions_to_execute[0].name}")
 
+                    # Check if any action is a finish action by matching action names to action types
+                    has_finish_action = False
+                    for single_action in actions_to_execute:
+                        # Find the corresponding ActionType by name
+                        action_type = next((at for at in self.action_types if at.name == single_action.name), None)
+                        if action_type and action_type.is_finish:
+                            has_finish_action = True
+                            break
+
                     results = []
                     for single_action in actions_to_execute:
                         tool_name = single_action.name
@@ -336,9 +347,6 @@ class ExgenticAgentExecutor:
                                 final_result = "Session completed (timeout)"
                                 break
 
-                        if hasattr(single_action, "name") and "finish" in single_action.name.lower():
-                            break
-
                     if final_result is not None:
                         break
 
@@ -361,6 +369,11 @@ class ExgenticAgentExecutor:
                         current_observation = MultiObservation(observations=observations)
 
                     tracker.on_step_success(mock_session, current_observation)
+
+                    # Terminate after observation if any action was a finish action
+                    if has_finish_action:
+                        await event_emitter.emit_event("✓ Finish action executed, terminating")
+                        break
             finally:
                 executor.shutdown(wait=False)
 
