@@ -152,6 +152,44 @@ def test_cli_commands_accept_overridable_fields():
             )
 
 
+def test_run_id_not_inherited_from_outer_context(tmp_path):
+    """A config validated inside another run's context must not inherit its run_id.
+
+    Regression test for #197: sessions were landing under the wrong benchmark
+    folder tree because RunConfig/SessionConfig without an explicit run_id
+    inherited the run_id of whatever context happened to be active at
+    model_validate() time.  run_id must be derived deterministically from
+    benchmark + agent + kwargs.
+    """
+    from exgentic.core.context import run_scope
+
+    outer = RunConfig(
+        benchmark="test_benchmark",
+        agent="test_agent",
+        output_dir=str(tmp_path / "outer"),
+        cache_dir=str(tmp_path / "cache"),
+        run_id="OUTER_RUN_ID",
+        benchmark_kwargs={"tasks": ["task-1"]},
+        agent_kwargs={"policy": "good_then_finish"},
+    )
+
+    with run_scope(run_id=outer.run_id, output_dir=outer.output_dir, cache_dir=outer.cache_dir):
+        # A different config — different benchmark_kwargs / agent_kwargs —
+        # validated while outer's context is active.  Its run_id must be
+        # derived from its OWN fields, not inherited from the outer context.
+        inner = RunConfig(
+            benchmark="test_benchmark",
+            agent="test_agent",
+            output_dir=str(tmp_path / "inner"),
+            benchmark_kwargs={"tasks": ["task-99"]},
+            agent_kwargs={"policy": "good_only"},
+        )
+
+    assert (
+        inner.run_id != outer.run_id
+    ), "inner.run_id leaked from outer context; sessions would be written to the wrong folder tree"
+
+
 def test_has_run_options_allows_overridable_fields():
     """Ensure has_run_options does not reject overridable fields."""
     from exgentic.interfaces.cli.options import has_run_options
