@@ -253,6 +253,7 @@ class OtelTracingObserver(Observer):
             if task is not None:
                 span_manager.set_attribute("exgentic.session.task", task)
 
+        tools_list = []
         for action in session.actions:
             prefix = f"exgentic.session.action.{action.name}"
             span_manager.set_attributes(
@@ -263,6 +264,15 @@ class OtelTracingObserver(Observer):
                     f"{prefix}.is_finish": action.is_finish,
                 }
             )
+            tools_list.append(
+                {
+                    "name": action.name,
+                    "description": action.description,
+                    "is_message": action.is_message,
+                    "is_finish": action.is_finish,
+                }
+            )
+        span_manager.set_attribute("exgentic.session.tools", json.dumps(tools_list, default=str))
 
         for k, v in session.context.items():
             otel_value = to_otel_attribute_value(v)
