@@ -112,11 +112,8 @@ class BaseEvaluationConfig(BaseModel):
         payload["benchmark_kwargs"] = benchmark_kwargs
         payload["agent_kwargs"] = agent_kwargs
         if payload.get("run_id") is None and benchmark and agent:
-            # Derive run_id deterministically from benchmark + agent + kwargs.
-            # Do NOT fall back to the ambient context's run_id — that lets a
-            # config validated inside another run's context inherit the wrong
-            # run_id, causing sessions to land under the wrong benchmark
-            # folder tree (issue #197).
+            # run_id is a deterministic function of benchmark + agent + kwargs;
+            # never fall back to the ambient context (leaks across configs).
             payload["run_id"] = _compute_run_id(
                 benchmark=str(benchmark),
                 agent=str(agent),

@@ -155,39 +155,83 @@ def test_cli_commands_accept_overridable_fields():
 def test_run_id_not_inherited_from_outer_context(tmp_path):
     """A config validated inside another run's context must not inherit its run_id.
 
-    Regression test for #197: sessions were landing under the wrong benchmark
-    folder tree because RunConfig/SessionConfig without an explicit run_id
-    inherited the run_id of whatever context happened to be active at
-    model_validate() time.  run_id must be derived deterministically from
-    benchmark + agent + kwargs.
+    Regression test: run_id must be a deterministic hash of
+    benchmark + agent + kwargs, never a leak from the ambient context.
     """
     from exgentic.core.context import run_scope
+    from exgentic.core.types.evaluation import _compute_run_id
 
     outer = RunConfig(
         benchmark="test_benchmark",
         agent="test_agent",
-        output_dir=str(tmp_path / "outer"),
-        cache_dir=str(tmp_path / "cache"),
-        run_id="OUTER_RUN_ID",
+        run_id="ambient-run-id-that-must-not-leak",
         benchmark_kwargs={"tasks": ["task-1"]},
         agent_kwargs={"policy": "good_then_finish"},
     )
 
-    with run_scope(run_id=outer.run_id, output_dir=outer.output_dir, cache_dir=outer.cache_dir):
-        # A different config — different benchmark_kwargs / agent_kwargs —
-        # validated while outer's context is active.  Its run_id must be
-        # derived from its OWN fields, not inherited from the outer context.
+    benchmark_kwargs = {"tasks": ["task-1"]}
+    agent_kwargs = {"policy": "good_only"}
+
+    with run_scope(run_id=outer.run_id, output_dir=str(tmp_path), cache_dir=str(tmp_path)):
         inner = RunConfig(
             benchmark="test_benchmark",
             agent="test_agent",
-            output_dir=str(tmp_path / "inner"),
-            benchmark_kwargs={"tasks": ["task-99"]},
-            agent_kwargs={"policy": "good_only"},
+            benchmark_kwargs=benchmark_kwargs,
+            agent_kwargs=agent_kwargs,
         )
 
-    assert (
-        inner.run_id != outer.run_id
-    ), "inner.run_id leaked from outer context; sessions would be written to the wrong folder tree"
+    expected = _compute_run_id(
+        benchmark="test_benchmark",
+        agent="test_agent",
+        benchmark_kwargs=benchmark_kwargs,
+        agent_kwargs=agent_kwargs,
+    )
+    assert inner.run_id == expected, "inner.run_id must be the deterministic hash of its own fields"
+    assert inner.run_id != outer.run_id
+
+
+def test_run_id_deterministic_across_contexts(tmp_path):
+    """Same (benchmark, agent, kwargs) yields the same run_id regardless of ambient context."""
+    from exgentic.core.context import run_scope
+
+    fields = {
+        "benchmark": "test_benchmark",
+        "agent": "test_agent",
+        "benchmark_kwargs": {"tasks": ["task-1"]},
+        "agent_kwargs": {"policy": "good_then_finish"},
+    }
+
+    outside = RunConfig(**fields)
+    with run_scope(run_id="some-other-run", output_dir=str(tmp_path), cache_dir=str(tmp_path)):
+        inside = RunConfig(**fields)
+
+    assert inside.run_id == outside.run_id
+
+
+def test_batch_configs_get_distinct_run_ids(tmp_path):
+    """Simulate the batch flow: multiple configs in one scope must get distinct run_ids."""
+    from exgentic.core.context import run_scope
+
+    base = {"benchmark": "test_benchmark", "agent": "test_agent", "output_dir": str(tmp_path)}
+
+    configs = [
+        RunConfig(**base, agent_kwargs={"policy": "good_then_finish", "finish_after": 1}),
+        RunConfig(**base, agent_kwargs={"policy": "good_then_finish", "finish_after": 2}),
+        RunConfig(**base, agent_kwargs={"policy": "good_only"}),
+    ]
+
+    # Re-validate each config inside a run_scope bound to the first config's
+    # run_id — this mimics core_batch_evaluate entering cfg.get_context() per
+    # config while the others are still being planned / validated.
+    with run_scope(run_id=configs[0].run_id, output_dir=str(tmp_path), cache_dir=str(tmp_path)):
+        revalidated = [RunConfig.model_validate(cfg.model_dump()) for cfg in configs]
+
+    run_ids = [cfg.run_id for cfg in revalidated]
+    assert len(set(run_ids)) == len(run_ids), f"run_ids must be distinct, got {run_ids}"
+
+    # And each config's on-disk run root (output_dir/run_id) must therefore be unique.
+    run_roots = {f"{cfg.output_dir}/{cfg.run_id}" for cfg in revalidated}
+    assert len(run_roots) == len(revalidated)
 
 
 def test_has_run_options_allows_overridable_fields():
