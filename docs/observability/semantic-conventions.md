@@ -20,6 +20,23 @@ Session Span (ROOT)
 
 ---
 
+## Tool observability lifecycle
+
+An agent's tool usage is observable at four distinct stages, each emitted on a different span:
+
+| Stage | Span | Attribute | Source |
+|-------|------|-----------|--------|
+| 1. Configured capability | Session (ROOT) | `exgentic.session.tools` | `Session.actions` (framework-level) |
+| 2. Offered to LLM | LLM inference | `gen_ai.tool.definitions` | `LitellmKwargs.tools` (per-call) |
+| 3. Chosen by LLM | LLM inference | `gen_ai.output.messages[].tool_calls` | provider response |
+| 4. Execution result | execute_tool | `gen_ai.tool.result` | `Observation` |
+
+Stage 1 reflects what the agent is configured with — stable over the session. Stage 2 is what was actually sent to the model for a specific inference — may be filtered, reformatted per provider, or vary between calls (e.g., `is_finish` withheld until late). Stages 2–4 are opt-in (`EXGENTIC_OTEL_RECORD_CONTENT=true`).
+
+All LLM calls in exgentic are routed through LiteLLM, so stages 2–3 are guaranteed to emit on every inference.
+
+---
+
 ## Attribute reference
 
 The table below documents every attribute actually emitted by the implementation, organised by span type.
