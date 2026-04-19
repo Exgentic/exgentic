@@ -194,7 +194,7 @@ class VenvRunner:
             if proc is not None:
                 try:
                     stdout, stderr = proc.communicate(timeout=1)
-                except (subprocess.TimeoutExpired, Exception):
+                except subprocess.TimeoutExpired:
                     pass
             self._stop_process()
             raise TimeoutError(

@@ -6,10 +6,15 @@
 from __future__ import annotations
 
 import os
+import platform
 import shutil
+import subprocess
+import sys
+import time
 
 import pytest
 from exgentic.adapters.runners import with_runner
+from exgentic.adapters.runners.venv import VenvRunner
 
 from .conftest import Calculator
 
@@ -67,3 +72,50 @@ def test_echo(venv_calc):
 def test_different_pid(venv_calc):
     """Venv runner should run in a separate process."""
     assert venv_calc.pid() != os.getpid()
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+@pytest.mark.skipif(platform.system() != "Linux", reason="killpg reaping semantics differ on macOS /proc")
+def test_stop_process_reaps_grandchildren_via_killpg(tmp_path):
+    pid_file = tmp_path / "grandchild.pid"
+    script = (
+        "import os, sys\n"
+        f"pid_file = {str(pid_file)!r}\n"
+        "gpid = os.fork()\n"
+        "if gpid == 0:\n"
+        "    with open(pid_file, 'w') as f:\n"
+        "        f.write(str(os.getpid()))\n"
+        "        f.flush()\n"
+        "    os.execvp('sleep', ['sleep', '120'])\n"
+        "os.execvp('sleep', ['sleep', '120'])\n"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline and not pid_file.exists():
+        time.sleep(0.05)
+    assert pid_file.exists(), "grandchild did not record its PID"
+    grandchild_pid = int(pid_file.read_text().strip())
+    assert _pid_alive(grandchild_pid)
+
+    runner = VenvRunner.__new__(VenvRunner)
+    runner._process = proc
+    runner._stop_process()
+
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline and _pid_alive(grandchild_pid):
+        time.sleep(0.05)
+    assert not _pid_alive(grandchild_pid)
