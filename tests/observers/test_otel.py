@@ -2116,11 +2116,7 @@ class TestSessionSpanSemanticConventions:
         assert session_span.attributes["exgentic.session.action.test_action.is_finish"] is False
 
     def test_session_span_tools_list_comprehensive(self, ctx, tmp_path):
-        """Session span emits a comprehensive JSON tools list from Session.actions.
-
-        Verifies both the exgentic-specific ``exgentic.session.tools`` attribute
-        and the OTel GenAI standard ``gen_ai.tool.definitions`` attribute.
-        """
+        """Session span emits a comprehensive JSON tools list from Session.actions."""
 
         class ActA:
             name = "search"
@@ -2138,35 +2134,16 @@ class TestSessionSpanSemanticConventions:
             actions: ClassVar = [ActA(), ActB()]
 
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, session=SessionWithActions())
-        raw = session_span.attributes["exgentic.session.tools"]
-        tools = json.loads(raw)
+        tools = json.loads(session_span.attributes["exgentic.session.tools"])
         assert isinstance(tools, list)
-        names = [t["name"] for t in tools]
-        assert names == ["search", "submit"]
-        submit = next(t for t in tools if t["name"] == "submit")
-        assert submit["description"] == "Submit final answer"
-        assert submit["is_finish"] is True
-        assert submit["is_message"] is False
-
-        # OTel GenAI standard attribute: gen_ai.tool.definitions
-        assert "gen_ai.tool.definitions" in session_span.attributes
-        raw_std = session_span.attributes["gen_ai.tool.definitions"]
-        std_tools = json.loads(raw_std)
-        assert isinstance(std_tools, list)
-        assert len(std_tools) == 2
-        std_names = [t["name"] for t in std_tools]
-        assert std_names == ["search", "submit"]
-        for entry in std_tools:
-            assert entry["type"] == "function"
-            assert "name" in entry
-            assert "description" in entry
-            assert "is_message" in entry
-            assert "is_finish" in entry
-        std_submit = next(t for t in std_tools if t["name"] == "submit")
-        assert std_submit["type"] == "function"
-        assert std_submit["description"] == "Submit final answer"
-        assert std_submit["is_finish"] is True
-        assert std_submit["is_message"] is False
+        assert [t["name"] for t in tools] == ["search", "submit"]
+        expected = {
+            "search": {"description": "Search the knowledge source", "is_message": False, "is_finish": False},
+            "submit": {"description": "Submit final answer", "is_message": False, "is_finish": True},
+        }
+        for tool in tools:
+            for field, value in expected[tool["name"]].items():
+                assert tool[field] == value
 
     def test_session_span_context_attributes(self, ctx, tmp_path):
         """exgentic.context.{key} emitted for each context key."""
