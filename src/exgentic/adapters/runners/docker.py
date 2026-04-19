@@ -139,6 +139,8 @@ class DockerRunner:
     # ── container lifecycle ──────────────────────────────────────────
 
     def start(self) -> ObjectProxy:
+        from ...utils.container_reaper import docker_run_label_args
+
         image = self._ensure_image()
 
         if isinstance(self._target_cls, str):
@@ -147,7 +149,13 @@ class DockerRunner:
             cls_ref = f"{self._target_cls.__module__}:{self._target_cls.__qualname__}"
         kwargs_flag, kwargs_value = serialize_kwargs(self._kwargs)
 
-        run_args: list[str] = ["run", "-d", "-p", f"{self._port}:8080"]
+        run_args: list[str] = [
+            "run",
+            "-d",
+            *docker_run_label_args(),
+            "-p",
+            f"{self._port}:8080",
+        ]
 
         # Forward only model-provider credentials + point at runtime.json.
         # Exgentic context and settings travel via runtime.json, not env.

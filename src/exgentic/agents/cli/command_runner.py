@@ -325,11 +325,14 @@ class DockerRunner(ContainerRunner):
                 user_args = ["--user", f"{uid()}:{gid()}"]
             except Exception:
                 user_args = []
+        from ...utils.container_reaper import docker_run_label_args
+
         wrapped_cmd: list[str] = [
             runtime,
             *connection_args,
             "run",
             "--rm",
+            *docker_run_label_args(),
             "--add-host",
             f"{host_gateway}:host-gateway",
             "--security-opt",
