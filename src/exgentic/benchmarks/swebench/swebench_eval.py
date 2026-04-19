@@ -385,9 +385,6 @@ class SWEBenchSession(Session):
             config = yaml.safe_load(config_path.read_text()).copy()
             config["environment"]["cwd"] = self.container_repo_dir
             config["environment"]["pull_timeout"] = self._environment_pull_timeout
-            # Tag the mini-swe-agent container with our owner PID so the
-            # container_reaper can sweep it if this process dies without
-            # cleanly invoking the environment's cleanup (issue #192).
             env_cfg = config.setdefault("environment", {})
             run_args = list(env_cfg.get("run_args") or ["--rm"])
             run_args.extend(docker_run_label_args())

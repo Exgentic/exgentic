@@ -1,30 +1,38 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-"""Unit tests for container_reaper — orphaned-container cleanup."""
+"""Unit tests for container_reaper: orphaned-container cleanup."""
 
 from __future__ import annotations
 
+import logging as _logging
 import os
 import signal
 import subprocess
+import types
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from exgentic.adapters.runners.docker import DockerRunner
+from exgentic.agents.cli.command_runner import BaseCLIConfig
+from exgentic.agents.cli.command_runner import DockerRunner as CLIDockerRunner
+from exgentic.benchmarks.swebench import swebench_eval, swebench_evaluation
 from exgentic.utils import container_reaper
 from exgentic.utils.container_reaper import (
     LABEL_OWNER_PID,
+    LABEL_OWNER_TOKEN,
+    OWN_TOKEN,
     docker_run_label_args,
+    docker_sdk_label_injection,
     install_cleanup_handlers,
     reap_orphaned_containers,
     reap_own_containers,
 )
 
 
-def _fake_ps(lines: list[tuple[str, int]]) -> MagicMock:
-    """Build a subprocess.run mock for ``docker ps`` + ``docker rm``."""
-    stdout = "\n".join(f"{cid}\t{pid}" for cid, pid in lines) + ("\n" if lines else "")
-
+def _fake_ps(rows: list[tuple[str, int, str]]) -> MagicMock:
+    stdout = "\n".join(f"{cid}\t{pid}\t{tok}" for cid, pid, tok in rows) + ("\n" if rows else "")
     ps_result = MagicMock(returncode=0, stdout=stdout, stderr="")
     rm_result = MagicMock(returncode=0, stdout="", stderr="")
 
@@ -35,212 +43,218 @@ def _fake_ps(lines: list[tuple[str, int]]) -> MagicMock:
             return rm_result
         return MagicMock(returncode=1, stdout="", stderr="unexpected")
 
-    runner = MagicMock(side_effect=side_effect)
-    return runner
+    return MagicMock(side_effect=side_effect)
 
 
-def test_docker_run_label_args_uses_current_pid() -> None:
-    args = docker_run_label_args()
-    assert args[0] == "--label"
-    assert args[1] == f"{LABEL_OWNER_PID}={os.getpid()}"
+@pytest.mark.parametrize(
+    ("kwargs", "expected_pid", "expected_token"),
+    [
+        ({}, os.getpid(), OWN_TOKEN),
+        ({"pid": 12345, "token": "abc"}, 12345, "abc"),
+    ],
+)
+def test_docker_run_label_args_emits_both_labels(kwargs, expected_pid, expected_token) -> None:
+    args = docker_run_label_args(**kwargs)
+    assert args == [
+        "--label",
+        f"{LABEL_OWNER_PID}={expected_pid}",
+        "--label",
+        f"{LABEL_OWNER_TOKEN}={expected_token}",
+    ]
 
 
-def test_docker_run_label_args_explicit_pid() -> None:
-    args = docker_run_label_args(pid=12345)
-    assert args == ["--label", f"{LABEL_OWNER_PID}=12345"]
-
-
-def test_reap_orphaned_removes_dead_owner_containers() -> None:
-    dead_pid = 999_999_999  # PID is effectively guaranteed not alive
-    live_pid = os.getpid()  # our PID is always alive
-    runner = _fake_ps([("cidA", dead_pid), ("cidB", live_pid)])
-
+@pytest.mark.parametrize(
+    ("rows", "expected_removed"),
+    [
+        ([], 0),
+        ([("cidA", os.getpid(), OWN_TOKEN)], 0),
+        (
+            [
+                ("cidDead", 999_999_999, "dead-token"),
+                ("cidLive", os.getpid(), OWN_TOKEN),
+            ],
+            1,
+        ),
+        (
+            [(f"minisweagent-{i:08x}", 999_999_998, "x") for i in range(5)] + [("active-cid", os.getpid(), OWN_TOKEN)],
+            5,
+        ),
+    ],
+)
+def test_reap_orphaned_removes_only_dead_owners(rows: list[tuple[str, int, str]], expected_removed: int) -> None:
+    runner = _fake_ps(rows)
     with patch.object(container_reaper, "_docker_bin", return_value="/usr/bin/docker"):
         removed = reap_orphaned_containers(runner=runner)
-
-    assert removed == 1
-    rm_calls = [c for c in runner.call_args_list if c.args[0][1] == "rm"]
-    assert len(rm_calls) == 1
-    assert rm_calls[0].args[0] == ["/usr/bin/docker", "rm", "-f", "cidA"]
+    assert removed == expected_removed
+    rm_ids = [c.args[0][-1] for c in runner.call_args_list if c.args[0][1] == "rm"]
+    assert len(rm_ids) == expected_removed
 
 
-def test_reap_orphaned_noop_when_all_alive() -> None:
-    runner = _fake_ps([("cidA", os.getpid())])
-    with patch.object(container_reaper, "_docker_bin", return_value="/usr/bin/docker"):
+def test_reap_orphaned_removes_dead_even_when_pid_recycled() -> None:
+    """PID-reuse mitigation: a live PID with a token that isn't ours."""
+    recycled_pid = 4242
+    runner = _fake_ps([("orphan-cid", recycled_pid, "some-dead-exgentic-token")])
+
+    with (
+        patch.object(container_reaper, "_docker_bin", return_value="/usr/bin/docker"),
+        patch.object(container_reaper, "_pid_alive", return_value=True),
+    ):
         removed = reap_orphaned_containers(runner=runner)
+
     assert removed == 0
-    rm_calls = [c for c in runner.call_args_list if c.args[0][1] == "rm"]
-    assert rm_calls == []
 
 
-def test_reap_own_containers_removes_by_current_pid() -> None:
+def test_reap_own_requires_both_pid_and_token() -> None:
+    """PID match without our token is NOT reaped (label-collision DoS)."""
     pid = os.getpid()
-    runner = _fake_ps([("mine1", pid), ("other", 12345), ("mine2", pid)])
+    runner = _fake_ps(
+        [
+            ("mine1", pid, OWN_TOKEN),
+            ("spoofed", pid, "attacker-token"),
+            ("sibling", 11111, "sibling-token"),
+            ("mine2", pid, OWN_TOKEN),
+        ]
+    )
     with patch.object(container_reaper, "_docker_bin", return_value="/usr/bin/docker"):
         removed = reap_own_containers(runner=runner)
     assert removed == 2
-    rm_args = [c.args[0] for c in runner.call_args_list if c.args[0][1] == "rm"]
-    removed_ids = sorted(cmd[3] for cmd in rm_args)
-    assert removed_ids == ["mine1", "mine2"]
+    rm_ids = sorted(c.args[0][-1] for c in runner.call_args_list if c.args[0][1] == "rm")
+    assert rm_ids == ["mine1", "mine2"]
 
 
-def test_reap_own_containers_skips_siblings() -> None:
-    runner = _fake_ps([("other1", 11111), ("other2", 22222)])
-    with patch.object(container_reaper, "_docker_bin", return_value="/usr/bin/docker"):
-        removed = reap_own_containers(runner=runner)
-    assert removed == 0
-
-
-def test_reap_handles_missing_docker_binary() -> None:
-    with patch.object(container_reaper, "_docker_bin", return_value=None):
-        assert reap_orphaned_containers() == 0
-        assert reap_own_containers() == 0
-
-
-def test_reap_handles_docker_ps_failure() -> None:
-    runner = MagicMock(return_value=MagicMock(returncode=1, stdout="", stderr="cannot connect"))
-    with patch.object(container_reaper, "_docker_bin", return_value="/usr/bin/docker"):
+@pytest.mark.parametrize(
+    ("bin_return", "runner"),
+    [
+        (None, None),
+        (
+            "/usr/bin/docker",
+            MagicMock(return_value=MagicMock(returncode=1, stdout="", stderr="cannot connect")),
+        ),
+    ],
+)
+def test_reap_degraded_docker_states_are_noops(bin_return, runner) -> None:
+    with patch.object(container_reaper, "_docker_bin", return_value=bin_return):
         assert reap_orphaned_containers(runner=runner) == 0
+        assert reap_own_containers(runner=runner) == 0
 
 
-def test_install_cleanup_handlers_runs_at_exit(
+def test_install_cleanup_handlers_idempotent_and_dispatches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Atexit handler must invoke reap_own_containers on shutdown."""
-    # Reset the idempotency guard so the test sees a fresh install.
+    """Registers atexit once; chains callables; handles SIG_DFL / SIG_IGN."""
     monkeypatch.setattr(container_reaper, "_handlers_installed", False)
 
-    registered: list = []
-    monkeypatch.setattr(
-        container_reaper.atexit,
-        "register",
-        lambda fn: registered.append(fn),
-    )
-    # Skip signal registration in test to avoid mutating process state.
-    monkeypatch.setattr(container_reaper.signal, "signal", lambda *a, **k: None)
+    registered_atexit: list = []
+    monkeypatch.setattr(container_reaper.atexit, "register", lambda fn: registered_atexit.append(fn))
 
-    reap_calls: list = []
+    prev_calls: list = []
 
-    def _fake_reap(**kwargs):
-        reap_calls.append(kwargs)
-        return 0
+    def _prev_callable(signum, frame):
+        prev_calls.append(signum)
 
-    monkeypatch.setattr(container_reaper, "reap_own_containers", _fake_reap)
-
-    install_cleanup_handlers()
-
-    assert len(registered) == 1
-    # Invoke the registered atexit callback manually — simulates shutdown.
-    registered[0]()
-    assert len(reap_calls) == 1
-
-
-def test_install_cleanup_handlers_is_idempotent(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(container_reaper, "_handlers_installed", False)
-    registered: list = []
-    monkeypatch.setattr(
-        container_reaper.atexit,
-        "register",
-        lambda fn: registered.append(fn),
-    )
-    monkeypatch.setattr(container_reaper.signal, "signal", lambda *a, **k: None)
-
-    install_cleanup_handlers()
-    install_cleanup_handlers()
-    install_cleanup_handlers()
-
-    assert len(registered) == 1
-
-
-def test_sigterm_handler_cleans_up_then_chains(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """SIGTERM handler must reap containers then invoke previous handler."""
-    monkeypatch.setattr(container_reaper, "_handlers_installed", False)
-    monkeypatch.setattr(container_reaper.atexit, "register", lambda fn: None)
-
-    prev_called: list = []
-
-    def _prev_handler(signum, frame):
-        prev_called.append(signum)
+    prev_for = {signal.SIGTERM: _prev_callable, signal.SIGINT: signal.SIG_DFL}
+    monkeypatch.setattr(container_reaper.signal, "getsignal", lambda sig: prev_for[sig])
 
     installed: dict = {}
-
-    def _fake_getsignal(sig):
-        return _prev_handler
-
-    def _fake_signal(sig, handler):
-        installed[sig] = handler
-
-    monkeypatch.setattr(container_reaper.signal, "getsignal", _fake_getsignal)
-    monkeypatch.setattr(container_reaper.signal, "signal", _fake_signal)
+    monkeypatch.setattr(container_reaper.signal, "signal", lambda sig, h: installed.__setitem__(sig, h))
 
     reap_calls: list = []
-    monkeypatch.setattr(
-        container_reaper,
-        "reap_own_containers",
-        lambda **kw: reap_calls.append(kw) or 0,
-    )
+    monkeypatch.setattr(container_reaper, "reap_own_containers", lambda **kw: reap_calls.append(kw) or 0)
+
+    killed: list = []
+    monkeypatch.setattr(container_reaper.os, "kill", lambda pid, sig: killed.append((pid, sig)))
 
     install_cleanup_handlers()
+    install_cleanup_handlers()  # Idempotent.
 
-    assert signal.SIGTERM in installed
-    # Invoke the installed SIGTERM handler.
-    installed[signal.SIGTERM](signal.SIGTERM, None)
-
-    # Cleanup must have run AND previous handler must have been invoked.
+    assert len(registered_atexit) == 1
+    registered_atexit[0]()
     assert len(reap_calls) == 1
-    assert prev_called == [signal.SIGTERM]
+
+    installed[signal.SIGTERM](signal.SIGTERM, None)
+    assert prev_calls == [signal.SIGTERM]
+    assert len(reap_calls) == 2
+
+    installed[signal.SIGINT](signal.SIGINT, None)
+    assert killed == [(os.getpid(), signal.SIGINT)]
+    assert len(reap_calls) == 3
 
 
-# ---------------------------------------------------------------------------
-# Integration-style test: simulate the full unclean-termination scenario
-# ---------------------------------------------------------------------------
+def test_docker_sdk_label_injection_patches_create_and_restores() -> None:
+    original = MagicMock(return_value="created")
+
+    class _FakeCollection:
+        create = original
+
+    fake_mod = types.ModuleType("docker")
+    fake_models = types.ModuleType("docker.models")
+    fake_containers = types.ModuleType("docker.models.containers")
+    fake_containers.ContainerCollection = _FakeCollection
+    fake_models.containers = fake_containers
+    fake_mod.models = fake_models
+
+    with patch.dict(
+        "sys.modules",
+        {"docker": fake_mod, "docker.models": fake_models, "docker.models.containers": fake_containers},
+    ):
+        with docker_sdk_label_injection():
+            _FakeCollection.create(MagicMock(), "some-image", command="run")
+
+    call = original.call_args
+    assert call.kwargs["labels"][LABEL_OWNER_PID] == str(os.getpid())
+    assert call.kwargs["labels"][LABEL_OWNER_TOKEN] == OWN_TOKEN
+    assert _FakeCollection.create is original
+
+    # Missing docker SDK: context manager is a no-op.
+    with patch.dict("sys.modules", {"docker.models.containers": None}):
+        with docker_sdk_label_injection():
+            pass
 
 
-def test_end_to_end_orphan_scenario_reaps_on_batch_start() -> None:
-    """Regression test for issue #192.
+def test_run_harness_wraps_docker_sdk_create(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """run_harness invokes docker_sdk_label_injection around the harness call."""
+    enters: list = []
+    exits: list = []
 
-    Scenario: a previous batch crashed leaving orphaned minisweagent
-    containers labeled with a now-dead owner PID.  The reaper invoked at
-    the start of a new batch must remove them.
-    """
-    dead_pid = 999_999_998
-    orphans = [(f"minisweagent-{i:08x}", dead_pid) for i in range(5)]
-    still_alive = [("active-cid", os.getpid())]
+    class _Ctx:
+        def __enter__(self):
+            enters.append(True)
+            return self
 
-    calls: list[list[str]] = []
-    rm_targets: list[str] = []
+        def __exit__(self, *a):
+            exits.append(True)
+            return False
 
-    def _run(cmd, **kwargs):
-        calls.append(list(cmd))
-        if len(cmd) >= 2 and cmd[1] == "ps":
-            lines = [f"{cid}\t{pid}" for cid, pid in orphans + still_alive]
-            return subprocess.CompletedProcess(cmd, 0, "\n".join(lines) + "\n", "")
-        if len(cmd) >= 2 and cmd[1] == "rm":
-            rm_targets.append(cmd[-1])
-            return subprocess.CompletedProcess(cmd, 0, "", "")
-        return subprocess.CompletedProcess(cmd, 1, "", "unexpected")
+    monkeypatch.setattr(swebench_evaluation, "docker_sdk_label_injection", lambda: _Ctx())
 
-    with patch.object(container_reaper, "_docker_bin", return_value="/usr/bin/docker"):
-        removed = reap_orphaned_containers(runner=_run)
+    fake_harness = types.ModuleType("swebench.harness.run_evaluation")
+    fake_harness.main = MagicMock(return_value=None)
+    fake_pkg = types.ModuleType("swebench")
+    fake_sub = types.ModuleType("swebench.harness")
+    fake_sub.run_evaluation = fake_harness
 
-    assert removed == 5
-    assert sorted(rm_targets) == sorted(cid for cid, _ in orphans)
-    assert "active-cid" not in rm_targets
+    paths = types.SimpleNamespace(benchmark_dir=tmp_path)
+
+    with (
+        patch.dict(
+            "sys.modules",
+            {"swebench": fake_pkg, "swebench.harness": fake_sub, "swebench.harness.run_evaluation": fake_harness},
+        ),
+        patch.object(swebench_evaluation, "capture_stdio_to_session", lambda log: _Ctx()),
+    ):
+        swebench_evaluation.run_harness(
+            patch="diff --git a/x b/x\n--- a/x\n+++ a/x\n@@ +1,1 @@\n+x\n",
+            instance_id="inst",
+            subset="test",
+            paths=paths,
+            eval_config={"max_workers": 1, "cache_level": "env", "open_file_limit": 4096, "harness_timeout": 60},
+            logger=_logging.getLogger("t"),
+        )
+
+    assert enters and exits, "docker_sdk_label_injection context was not entered"
 
 
-# ---------------------------------------------------------------------------
-# Wiring tests: container-spawning callsites must emit the owner-pid label
-# ---------------------------------------------------------------------------
-
-
-def test_docker_runner_tags_containers_with_owner_pid() -> None:
-    """adapters/runners/docker.py::DockerRunner.start must label containers."""
-    from exgentic.adapters.runners.docker import DockerRunner
-
+def test_docker_runner_tags_containers_with_owner_labels() -> None:
     runner = DockerRunner(
         "exgentic.testing.calculator:Calculator",
         env_name="tests/calculator",
@@ -255,8 +269,6 @@ def test_docker_runner_tags_containers_with_owner_pid() -> None:
         captured.append(list(args))
         return subprocess.CompletedProcess(args, 0, "stub-cid\n", "")
 
-    # Avoid the health check / transport wiring — the test only validates
-    # the docker run argv.
     def _raise(*a, **k):
         raise RuntimeError("stop-after-docker-run")
 
@@ -271,23 +283,14 @@ def test_docker_runner_tags_containers_with_owner_pid() -> None:
         except Exception:
             pass
 
-    # The first docker call is the `run` (image build is skipped because
-    # ``image`` was provided).  Assert it contains our label flag.
     run_call = next((c for c in captured if c and c[0] == "run"), None)
-    assert run_call is not None, f"no docker run call captured: {captured}"
-    assert "--label" in run_call
-    idx = run_call.index("--label")
-    assert run_call[idx + 1] == f"{LABEL_OWNER_PID}={os.getpid()}"
+    assert run_call is not None
+    assert run_call.count("--label") == 2
+    assert f"{LABEL_OWNER_PID}={os.getpid()}" in run_call
+    assert f"{LABEL_OWNER_TOKEN}={OWN_TOKEN}" in run_call
 
 
 def test_claude_code_docker_runner_tags_containers() -> None:
-    """agents/cli/command_runner.py::DockerRunner.run must label containers."""
-    import logging as _logging
-    from pathlib import Path
-
-    from exgentic.agents.cli.command_runner import BaseCLIConfig
-    from exgentic.agents.cli.command_runner import DockerRunner as CLIDockerRunner
-
     runner = CLIDockerRunner(log_path=None, logger=_logging.getLogger("test"))
 
     captured_cmds: list[list[str]] = []
@@ -325,26 +328,15 @@ def test_claude_code_docker_runner_tags_containers() -> None:
             spawn_error_message="boom",
         )
 
-    assert captured_cmds, "no docker command was captured"
-    # The wrapped cmd begins with the runtime binary then 'run'.
+    assert captured_cmds
     wrapped = captured_cmds[0]
     assert "run" in wrapped
-    assert "--label" in wrapped
-    idx = wrapped.index("--label")
-    assert wrapped[idx + 1] == f"{LABEL_OWNER_PID}={os.getpid()}"
+    assert wrapped.count("--label") == 2
+    assert f"{LABEL_OWNER_PID}={os.getpid()}" in wrapped
+    assert f"{LABEL_OWNER_TOKEN}={OWN_TOKEN}" in wrapped
 
 
-def test_swebench_session_injects_reaper_label_into_minisweagent_config() -> None:
-    """Swebench session injects owner-pid label into minisweagent run_args.
-
-    SWEBenchSession._setup_environment must inject an ``exgentic.owner_pid``
-    label into the minisweagent environment config's ``run_args`` so
-    mini-swe-agent's ``docker run`` invocation carries the reaper label
-    (regression guard for issue #192).
-    """
-    import types
-
-    # Capture the config that would be handed to minisweagent.
+def test_swebench_session_injects_reaper_labels_into_minisweagent_config() -> None:
     captured: dict = {}
 
     class _FakeEnv:
@@ -369,18 +361,14 @@ def test_swebench_session_injects_reaper_label_into_minisweagent_config() -> Non
             "minisweagent.run.extra.swebench": fake_submod,
         },
     ):
-        from exgentic.benchmarks.swebench import swebench_eval
-
         yaml_path = MagicMock()
         yaml_path.read_text.return_value = "environment:\n  cwd: /testbed\n  run_args:\n    - '--rm'\n"
 
         def _fake_path(arg):
-            # Intercept ``Path(minisweagent.__file__)`` traversal.
             mock = MagicMock()
             mock.parent.__truediv__.return_value.__truediv__.return_value.__truediv__.return_value = yaml_path
             return mock
 
-        # Build a minimal stub session that invokes the real method.
         stub = types.SimpleNamespace(
             logger=MagicMock(),
             container_repo_dir="/testbed",
@@ -396,8 +384,7 @@ def test_swebench_session_injects_reaper_label_into_minisweagent_config() -> Non
         ):
             swebench_eval.SWEBenchSession._setup_environment(stub)
 
-    assert captured.get("config"), "minisweagent config was not captured"
     run_args = captured["config"]["environment"]["run_args"]
-    assert "--label" in run_args, f"run_args missing --label: {run_args}"
-    idx = run_args.index("--label")
-    assert run_args[idx + 1] == f"{LABEL_OWNER_PID}={os.getpid()}"
+    assert run_args.count("--label") == 2
+    assert f"{LABEL_OWNER_PID}={os.getpid()}" in run_args
+    assert f"{LABEL_OWNER_TOKEN}={OWN_TOKEN}" in run_args

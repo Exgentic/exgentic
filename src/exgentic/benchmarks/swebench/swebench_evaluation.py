@@ -9,6 +9,7 @@ from logging import Logger
 from pathlib import Path
 from typing import Any
 
+from ...utils.container_reaper import docker_sdk_label_injection
 from ...utils.logging import capture_stdio_to_session
 from ...utils.paths import SessionPaths
 
@@ -73,7 +74,11 @@ def run_harness(
     try:
         from swebench.harness import run_evaluation
 
-        with _pushd(paths.benchmark_dir), capture_stdio_to_session(logger):
+        with (
+            _pushd(paths.benchmark_dir),
+            capture_stdio_to_session(logger),
+            docker_sdk_label_injection(),
+        ):
             report_path = run_evaluation.main(
                 dataset_name=subset,
                 split="test",

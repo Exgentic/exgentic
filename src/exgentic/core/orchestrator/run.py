@@ -63,9 +63,6 @@ def core_run(
     execute: bool,
     aggregate: bool,
 ) -> RunResults:
-    # Reap any Docker containers orphaned by a previous crashed run and
-    # arrange to clean up containers owned by this process on exit so they
-    # cannot leak when the caller is SIGTERM'd or raises (issue #192).
     if execute:
         try:
             reap_orphaned_containers(logger=_log)
@@ -259,9 +256,6 @@ def core_batch_evaluate(
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from contextvars import copy_context
 
-    # Sweep orphaned containers from prior crashed batches before spawning
-    # fresh workers, and register handlers so we clean up on signal exit
-    # (issue #192).
     try:
         reap_orphaned_containers(logger=_log)
     except Exception:
