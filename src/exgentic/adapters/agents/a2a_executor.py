@@ -91,6 +91,8 @@ class ExgenticAgentExecutor:
                 action_type.is_message = True
             if action_type.name == "finish":
                 action_type.is_finish = True
+            if action_type.name == "submit":
+                action_type.is_finish = True
 
     def _get_span_manager(self, tracker, session_id):
         """Get the SessionSpanManager from the OtelTracingObserver, or None."""
@@ -394,7 +396,7 @@ class ExgenticAgentExecutor:
             # Notify tracker of session success
             from ...core.types import SessionScore
 
-            score = SessionScore(success=True, score=1.0, is_finished=True)
+            score = SessionScore(success=False, score=-1.0, is_finished=True)
             tracker.on_session_success(mock_session, score, agent_instance)
 
             agent_instance.close()
