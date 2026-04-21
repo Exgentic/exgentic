@@ -51,43 +51,55 @@ async def list_tasks(mcp_session) -> list[str]:
     return [str(task_id) for task_id in tasks]
 
 
-async def create_session_for_task(mcp_session, task_id: str) -> CreateSessionResult:
+async def create_session_for_task(mcp_url: str, http_client: httpx.AsyncClient, task_id: str) -> CreateSessionResult:
+    """Create a session using a dedicated MCP session for true parallelism."""
+    from mcp.client.session import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
     started_at = time.perf_counter()
     try:
-        result = await mcp_session.call_tool("create_session", {"task_id": task_id})
-        elapsed = time.perf_counter() - started_at
+        # Create a new MCP session for this task to enable parallel processing
+        async with streamable_http_client(mcp_url, http_client=http_client) as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as mcp_session:
+                await mcp_session.initialize()
+                result = await mcp_session.call_tool("create_session", {"task_id": task_id})
+                elapsed = time.perf_counter() - started_at
 
-        if result.isError:
-            return CreateSessionResult(
-                task_id=task_id,
-                success=False,
-                elapsed_seconds=elapsed,
-                session_id=None,
-                payload=None,
-                error=str(result.content),
-            )
+                if result.isError:
+                    return CreateSessionResult(
+                        task_id=task_id,
+                        success=False,
+                        elapsed_seconds=elapsed,
+                        session_id=None,
+                        payload=None,
+                        error=str(result.content),
+                    )
 
-        if not result.content:
-            return CreateSessionResult(
-                task_id=task_id,
-                success=False,
-                elapsed_seconds=elapsed,
-                session_id=None,
-                payload=None,
-                error="create_session returned no content",
-            )
+                if not result.content:
+                    return CreateSessionResult(
+                        task_id=task_id,
+                        success=False,
+                        elapsed_seconds=elapsed,
+                        session_id=None,
+                        payload=None,
+                        error="create_session returned no content",
+                    )
 
-        payload = json.loads(result.content[0].text)
-        session_id = payload.get("session_id")
-        error = payload.get("error")
-        return CreateSessionResult(
-            task_id=task_id,
-            success=error is None and session_id is not None,
-            elapsed_seconds=elapsed,
-            session_id=str(session_id) if session_id is not None else None,
-            payload=payload,
-            error=str(error) if error is not None else None,
-        )
+                payload = json.loads(result.content[0].text)
+                session_id = payload.get("session_id")
+                error = payload.get("error")
+                return CreateSessionResult(
+                    task_id=task_id,
+                    success=error is None and session_id is not None,
+                    elapsed_seconds=elapsed,
+                    session_id=str(session_id) if session_id is not None else None,
+                    payload=payload,
+                    error=str(error) if error is not None else None,
+                )
     except Exception as exc:
         elapsed = time.perf_counter() - started_at
         return CreateSessionResult(
@@ -137,7 +149,7 @@ async def run(args: argparse.Namespace) -> int:
 
                 started_at = time.perf_counter()
                 results = await asyncio.gather(
-                    *(create_session_for_task(mcp_session, task_id) for task_id in selected_task_ids)
+                    *(create_session_for_task(args.mcp_url, http_client, task_id) for task_id in selected_task_ids)
                 )
                 total_elapsed = time.perf_counter() - started_at
 

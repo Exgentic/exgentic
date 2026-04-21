@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import signal
 import sys
 import threading
@@ -228,18 +229,21 @@ def mcp_cmd(
                 "total": len(task_ids),
             }
 
-        def create_session_tool(task_id: str) -> dict:
+        async def create_session_tool(task_id: str) -> dict:
             """Create a session for a specific task."""
             if task_id not in task_ids:
                 return {"error": f"Invalid task_id: {task_id}. Available tasks: {task_ids[:10]}..."}
-            return create_session_for_task(task_id)
+            # Run in thread pool so the event loop stays free for parallel requests
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, create_session_for_task, task_id)
 
-        def delete_session_tool(session_id: str) -> dict:
+        async def delete_session_tool(session_id: str) -> dict:
             """Close and delete a session by its session_id."""
-            return delete_session_by_id(session_id)
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, delete_session_by_id, session_id)
 
-        def evaluate_session_tool(session_id: str) -> dict:
-            """Evaluate a session and return whether it was successful. Closes the session if not done."""
+        def _evaluate_session_sync(session_id: str) -> dict:
+            """Evaluate a session (sync helper)."""
             with sessions_lock:
                 sess = sessions.get(session_id)
 
@@ -277,6 +281,11 @@ def mcp_cmd(
                 import traceback
 
                 return {"error": f"Failed to evaluate session {session_id}: {exc}\n{traceback.format_exc()}"}
+
+        async def evaluate_session_tool(session_id: str) -> dict:
+            """Evaluate a session and return whether it was successful. Closes the session if not done."""
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, _evaluate_session_sync, session_id)
 
         # Set up function signatures for management tools
         import inspect
@@ -319,9 +328,8 @@ def mcp_cmd(
         def make_action_tool(at, args_cls):
             """Create a tool function for an action type."""
 
-            def tool_fn(session_id: str, **kwargs):
-                """Tool function that executes action via session.step()."""
-                # Set the context for this thread
+            def _execute_action_sync(session_id: str, **kwargs) -> dict:
+                """Execute action synchronously (runs in thread pool)."""
                 from ....core.context import set_context
 
                 set_context(stored_context)
@@ -336,19 +344,17 @@ def mcp_cmd(
                         }
                     sess = sessions[session_id]
 
-                # Create an instance of the arguments model
                 try:
                     args_instance = args_cls(**kwargs)
                 except Exception as e:
                     return {"error": f"Invalid arguments: {e}"}
 
-                # Create action using the action type's class
                 try:
                     action = at.cls(name=at.name, arguments=args_instance)
                 except Exception as e:
                     return {"error": f"Failed to create action: {e}"}
 
-                # Execute the action via session.step() with timeout
+                # Execute with timeout
                 result_container = {}
                 error_container = {}
 
@@ -361,7 +367,7 @@ def mcp_cmd(
 
                 step_thread = threading.Thread(target=execute_step, daemon=True)
                 step_thread.start()
-                step_thread.join(timeout=30.0)  # 30 second timeout
+                step_thread.join(timeout=30.0)
 
                 if step_thread.is_alive():
                     return {"error": "Action execution timed out after 30 seconds"}
@@ -371,11 +377,9 @@ def mcp_cmd(
 
                 observation = result_container.get("observation")
 
-                # Return the observation result
                 if observation is None:
                     return {"status": "completed", "message": "Session done"}
 
-                # Format observation for return
                 result = {
                     "status": "success",
                     "session_id": session_id,
@@ -386,6 +390,11 @@ def mcp_cmd(
                     result["result"] = str(observation.result)
 
                 return result
+
+            async def tool_fn(session_id: str, **kwargs):
+                """Tool function that executes action via session.step()."""
+                loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(None, lambda: _execute_action_sync(session_id, **kwargs))
 
             # Set function metadata
             tool_fn.__name__ = at.name
