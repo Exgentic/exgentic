@@ -44,6 +44,7 @@ class MCPServer:
         log_dir,
         logger: logging.Logger,
         stringify_empty_output: bool = False,
+        enable_dns_rebinding_protection: bool = True,
     ) -> None:
         self._mcp = mcp or self._build_fastmcp()
         self._host = host or "0.0.0.0"
@@ -58,16 +59,20 @@ class MCPServer:
             str(self._mcp_log_dir / "server.log"),
         )
         ts = self._mcp.settings.transport_security
-        ts.allowed_hosts = [
-            *ts.allowed_hosts,
-            "host.containers.internal:*",
-            "host.docker.internal:*",
-        ]
-        ts.allowed_origins = [
-            *ts.allowed_origins,
-            "http://host.containers.internal:*",
-            "http://host.docker.internal:*",
-        ]
+        ts.enable_dns_rebinding_protection = enable_dns_rebinding_protection
+
+        if enable_dns_rebinding_protection:
+            # Add common container/cluster hostnames to allowed lists
+            ts.allowed_hosts = [
+                *ts.allowed_hosts,
+                "host.containers.internal:*",
+                "host.docker.internal:*",
+            ]
+            ts.allowed_origins = [
+                *ts.allowed_origins,
+                "http://host.containers.internal:*",
+                "http://host.docker.internal:*",
+            ]
 
         tool_names: list[str] = []
         if tools:
@@ -297,7 +302,38 @@ class MCPServer:
 
     def _build_server(self) -> uvicorn.Server:
         app = self._mcp.streamable_http_app()
-        config = uvicorn.Config(app, host=self._host, port=self.port, log_config=None)
+
+        # Add timing middleware to log request durations
+        from starlette.middleware.base import BaseHTTPMiddleware
+        from starlette.requests import Request
+
+        class TimingMiddleware(BaseHTTPMiddleware):
+            def __init__(self, app, logger):
+                super().__init__(app)
+                self.logger = logger
+
+            async def dispatch(self, request: Request, call_next):
+                start_time = time.perf_counter()
+                method = request.method
+                path = request.url.path
+                self.logger.info(f"→ {method} {path} started")
+
+                response = await call_next(request)
+
+                duration = time.perf_counter() - start_time
+                self.logger.info(f"← {method} {path} completed in {duration:.3f}s (status={response.status_code})")
+                return response
+
+        app.add_middleware(TimingMiddleware, logger=self._server_logger)
+
+        config = uvicorn.Config(
+            app,
+            host=self._host,
+            port=self.port,
+            log_config=None,
+            limit_concurrency=None,  # Remove concurrency limit for parallel requests
+            backlog=2048,  # Increase connection backlog
+        )
         server = uvicorn.Server(config)
         self._server = server
         return server

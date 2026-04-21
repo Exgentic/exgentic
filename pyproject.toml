@@ -25,6 +25,7 @@ dependencies = [
     "python-dotenv>=1,<2",
     "rich>=13,<14",
     "rich-click>=1,<2",
+    "a2a-sdk>=0.2.16,<1",
     "opentelemetry-api>=1,<2",
     "opentelemetry-sdk>=1,<2",
     "opentelemetry-exporter-otlp-proto-http>=1,<2",
@@ -36,12 +37,17 @@ dependencies = [
 exgentic = "exgentic.interfaces.cli.main:main"
 
 [project.optional-dependencies]
+
 analysis = [
     "matplotlib>=3,<4",
     "numpy>=2,<3",
     "pandas>=3,<4",
     "scipy>=1,<2",
     "statsmodels>=0.14,<1",
+]
+# A2A (Agent-to-Agent) framework
+a2a = [
+    "a2a-sdk>=0.2.16,<1",
 ]
 
 

@@ -6,12 +6,14 @@ from __future__ import annotations
 import rich_click as click
 
 from ... import __version__
+from .commands.a2a import a2a_cmd
 from .commands.analyze import analyse_cmd
 from .commands.batch import batch_cmd
 from .commands.compare import compare_cmd
 from .commands.dashboard import dashboard_cmd
 from .commands.evaluate import evaluate_cmd
 from .commands.listing import list_cmd
+from .commands.mcp import mcp_cmd
 from .commands.run_info import preview_cmd, results_cmd, status_cmd
 from .commands.serve import serve_cmd
 from .commands.setup import install_cmd, setup_cmd, uninstall_cmd
@@ -51,6 +53,10 @@ click.rich_click.COMMAND_GROUPS = {
         {
             "name": "Explore",
             "commands": ["dashboard"],
+        },
+        {
+            "name": "Tools",
+            "commands": ["mcp", "a2a"],
         },
         {
             "name": "Infrastructure",
@@ -99,6 +105,8 @@ cli.add_command(dashboard_cmd)
 cli.add_command(setup_cmd)
 cli.add_command(install_cmd)
 cli.add_command(uninstall_cmd)
+cli.add_command(mcp_cmd)
+cli.add_command(a2a_cmd)
 cli.add_command(serve_cmd)
 
 
@@ -109,6 +117,7 @@ def main() -> None:
 
 
 __all__ = [
+    "a2a_cmd",
     "batch_cmd",
     "cli",
     "compare_cmd",
@@ -121,6 +130,7 @@ __all__ = [
     "results_cmd",
     "serve_cmd",
     "setup_cmd",
+    "mcp_cmd",
     "status_cmd",
     "uninstall_cmd",
 ]

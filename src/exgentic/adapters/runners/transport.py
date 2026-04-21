@@ -91,8 +91,14 @@ def serialize_error(exc: BaseException) -> dict:
     pickled = None
     try:
         pickled = cp.dumps(exc)
-    except Exception:
-        pass
+    except Exception as pickle_error:
+        # If pickling fails (e.g., due to Pydantic models in exception context),
+        # log the issue but continue with string fallbacks
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.debug(f"Failed to pickle exception {type(exc).__name__}: {pickle_error}")
+
     return {
         "type": type(exc).__qualname__,
         "msg": str(exc),
@@ -118,8 +124,13 @@ def deserialize_error(data: dict) -> BaseException:
             if isinstance(exc, BaseException):
                 exc.__remote_traceback__ = tb  # type: ignore[attr-defined]
                 return exc
-        except Exception:
-            pass
+        except Exception as unpickle_error:
+            # If unpickling fails (e.g., due to Pydantic models in traceback),
+            # log the issue and fall through to the fallback
+            import logging
+
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Failed to unpickle exception: {unpickle_error}")
 
     # Fallback: reconstruct from type name (builtins only) + message.
     name = data.get("type", "RuntimeError")

@@ -93,6 +93,49 @@ class PerSessionFileExporter(SpanExporter):
         pass
 
 
+class FilteredSpanExporter(SpanExporter):
+    """Wraps a SpanExporter to filter out spans from specific libraries."""
+
+    def __init__(self, wrapped_exporter: SpanExporter) -> None:
+        self._wrapped = wrapped_exporter
+        # List of instrumentation scope names to exclude
+        self._excluded_scopes = {
+            "a2a.server.events.event_queue",
+            "a2a.server.tasks",
+            "a2a",
+        }
+
+    def export(self, spans: Sequence) -> SpanExportResult:
+        """Filter spans and export only those not from excluded libraries."""
+        filtered_spans = []
+        for span in spans:
+            # Check instrumentation scope
+            scope_name = getattr(span, "instrumentation_scope", None)
+            if scope_name:
+                scope_name_str = getattr(scope_name, "name", "")
+                # Skip spans from a2a-python-sdk
+                if any(excluded in scope_name_str for excluded in self._excluded_scopes):
+                    continue
+
+            # Also check span name for a2a patterns
+            span_name = getattr(span, "name", "")
+            if span_name and any(pattern in span_name.lower() for pattern in ["enqueue", "a2a"]):
+                # Check if this is an exgentic span (has our attributes)
+                attrs = getattr(span, "attributes", {})
+                if not any(k.startswith("exgentic.") for k in attrs.keys()):
+                    continue
+
+            filtered_spans.append(span)
+
+        if not filtered_spans:
+            return SpanExportResult.SUCCESS
+
+        return self._wrapped.export(filtered_spans)
+
+    def shutdown(self) -> None:
+        self._wrapped.shutdown()
+
+
 class UrandomIdGenerator(IdGenerator):
     def generate_span_id(self) -> int:
         return int.from_bytes(os.urandom(8), "big")
@@ -136,9 +179,147 @@ def init_tracing_from_env(
 
     processor_class = SimpleSpanProcessor if use_simple_processor else BatchSpanProcessor
     for exporter in exporters:
-        provider.add_span_processor(processor_class(exporter))
+        # Wrap exporter with filtering to exclude a2a-python-sdk spans
+        filtered_exporter = FilteredSpanExporter(exporter)
+        provider.add_span_processor(processor_class(filtered_exporter))
 
     return trace.get_tracer(__name__)
+
+
+def check_otel_collector_health(timeout: int = 5) -> tuple[bool, str | None]:
+    """Check if the OTEL collector endpoint is reachable and protocol matches.
+
+    Verifies:
+    1. Endpoint is reachable (socket connection)
+    2. Protocol (HTTP/gRPC) matches what the server supports
+
+    Args:
+        timeout: Connection timeout in seconds (default: 5)
+
+    Returns:
+        Tuple of (is_healthy, error_message)
+        - (True, None) if collector is reachable and protocol matches
+        - (False, error_message) if collector is not reachable or protocol mismatch
+    """
+    import socket
+    from urllib.parse import urlparse
+
+    # Get endpoint and protocol from environment
+    protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf").strip().lower()
+
+    # Try traces-specific endpoint first, fall back to general endpoint
+    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+
+    if not endpoint:
+        return False, "OTEL_EXPORTER_OTLP_ENDPOINT not specified"
+
+    host = "Unknown"
+    port = 0
+    try:
+        parsed = urlparse(endpoint)
+        host = parsed.hostname
+        port = parsed.port
+
+        if not host or not port:
+            return False, f"Invalid endpoint URL: {endpoint}"
+
+        # Step 1: Check if endpoint is reachable via socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        result = sock.connect_ex((host, port))
+        sock.close()
+
+        if result != 0:
+            return False, f"Cannot connect to OTEL collector at {host}:{port}"
+
+        # Step 2: Verify protocol matches by attempting a minimal request
+        if protocol.startswith("http"):
+            # For HTTP protocol, try a simple HTTP request to verify it's an HTTP server
+            try:
+                import http.client
+
+                # Determine if we should use HTTPS
+                use_https = parsed.scheme == "https"
+                conn_class = http.client.HTTPSConnection if use_https else http.client.HTTPConnection
+
+                conn = conn_class(host, port, timeout=timeout)
+                # Try to access the OTLP traces endpoint
+                conn.request("POST", "/v1/traces", headers={"Content-Type": "application/x-protobuf"})
+                response = conn.getresponse()
+                conn.close()
+
+                # We expect either 200 (OK), 400 (bad request - empty body), or 405 (method not allowed)
+                # What we DON'T want is connection refused or protocol errors
+                if response.status in (200, 400, 405, 415):  # 415 = Unsupported Media Type
+                    return True, None
+                return False, f"HTTP endpoint responded with unexpected status: {response.status}"
+
+            except http.client.HTTPException as e:
+                return False, f"HTTP protocol error: {e!s}. Server {endpoint} may not support HTTP protocol."
+            except Exception as e:
+                # If we can connect via socket but HTTP fails, likely a protocol mismatch
+                return False, f"Protocol mismatch: configured as HTTP but server {endpoint} may be gRPC. Error: {e!s}"
+
+        elif protocol == "grpc":
+            # For gRPC, attempt a basic protocol check
+            # We'll try to send a minimal gRPC frame to verify it's a gRPC server
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(timeout)
+                sock.connect((host, port))
+
+                # Send HTTP/2 connection preface followed by SETTINGS frame
+                # This is what a real gRPC client sends
+                preface = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+                # HTTP/2 SETTINGS frame: length=0, type=4, flags=0, stream_id=0
+                settings_frame = b"\x00\x00\x00\x04\x00\x00\x00\x00\x00"
+                sock.sendall(preface + settings_frame)
+
+                # Try to receive a response
+                # A gRPC/HTTP2 server MUST respond with a SETTINGS frame
+                sock.settimeout(2)  # Short timeout for response
+                response = sock.recv(1024)
+                sock.close()
+
+                # Validate we got a proper HTTP/2 response
+                # HTTP/2 frames start with 3-byte length, 1-byte type, 1-byte flags, 4-byte stream ID
+                if len(response) >= 9:
+                    # Check if we got a SETTINGS frame (type=4) or other valid HTTP/2 frame
+                    frame_type = response[3]
+                    if frame_type in (0x04, 0x00, 0x01):  # SETTINGS, DATA, or HEADERS frame
+                        return True, None
+
+                # If we got a response but it's not HTTP/2, it's likely HTTP/1.1
+                if response:
+                    if response.startswith(b"HTTP/1"):
+                        return (
+                            False,
+                            f"Server at {endpoint} is HTTP/1.1, not gRPC. Use 'http/protobuf' protocol instead.",
+                        )
+                    return (
+                        False,
+                        f"Server at {endpoint} responded but not with valid HTTP/2 frames. May not be a gRPC server.",
+                    )
+
+                return False, f"gRPC endpoint at {endpoint} did not respond to HTTP/2 preface"
+
+            except socket.timeout:
+                return (
+                    False,
+                    f"Timeout waiting for gRPC response from {endpoint}. Server may not support gRPC protocol.",
+                )
+            except Exception as e:
+                return False, f"gRPC protocol check failed: {e!s}. Server {endpoint} may not support gRPC protocol."
+
+        else:
+            return False, f"Unknown protocol: {protocol}. Expected 'http/protobuf' or 'grpc'"
+
+    except socket.gaierror:
+        return False, f"Cannot resolve hostname: {host}"
+    except socket.timeout:
+        return False, f"Connection timeout to {host}:{port}"
+    except Exception as e:
+        return False, f"Error checking OTEL collector: {e!s}"
 
 
 def flush_traces(timeout_millis: int = 30000) -> bool:

@@ -78,7 +78,17 @@ class SessionSpanManager:
 
     def start_span(self, name: str, **kwargs) -> Span:
         parent = self._span_stack[-1] if self._span_stack else None
-        ctx = trace.set_span_in_context(parent) if parent else context.get_current()
+
+        if parent:
+            # Use the parent span from our stack
+            ctx = trace.set_span_in_context(parent)
+        else:
+            # For root spans, always use a detached context to avoid inheriting
+            # invalid parent span IDs from other instrumentation (e.g., a2a SDK).
+            # Trace continuation from parent processes should be handled explicitly
+            # via OtelContext propagation in the exgentic Context, not via global OTEL context.
+            ctx = context.Context()
+            self._logger.info("Root span starting new trace")
 
         span = cast(Span, self._tracer.start_span(name, context=ctx, **kwargs))
         self._span_stack.append(span)

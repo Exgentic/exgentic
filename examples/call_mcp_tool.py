@@ -1,0 +1,197 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026, The Exgentic organization and its contributors.
+
+#!/usr/bin/env python3
+"""Call an MCP tool using the official MCP SDK with dynamic session management."""
+
+import asyncio
+import sys
+
+
+async def call_mcp_tool_with_session_management():
+    """Connect to MCP server and demonstrate dynamic session management."""
+    try:
+        from mcp.client.session import ClientSession
+        from mcp.client.streamable_http import streamable_http_client
+    except ImportError:
+        print("Error: mcp package not installed")
+        print("Install with: pip install mcp")
+        return 1
+
+    mcp_url = "http://127.0.0.1:8000/mcp"
+
+    print("=" * 80)
+    print("Testing MCP Server with Dynamic Session Management")
+    print("=" * 80)
+    print(f"\nConnecting to: {mcp_url}")
+
+    try:
+        # Connect to MCP server
+        async with streamable_http_client(mcp_url) as (read_stream, write_stream, _):
+            async with ClientSession(read_stream, write_stream) as session:
+                # Initialize
+                print("\n1. Initializing session...")
+                await session.initialize()
+                print("✓ Session initialized")
+
+                # List tools
+                print("\n2. Listing available tools...")
+                tools_result = await session.list_tools()
+                tools = tools_result.tools
+
+                print(f"✓ Found {len(tools)} tools:")
+                for i, tool in enumerate(tools, 1):
+                    print(f"   {i}. {tool.name}")
+                    if tool.description:
+                        desc = tool.description[:70]
+                        print(f"      {desc}...")
+
+                if not tools:
+                    print("⚠ No tools available")
+                    return 0
+
+                # Step 3: List available tasks
+                print("\n3. Listing available tasks...")
+                list_tasks_result = await session.call_tool("list_tasks", {})
+                print("✓ Tasks retrieved!")
+                print(f"   Result: {list_tasks_result.content}")
+
+                # Step 4: Create session for task 1
+                print("\n4. Creating session for task_id='1'...")
+                create_result_1 = await session.call_tool("create_session", {"task_id": "1"})
+                print("✓ Session created!")
+                print(f"   Result: {create_result_1.content}")
+
+                if create_result_1.isError:
+                    print("   ⚠ Tool returned an error")
+                    return 1
+
+                # Extract session_id from response
+                import json
+
+                session_1_data = json.loads(create_result_1.content[0].text)
+                session_id_1 = session_1_data.get("session_id")
+                print(f"   Session ID: {session_id_1}")
+
+                # Step 5: Create session for task 2
+                print("\n5. Creating session for task_id='2'...")
+                create_result_2 = await session.call_tool("create_session", {"task_id": "2"})
+                print("✓ Session created!")
+                print(f"   Result: {create_result_2.content}")
+
+                if create_result_2.isError:
+                    print("   ⚠ Tool returned an error")
+                    return 1
+
+                # Extract session_id from response
+                session_2_data = json.loads(create_result_2.content[0].text)
+                session_id_2 = session_2_data.get("session_id")
+                print(f"   Session ID: {session_id_2}")
+
+                # Step 6: Call message tool with session_id 1
+                print("\n6. Testing session 1 - Calling message tool")
+                arguments_task1 = {"session_id": session_id_1, "content": "Hello from session 1!"}
+                print(f"   Arguments: {arguments_task1}")
+
+                result1 = await session.call_tool("message", arguments_task1)
+                print("\n✓ Session 1 message call successful!")
+                print(f"   Result: {result1.content}")
+
+                if result1.isError:
+                    print("   ⚠ Tool returned an error")
+
+                # Step 7: Call message tool with session_id 2
+                print("\n7. Testing session 2 - Calling message tool")
+                arguments_task2 = {"session_id": session_id_2, "content": "Hello from session 2!"}
+                print(f"   Arguments: {arguments_task2}")
+
+                result2 = await session.call_tool("message", arguments_task2)
+                print("\n✓ Session 2 message call successful!")
+                print(f"   Result: {result2.content}")
+
+                if result2.isError:
+                    print("   ⚠ Tool returned an error")
+
+                # Step 8: Call bash tool with session_id 1
+                print("\n8. Testing session 1 - Calling bash tool")
+                bash_args_task1 = {"session_id": session_id_1, "command": 'echo "Session 1 bash command"'}
+                print(f"   Arguments: {bash_args_task1}")
+
+                result3 = await session.call_tool("bash", bash_args_task1)
+                print("\n✓ Session 1 bash call successful!")
+                print(f"   Result: {result3.content}")
+
+                # Step 9: Call bash tool with session_id 2
+                print("\n9. Testing session 2 - Calling bash tool")
+                bash_args_task2 = {"session_id": session_id_2, "command": 'echo "Session 2 bash command"'}
+                print(f"   Arguments: {bash_args_task2}")
+
+                result4 = await session.call_tool("bash", bash_args_task2)
+                print("\n✓ Session 2 bash call successful!")
+                print(f"   Result: {result4.content}")
+
+                # Step 10: Evaluate session 1
+                print(f"\n10. Evaluating session {session_id_1}...")
+                eval_result_1 = await session.call_tool("evaluate_session", {"session_id": session_id_1})
+                print("✓ Session evaluated!")
+                print(f"   Result: {eval_result_1.content}")
+
+                if eval_result_1.isError:
+                    print("   ⚠ Tool returned an error")
+
+                # Step 11: Evaluate session 2
+                print(f"\n11. Evaluating session {session_id_2}...")
+                eval_result_2 = await session.call_tool("evaluate_session", {"session_id": session_id_2})
+                print("✓ Session evaluated!")
+                print(f"   Result: {eval_result_2.content}")
+
+                if eval_result_2.isError:
+                    print("   ⚠ Tool returned an error")
+
+                # Step 12: Delete session 1
+                print(f"\n12. Deleting session {session_id_1}...")
+                delete_result_1 = await session.call_tool("delete_session", {"session_id": session_id_1})
+                print("✓ Session deleted!")
+                print(f"   Result: {delete_result_1.content}")
+
+                if delete_result_1.isError:
+                    print("   ⚠ Tool returned an error")
+
+                # Step 13: Try to use deleted session (should fail)
+                print("\n13. Attempting to use deleted session (should fail)...")
+                try:
+                    fail_result = await session.call_tool(
+                        "message", {"session_id": session_id_1, "content": "This should fail"}
+                    )
+                    print(f"   Result: {fail_result.content}")
+                    if "error" in str(fail_result.content).lower() or "no session" in str(fail_result.content).lower():
+                        print("   ✓ Correctly rejected - session was deleted")
+                except Exception as e:
+                    print(f"   ✓ Correctly rejected with error: {e}")
+
+                # Step 14: Delete session 2
+                print(f"\n14. Deleting session {session_id_2}...")
+                delete_result_2 = await session.call_tool("delete_session", {"session_id": session_id_2})
+                print("✓ Session deleted!")
+                print(f"   Result: {delete_result_2.content}")
+
+                if delete_result_2.isError:
+                    print("   ⚠ Tool returned an error")
+
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+        import traceback
+
+        traceback.print_exc()
+        return 1
+
+    print("\n" + "=" * 80)
+    print("Dynamic session management test complete!")
+    print("=" * 80)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(call_mcp_tool_with_session_management()))
+
+# Made with Bob
