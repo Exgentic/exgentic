@@ -101,8 +101,14 @@ class PipeTransport(Transport):
         self._proc: mp.Process | None = None
 
     def start(self) -> None:
+        import logging
+        import time
+
         if self._proc is not None and self._proc.is_alive():
             return
+
+        _log = logging.getLogger(__name__)
+        t0 = time.perf_counter()
 
         from ...core.context import save_service_runtime, try_get_context
 
@@ -119,6 +125,7 @@ class PipeTransport(Transport):
         # parallel workers don't race on a shared env var.
         runtime_path = save_service_runtime(self._role) if self._role is not None else None
         self._proc.start()
+        t1 = time.perf_counter()
         self._finalizer = weakref.finalize(self, _terminate, self._q_in, self._proc)
 
         # Send init payload with context (role-adjusted if applicable).
@@ -127,6 +134,13 @@ class PipeTransport(Transport):
             ctx = ctx.with_role(self._role)
         self._q_in.put(cp.dumps(("init", self._target_cls, self._args, self._kwargs, ctx, runtime_path)))
         status, payload = self._recv()
+        t2 = time.perf_counter()
+
+        cls_name = self._target_cls.__name__ if hasattr(self._target_cls, "__name__") else self._target_cls
+        msg = f"ProcessRunner.start cls={cls_name} " f"fork={t1 - t0:.3f}s init={t2 - t1:.3f}s total={t2 - t0:.3f}s"
+        _log.info(msg)
+        print(msg, flush=True)
+
         if status == "error":
             self.close()
             raise deserialize_error(payload)

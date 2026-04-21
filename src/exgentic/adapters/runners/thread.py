@@ -32,10 +32,22 @@ class ThreadTransport(Transport):
         self._thread: threading.Thread | None = None
 
     def start(self) -> None:
+        import logging
+        import time
+
+        _log = logging.getLogger(__name__)
+        t0 = time.perf_counter()
+
         ctx = contextvars.copy_context()
         self._thread = threading.Thread(target=ctx.run, args=(self._worker,), daemon=True)
         self._thread.start()
         status, payload = self._resp.get()
+        t1 = time.perf_counter()
+
+        msg = f"ThreadRunner.start cls={self._target_cls.__name__} " f"init={t1 - t0:.3f}s"
+        _log.info(msg)
+        print(msg, flush=True)
+
         if status == "error":
             raise deserialize_error(payload)
 

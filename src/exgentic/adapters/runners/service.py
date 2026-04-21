@@ -201,15 +201,23 @@ class ServiceRunner:
         self._server = None
 
     def start(self) -> ObjectProxy:
+        import logging
+        import time
+
         import uvicorn
 
         from ...core.context import set_context_fallback, try_get_context
+
+        _log = logging.getLogger(__name__)
+        t0 = time.perf_counter()
 
         # Set process-wide fallback so context is available in uvicorn's
         # request handler threads (which don't inherit ContextVar).
         set_context_fallback(try_get_context())
 
         obj = self._target_cls(*self._args, **self._kwargs)
+        t1 = time.perf_counter()
+
         app = create_app(ObjectHost(obj))
 
         config = uvicorn.Config(app, host="127.0.0.1", port=self._port, log_level="warning")
@@ -218,6 +226,14 @@ class ServiceRunner:
 
         url = f"http://127.0.0.1:{self._port}"
         _wait_for_health(url)
+        t2 = time.perf_counter()
+
+        msg = (
+            f"ServiceRunner.start cls={self._target_cls.__name__} "
+            f"init={t1 - t0:.3f}s server+health={t2 - t1:.3f}s total={t2 - t0:.3f}s"
+        )
+        _log.info(msg)
+        print(msg, flush=True)
 
         transport = HTTPTransport(url)
         proxy = ObjectProxy(transport)

@@ -139,7 +139,14 @@ class DockerRunner:
     # ── container lifecycle ──────────────────────────────────────────
 
     def start(self) -> ObjectProxy:
+        import logging
+        import time
+
+        _log = logging.getLogger(__name__)
+        t0 = time.perf_counter()
+
         image = self._ensure_image()
+        t_image = time.perf_counter()
 
         if isinstance(self._target_cls, str):
             cls_ref = self._target_cls
@@ -209,6 +216,7 @@ class DockerRunner:
             ]
         )
 
+        t_run = time.perf_counter()
         result = _docker(*run_args, capture_output=True, text=True)
         self._container_id = result.stdout.strip()
         atexit.register(self._stop_container)
@@ -216,6 +224,13 @@ class DockerRunner:
         url = f"http://127.0.0.1:{self._port}"
         try:
             _wait_for_health(url, timeout=60.0)
+            t_health = time.perf_counter()
+            msg = (
+                f"DockerRunner.start env={self._env_name} ensure_image={t_image - t0:.3f}s "
+                f"docker_run={t_run - t_image:.3f}s health={t_health - t_run:.3f}s total={t_health - t0:.3f}s"
+            )
+            _log.info(msg)
+            print(msg, flush=True)
         except TimeoutError:
             cid = self._container_id or ""
             logs = _docker("logs", cid, check=False, capture_output=True, text=True)

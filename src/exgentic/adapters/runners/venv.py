@@ -142,8 +142,17 @@ class VenvRunner:
     # ── subprocess lifecycle ──────────────────────────────────────────
 
     def start(self) -> ObjectProxy:
+        import logging
+        import time
+
+        _log = logging.getLogger(__name__)
+
+        t0 = time.perf_counter()
         venv = self._ensure_venv()
+        t1 = time.perf_counter()
+
         self._install_deps()
+        t2 = time.perf_counter()
 
         if isinstance(self._target_cls, str):
             cls_ref = self._target_cls
@@ -175,6 +184,7 @@ class VenvRunner:
             str(self._port),
         ]
 
+        t3 = time.perf_counter()
         self._process = subprocess.Popen(
             cmd,
             env=env,
@@ -186,6 +196,13 @@ class VenvRunner:
         url = f"http://127.0.0.1:{self._port}"
         try:
             _wait_for_health(url, timeout=self._health_timeout)
+            t4 = time.perf_counter()
+            msg = (
+                f"VenvRunner.start env={self._env_name} ensure_venv={t1 - t0:.3f}s "
+                f"install_deps={t2 - t1:.3f}s popen+health={t4 - t3:.3f}s total={t4 - t0:.3f}s"
+            )
+            _log.info(msg)
+            print(msg, flush=True)
         except TimeoutError:
             proc = self._process
             if proc is not None:
