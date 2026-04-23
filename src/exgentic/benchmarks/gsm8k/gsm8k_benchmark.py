@@ -38,6 +38,35 @@ from ...utils.paths import get_run_paths
 from ...utils.settings import ExgenticSettings, RunnerName, get_settings
 
 GSM8K_TOTAL_TASKS = 1319
+_gsm8k_table = None
+_gsm8k_lock = __import__("threading").Lock()
+
+
+def _load_gsm8k_row(idx: int) -> dict[str, Any]:
+    """Load a single row from the GSM8k test set using cached parquet file.
+
+    Uses ``hf_hub_download`` + ``pyarrow`` instead of ``load_dataset`` to avoid
+    the ~40s metadata resolution overhead that ``datasets`` incurs on every call.
+    The parquet file is downloaded once and cached by the Hub client.
+    The Arrow table is cached in-process for thread safety and speed.
+    """
+    global _gsm8k_table
+
+    if _gsm8k_table is None:
+        with _gsm8k_lock:
+            if _gsm8k_table is None:
+                import pyarrow.parquet as pq
+                from huggingface_hub import hf_hub_download
+
+                path = hf_hub_download(
+                    repo_id="openai/gsm8k",
+                    filename="main/test-00000-of-00001.parquet",
+                    repo_type="dataset",
+                )
+                _gsm8k_table = pq.read_table(path)
+
+    return {col: _gsm8k_table.column(col)[idx].as_py() for col in _gsm8k_table.column_names}
+
 
 _run_logger: logging.Logger | None = None
 
@@ -151,12 +180,10 @@ class GSM8kSession(Session):
         include_calculator_tool: bool,
         session_id: str | None = None,
     ) -> None:
-        from datasets import load_dataset
-
         if session_id is not None:
             self._session_id = session_id
         idx = int(task_id)
-        row = load_dataset("gsm8k", "main", split=f"test[{idx}:{idx + 1}]")[0]
+        row = _load_gsm8k_row(idx)
         self._question = row["question"]
         self._answer = row["answer"]
         self._task_id = idx
