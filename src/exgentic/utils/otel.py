@@ -95,20 +95,22 @@ class FilteredSpanExporter(SpanExporter):
         filtered_spans = []
         for span in spans:
             # Check instrumentation scope
-            scope_name = getattr(span, "instrumentation_scope", None)
-            if scope_name:
-                scope_name_str = getattr(scope_name, "name", "")
-                # Skip spans from a2a-python-sdk
-                if any(excluded in scope_name_str for excluded in self._excluded_scopes):
-                    continue
+            # TEMPORARILY DISABLED: Allow all A2A spans to see full trace hierarchy
+            # scope_name = getattr(span, "instrumentation_scope", None)
+            # if scope_name:
+            #     scope_name_str = getattr(scope_name, "name", "")
+            #     # Skip spans from a2a-python-sdk
+            #     if any(excluded in scope_name_str for excluded in self._excluded_scopes):
+            #         continue
 
             # Also check span name for a2a patterns
-            span_name = getattr(span, "name", "")
-            if span_name and any(pattern in span_name.lower() for pattern in ["enqueue", "a2a"]):
-                # Check if this is an exgentic span (has our attributes)
-                attrs = getattr(span, "attributes", {})
-                if not any(k.startswith("exgentic.") for k in attrs.keys()):
-                    continue
+            # TEMPORARILY DISABLED: Allow all A2A spans to see full trace hierarchy
+            # span_name = getattr(span, "name", "")
+            # if span_name and any(pattern in span_name.lower() for pattern in ["enqueue", "a2a"]):
+            #     # Check if this is an exgentic span (has our attributes)
+            #     attrs = getattr(span, "attributes", {})
+            #     if not any(k.startswith("exgentic.") for k in attrs.keys()):
+            #         continue
 
             filtered_spans.append(span)
 
