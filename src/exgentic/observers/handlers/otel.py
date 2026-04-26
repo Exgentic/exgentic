@@ -83,12 +83,41 @@ class SessionSpanManager:
             # Use the parent span from our stack
             ctx = trace.set_span_in_context(parent)
         else:
-            # For root spans, always use a detached context to avoid inheriting
-            # invalid parent span IDs from other instrumentation (e.g., a2a SDK).
-            # Trace continuation from parent processes should be handled explicitly
-            # via OtelContext propagation in the exgentic Context, not via global OTEL context.
-            ctx = context.Context()
-            self._logger.info("Root span starting new trace")
+            # For root spans, check if there's a parent trace context in the exgentic Context
+            from ...core.context import try_get_context
+
+            exgentic_ctx = try_get_context()
+            if exgentic_ctx and exgentic_ctx.otel_context:
+                # Create a span context from the parent trace information
+                from opentelemetry.trace import SpanContext, TraceFlags
+
+                try:
+                    trace_id_int = int(exgentic_ctx.otel_context.trace_id, 16)
+                    span_id_int = int(exgentic_ctx.otel_context.span_id, 16)
+
+                    parent_span_context = SpanContext(
+                        trace_id=trace_id_int,
+                        span_id=span_id_int,
+                        is_remote=True,
+                        trace_flags=TraceFlags(0x01),  # Sampled
+                    )
+
+                    # Create a non-recording span with the parent context
+                    parent_span = trace.NonRecordingSpan(parent_span_context)
+                    ctx = trace.set_span_in_context(parent_span)
+                    self._logger.info(
+                        f"Root span continuing trace from parent: "
+                        f"trace_id={exgentic_ctx.otel_context.trace_id}, "
+                        f"parent_span_id={exgentic_ctx.otel_context.span_id}"
+                    )
+                except (ValueError, AttributeError) as e:
+                    self._logger.warning(f"Failed to parse parent trace context: {e}")
+                    ctx = context.Context()
+                    self._logger.info("Root span starting new trace")
+            else:
+                # No parent context available, start a new trace
+                ctx = context.Context()
+                self._logger.info("Root span starting new trace")
 
         span = cast(Span, self._tracer.start_span(name, context=ctx, **kwargs))
         self._span_stack.append(span)
