@@ -108,17 +108,34 @@ class ExgenticAgentExecutor:
         from datetime import datetime
         from pathlib import Path
 
-        from ...core.context import Context, get_context, set_context, set_context_fallback
+        from opentelemetry import trace as otel_trace
+
+        from ...core.context import Context, OtelContext, get_context, set_context, set_context_fallback
         from ...core.orchestrator.tracker import Tracker
         from ...utils.settings import get_settings
 
         settings = get_settings()
         run_id = f"a2a_{datetime.now().isoformat().replace(':', '--')}"
         output_dir_path = Path(settings.output_dir).resolve()
+
+        # Extract trace context from OpenTelemetry context (propagated from HTTP headers)
+        parent_otel_context = None
+        try:
+            current_span = otel_trace.get_current_span()
+            if current_span and current_span.get_span_context().is_valid:
+                span_ctx = current_span.get_span_context()
+                trace_id = format(span_ctx.trace_id, "032x")
+                span_id = format(span_ctx.span_id, "016x")
+                parent_otel_context = OtelContext(trace_id=trace_id, span_id=span_id)
+                logger.info(f"Extracted trace context from OTEL: trace_id={trace_id}, span_id={span_id}")
+        except Exception as e:
+            logger.debug(f"Could not extract OTEL trace context: {e}")
+
         ctx = Context(
             run_id=run_id,
             output_dir=str(output_dir_path),
             cache_dir=str(Path(settings.cache_dir).resolve()),
+            otel_context=parent_otel_context,
         )
         set_context(ctx)
         set_context_fallback(ctx)
