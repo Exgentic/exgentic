@@ -10,7 +10,7 @@ Usage:
 
 Options:
     --mcp-url URL           MCP server URL (default: http://127.0.0.1:8000/mcp)
-    --a2a-url URL           A2A agent server URL (default: http://127.0.0.1:9000)
+    --a2a-url URL           A2A agent server URL (default: http://127.0.0.1:9999)
     --cleanup               Delete sessions after completion (default: False)
     --delay SECS            Delay between task executions in seconds (default: 1.0)
     --limit NUM             Limit number of tasks to test (default: all tasks)
@@ -307,144 +307,173 @@ async def call_a2a_agent(a2a_url: str, task_input: str, timeout: float = 600.0) 
     from a2a.client.card_resolver import A2ACardResolver
     from a2a.client.errors import A2AClientTimeoutError
     from a2a.types import Role, TextPart
+    from opentelemetry import trace
+    from opentelemetry.trace import SpanKind
+
+    # Get tracer
+    tracer = trace.get_tracer(__name__)
 
     start_time = time.time()
     httpx_client = None
 
-    try:
-        import httpx
+    # Wrap the entire A2A call in an OpenTelemetry span
+    with tracer.start_as_current_span(
+        "call_a2a_agent",
+        kind=SpanKind.CLIENT,
+        attributes={
+            "a2a.url": a2a_url,
+            "a2a.timeout": timeout,
+            "task.input_length": len(task_input),
+        },
+    ) as span:
+        try:
+            import httpx
 
-        # Use a long timeout for A2A client to handle long-running tasks
-        httpx_client = httpx.AsyncClient(timeout=timeout)
-        client_config = ClientConfig(httpx_client=httpx_client)
+            # Use a long timeout for A2A client to handle long-running tasks
+            httpx_client = httpx.AsyncClient(timeout=timeout)
+            client_config = ClientConfig(httpx_client=httpx_client)
 
-        # Fetch the agent card manually and override the URL
-        logger.debug(f"Resolving Agent Card at {a2a_url} (timeout={timeout}s)")
+            # Fetch the agent card manually and override the URL
+            logger.debug(f"Resolving Agent Card at {a2a_url} (timeout={timeout}s)")
 
-        resolver = A2ACardResolver(httpx_client=httpx_client, base_url=a2a_url)
-        card = await resolver.get_agent_card()
+            resolver = A2ACardResolver(httpx_client=httpx_client, base_url=a2a_url)
+            card = await resolver.get_agent_card()
 
-        # Override the URL in the card to use the actual server URL
-        logger.debug(f"Agent card original URL: '{card.url}'")
-        logger.debug(f"Overriding agent card URL to: '{a2a_url}'")
-        card.url = a2a_url
+            # Override the URL in the card to use the actual server URL
+            logger.debug(f"Agent card original URL: '{card.url}'")
+            logger.debug(f"Overriding agent card URL to: '{a2a_url}'")
+            card.url = a2a_url
 
-        # Create the client using the modified card
-        logger.debug("Creating client with overridden URL")
-        client = ClientFactory(client_config).create(card=card)
+            # Create the client using the modified card
+            logger.debug("Creating client with overridden URL")
+            client = ClientFactory(client_config).create(card=card)
 
-        # Create a text message with explicit role
-        logger.debug(f"Creating message with role=user, content length={len(task_input)}")
-        message = create_text_message_object(role=Role.user, content=task_input)
+            # Create a text message with explicit role
+            logger.debug(f"Creating message with role=user, content length={len(task_input)}")
+            message = create_text_message_object(role=Role.user, content=task_input)
 
-        logger.debug(f"Message created: role={message.role}, message_id={message.message_id}")
-        logger.debug(f"Message parts: {len(message.parts)}")
+            logger.debug(f"Message created: role={message.role}, message_id={message.message_id}")
+            logger.debug(f"Message parts: {len(message.parts)}")
 
-        # Send message and collect results
-        result_text = ""
-        task_id = None
-        event_count = 0
+            # Send message and collect results
+            result_text = ""
+            task_id = None
+            event_count = 0
 
-        logger.debug("Sending message to agent...")
+            logger.debug("Sending message to agent...")
 
-        async for response in client.send_message(message):
-            event_count += 1
-            logger.debug(f"Received response #{event_count}: type={type(response).__name__}")
+            async for response in client.send_message(message):
+                event_count += 1
+                logger.debug(f"Received response #{event_count}: type={type(response).__name__}")
 
-            if isinstance(response, tuple):
-                # This is a (Task, Event) tuple
-                task, event = response
-                if task_id is None:
-                    task_id = task.id
-                    logger.debug(f"Task ID: {task_id}")
+                if isinstance(response, tuple):
+                    # This is a (Task, Event) tuple
+                    task, event = response
+                    if task_id is None:
+                        task_id = task.id
+                        logger.debug(f"Task ID: {task_id}")
 
-                if event:
-                    # For status updates, just print the text
-                    if hasattr(event, "kind") and event.kind == "status-update":
-                        if hasattr(event, "status") and hasattr(event.status, "message"):
-                            msg = event.status.message
-                            if hasattr(msg, "parts"):
-                                texts = []
-                                for part in msg.parts:
-                                    if hasattr(part, "root") and hasattr(part.root, "text"):
-                                        texts.append(part.root.text)
-                                if texts:
-                                    logger.debug(f"Status update: {' '.join(texts)}")
+                    if event:
+                        # For status updates, just print the text
+                        if hasattr(event, "kind") and event.kind == "status-update":
+                            if hasattr(event, "status") and hasattr(event.status, "message"):
+                                msg = event.status.message
+                                if hasattr(msg, "parts"):
+                                    texts = []
+                                    for part in msg.parts:
+                                        if hasattr(part, "root") and hasattr(part.root, "text"):
+                                            texts.append(part.root.text)
+                                    if texts:
+                                        logger.debug(f"Status update: {' '.join(texts)}")
+                                    else:
+                                        logger.debug("Status update (no text)")
                                 else:
-                                    logger.debug("Status update (no text)")
+                                    logger.debug(f"Status update: {event.status.state}")
                             else:
-                                logger.debug(f"Status update: {event.status.state}")
+                                logger.debug(
+                                    f"Status update: {event.status.state if hasattr(event, 'status') else 'unknown'}"
+                                )
                         else:
-                            logger.debug(
-                                f"Status update: {event.status.state if hasattr(event, 'status') else 'unknown'}"
-                            )
-                    else:
-                        # For other events, pretty print the full details
-                        event_dict = event.model_dump() if hasattr(event, "model_dump") else str(event)
-                        logger.debug(f"Event details ({event.kind if hasattr(event, 'kind') else 'unknown'}):")
-                        logger.debug(f"{json.dumps(event_dict, indent=6, default=str)}")
+                            # For other events, pretty print the full details
+                            event_dict = event.model_dump() if hasattr(event, "model_dump") else str(event)
+                            logger.debug(f"Event details ({event.kind if hasattr(event, 'kind') else 'unknown'}):")
+                            logger.debug(f"{json.dumps(event_dict, indent=6, default=str)}")
 
-                # Check for artifact updates
-                if event and hasattr(event, "artifact") and event.artifact:
-                    logger.debug(f"Event has artifact with {len(event.artifact.parts)} parts")
-                    for part in event.artifact.parts:
-                        # Part is a wrapper, actual data is in part.root
-                        if hasattr(part, "root") and isinstance(part.root, TextPart):
-                            text = part.root.text
-                            result_text += text
-                            logger.debug(f"Extracted text from artifact: {text[:100]}...")
-            else:
-                # This is a Message response
-                msg_dict = response.model_dump() if hasattr(response, "model_dump") else str(response)
-                logger.debug("Message response details:")
-                logger.debug(f"{json.dumps(msg_dict, indent=6, default=str)}")
+                    # Check for artifact updates
+                    if event and hasattr(event, "artifact") and event.artifact:
+                        logger.debug(f"Event has artifact with {len(event.artifact.parts)} parts")
+                        for part in event.artifact.parts:
+                            # Part is a wrapper, actual data is in part.root
+                            if hasattr(part, "root") and isinstance(part.root, TextPart):
+                                text = part.root.text
+                                result_text += text
+                                logger.debug(f"Extracted text from artifact: {text[:100]}...")
+                else:
+                    # This is a Message response
+                    msg_dict = response.model_dump() if hasattr(response, "model_dump") else str(response)
+                    logger.debug("Message response details:")
+                    logger.debug(f"{json.dumps(msg_dict, indent=6, default=str)}")
 
-                if hasattr(response, "parts"):
-                    logger.debug(f"Message response with {len(response.parts)} parts")
-                    for part in response.parts:
-                        # Part is a wrapper, actual data is in part.root
-                        if hasattr(part, "root") and isinstance(part.root, TextPart):
-                            text = part.root.text
-                            result_text += text
-                            logger.debug(f"Extracted text from message: {text[:100]}...")
+                    if hasattr(response, "parts"):
+                        logger.debug(f"Message response with {len(response.parts)} parts")
+                        for part in response.parts:
+                            # Part is a wrapper, actual data is in part.root
+                            if hasattr(part, "root") and isinstance(part.root, TextPart):
+                                text = part.root.text
+                                result_text += text
+                                logger.debug(f"Extracted text from message: {text[:100]}...")
 
-        elapsed_time = time.time() - start_time
+            elapsed_time = time.time() - start_time
 
-        logger.debug(f"Completed in {elapsed_time:.2f}s, received {event_count} events")
-        logger.debug(f"Result length: {len(result_text)} characters")
+            logger.debug(f"Completed in {elapsed_time:.2f}s, received {event_count} events")
+            logger.debug(f"Result length: {len(result_text)} characters")
 
-        return {
-            "success": True,
-            "result": result_text,
-            "elapsed_time": elapsed_time,
-            "error": None,
-            "task_id": task_id,
-        }
-    except A2AClientTimeoutError as e:
-        elapsed_time = time.time() - start_time
-        return {
-            "success": False,
-            "result": None,
-            "elapsed_time": elapsed_time,
-            "error": f"A2A Timeout: {e!s}",
-            "task_id": None,
-        }
-    except Exception as e:
-        elapsed_time = time.time() - start_time
-        logger.exception(f"Error calling A2A agent: {type(e).__name__}: {e!s}")
-        return {
-            "success": False,
-            "result": None,
-            "elapsed_time": elapsed_time,
-            "error": f"{type(e).__name__}: {e!s}",
-            "task_id": None,
-        }
-    finally:
-        if httpx_client:
-            try:
-                await httpx_client.aclose()
-            except Exception:
-                pass
+            # Set span attributes for successful completion
+            span.set_attribute("a2a.success", True)
+            span.set_attribute("a2a.elapsed_time", elapsed_time)
+            span.set_attribute("a2a.event_count", event_count)
+            span.set_attribute("a2a.result_length", len(result_text))
+            if task_id:
+                span.set_attribute("a2a.task_id", task_id)
+
+            return {
+                "success": True,
+                "result": result_text,
+                "elapsed_time": elapsed_time,
+                "error": None,
+                "task_id": task_id,
+            }
+        except A2AClientTimeoutError as e:
+            elapsed_time = time.time() - start_time
+            span.set_attribute("a2a.success", False)
+            span.set_attribute("a2a.error", "timeout")
+            span.record_exception(e)
+            return {
+                "success": False,
+                "result": None,
+                "elapsed_time": elapsed_time,
+                "error": f"A2A Timeout: {e!s}",
+                "task_id": None,
+            }
+        except Exception as e:
+            elapsed_time = time.time() - start_time
+            logger.exception(f"Error calling A2A agent: {type(e).__name__}: {e!s}")
+            span.set_attribute("a2a.success", False)
+            span.set_attribute("a2a.error", type(e).__name__)
+            span.record_exception(e)
+            return {
+                "success": False,
+                "result": None,
+                "elapsed_time": elapsed_time,
+                "error": f"{type(e).__name__}: {e!s}",
+                "task_id": None,
+            }
+        finally:
+            if httpx_client:
+                try:
+                    await httpx_client.aclose()
+                except Exception:
+                    pass
 
 
 async def fetch_tasks(mcp_session) -> List[str]:
@@ -665,6 +694,33 @@ async def test_a2a_agent(
         timeout: Timeout for each task execution in seconds (unused, kept for compatibility)
         debug: Enable debug output
     """
+    # Initialize OpenTelemetry tracing
+    from opentelemetry import trace
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+    # Set up tracer provider
+    resource = Resource.create({"service.name": "test_a2a_agent"})
+    provider = TracerProvider(resource=resource)
+
+    # Configure OTLP exporter (assumes Jaeger is running on default port 4318)
+    otlp_exporter = OTLPSpanExporter(
+        endpoint="http://localhost:4318/v1/traces",
+    )
+    provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+
+    # Set as global tracer provider
+    trace.set_tracer_provider(provider)
+
+    # Instrument httpx to automatically propagate trace context via HTTP headers
+    HTTPXClientInstrumentor().instrument()
+
+    print("✓ OpenTelemetry tracing initialized (endpoint: http://localhost:4318/v1/traces)")
+    print("✓ HTTPX instrumentation enabled (trace context will be propagated via HTTP headers)")
+
     try:
         from mcp.client.session import ClientSession
         from mcp.client.streamable_http import streamable_http_client
@@ -891,8 +947,8 @@ def main():
     )
     parser.add_argument(
         "--a2a-url",
-        default="http://127.0.0.1:9000",
-        help="A2A agent server URL (default: http://127.0.0.1:9000)",
+        default="http://127.0.0.1:9999",
+        help="A2A agent server URL (default: http://127.0.0.1:9999)",
     )
     parser.add_argument("--cleanup", action="store_true", help="Delete sessions after completion")
     parser.add_argument(
