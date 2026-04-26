@@ -126,6 +126,15 @@ def a2a_cmd(
             raise click.ClickException(f"OTEL is enabled but collector is not reachable: {err}")
 
         init_tracing_from_env(service_name="exgentic-a2a")
+
+        # Instrument ASGI/Starlette to propagate trace context from HTTP headers
+        try:
+            from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
+
+            click.echo("✓ ASGI instrumentation will be applied to propagate trace context")
+        except ImportError:
+            click.echo("⚠️  opentelemetry-instrumentation-asgi not installed, trace propagation may not work")
+
         click.echo(f"✓ OTEL tracing enabled (endpoint: {os.getenv('OTEL_EXPORTER_OTLP_ENDPOINT', 'not set')})")
 
     # Initialize context using run_scope
@@ -217,7 +226,7 @@ def a2a_cmd(
 
             app = server.build()
 
-            # Add the agent-card.json path
+            # Add the agent-card.json path BEFORE wrapping with middleware
             app.routes.insert(
                 0,
                 Route(
@@ -227,6 +236,17 @@ def a2a_cmd(
                     name="agent_card_new",
                 ),
             )
+
+            # Wrap with OpenTelemetry middleware to propagate trace context
+            # This must be done AFTER all routes are added
+            if settings.otel_enabled:
+                try:
+                    from opentelemetry.instrumentation.asgi import OpenTelemetryMiddleware
+
+                    app = OpenTelemetryMiddleware(app)
+                    click.echo("✓ ASGI middleware applied for trace context propagation")
+                except ImportError:
+                    pass
 
             click.echo("\n✓ A2A server started successfully!")
             click.echo(f"  Host: {host}")
