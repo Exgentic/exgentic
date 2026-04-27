@@ -158,6 +158,7 @@ async def acheck_model_accessible(
     model: str,
     *,
     model_settings: ModelSettings | None = None,
+    **kwargs: object,
 ) -> None:
     """Raise if LiteLLM cannot access the configured model.
 
@@ -176,6 +177,10 @@ async def acheck_model_accessible(
     attempts with at least :data:`_HEALTH_MIN_RETRY_DELAY` seconds
     base delay (capped at :data:`_HEALTH_MAX_RETRY_DELAY`) so that
     flaky endpoints have enough time to recover.
+
+    Extra keyword arguments are forwarded to ``litellm.acompletion`` for
+    custom LiteLLM providers that require ``api_base``, ``api_key``, or
+    provider-specific headers.
     """
     import litellm
 
@@ -197,6 +202,7 @@ async def acheck_model_accessible(
                 messages=[{"role": "user", "content": "hi"}],
                 max_tokens=1,
                 caching=False,
+                **kwargs,
             )
             return
         except Exception as exc:
@@ -223,6 +229,7 @@ def check_model_accessible_sync(
     logger: logging.Logger,
     timeout: float = 240.0,
     model_settings: ModelSettings | None = None,
+    **kwargs: object,
 ) -> None:
     """Synchronous wrapper for model health check.
 
@@ -232,6 +239,7 @@ def check_model_accessible_sync(
         timeout: Timeout in seconds for the health check
         model_settings: Optional retry settings; uses ``ModelSettings()`` defaults
             when *None*.
+        **kwargs: Extra arguments forwarded to ``acheck_model_accessible``.
 
     Raises:
         HealthCheckError: If the model is not accessible
@@ -241,7 +249,7 @@ def check_model_accessible_sync(
     logger.info("Running LiteLLM model health check (model=%s)", model)
     try:
         run_sync(
-            acheck_model_accessible(model, model_settings=model_settings),
+            acheck_model_accessible(model, model_settings=model_settings, **kwargs),
             timeout=timeout,
         )
         logger.info("Model health check passed for %s", model)

@@ -5,6 +5,7 @@ import functools
 import logging
 from abc import abstractmethod
 from collections.abc import Callable
+from typing import Any
 
 from rich.console import Console
 from smolagents import LiteLLMModel
@@ -16,6 +17,7 @@ from smolagents.utils import AgentError, Retrying
 from ...adapters.agents.code_agent import CodeAgentInstance
 from ...core.types import ModelSettings, RetryStrategy
 from ...integrations.litellm.health import check_model_accessible_sync
+from ...integrations.litellm.rits_resolver import build_rits_overrides
 from ...observers.logging import close_logger
 from ...utils.cost import CostReport, LiteLLMCostReport
 from ...utils.settings import get_settings
@@ -44,9 +46,37 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
         self._retry_on_all_errors = retry_on_all_errors
         self._agent = None
         self._model = None
+        self._rits_overrides: dict[str, Any] = {}
+        if self.model_id.startswith("rits/"):
+            self._rits_overrides = build_rits_overrides(self.model_id)
+            self.logger.info(
+                "Resolved RITS model %s -> %s @ %s",
+                self.model_id,
+                self._rits_overrides["model"],
+                self._rits_overrides["api_base"],
+            )
 
         # Check model accessibility
-        check_model_accessible_sync(self.model_id, logger=self.logger, model_settings=self.model_settings)
+        check_model_accessible_sync(
+            self._completion_model,
+            logger=self.logger,
+            model_settings=self.model_settings,
+            **self._provider_health_kwargs,
+        )
+
+    @property
+    def _completion_model(self) -> str:
+        return str(self._rits_overrides.get("model", self.model_id))
+
+    @property
+    def _provider_health_kwargs(self) -> dict[str, Any]:
+        if not self._rits_overrides:
+            return {}
+        return {
+            "api_base": self._rits_overrides["api_base"],
+            "api_key": self._rits_overrides["api_key"],
+            "headers": self._rits_overrides["headers"],
+        }
 
     def run_code_agent(self, functions: list[Callable]) -> None:
         def _wrap_tool(fn: Callable) -> Callable:
@@ -86,11 +116,21 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
     def get_internal_model(self):
         if self._model is None:
             temperature = self.model_settings.temperature
+            model_kwargs: dict[str, Any] = {}
+            if self._rits_overrides:
+                model_kwargs.update(
+                    {
+                        "api_base": self._rits_overrides["api_base"],
+                        "api_key": self._rits_overrides["api_key"],
+                        "extra_headers": self._rits_overrides["headers"],
+                    }
+                )
             self._model = LiteLLMModel(
-                model_id=self.model_id,
+                model_id=self._completion_model,
                 temperature=temperature if temperature is not None else 1.0,
                 max_tokens=self.model_settings.max_tokens,
                 caching=settings.litellm_caching,
+                **model_kwargs,
             )
             num_retries = self.model_settings.num_retries or 0
             max_attempts = num_retries + 1 if num_retries > 0 else 1
@@ -132,8 +172,19 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
 
         token_usage = self._agent.monitor.get_total_token_counts()
 
-        return LiteLLMCostReport.from_token_counts(
-            model_name=self.model_id,
-            input_tokens=token_usage.input_tokens,
-            output_tokens=token_usage.output_tokens,
-        )
+        try:
+            return LiteLLMCostReport.from_token_counts(
+                model_name=self.model_id,
+                input_tokens=token_usage.input_tokens,
+                output_tokens=token_usage.output_tokens,
+            )
+        except Exception:
+            self.logger.debug(
+                "Cost tracking not available for model %s "
+                "(input_tokens=%s output_tokens=%s)",
+                self.model_id,
+                token_usage.input_tokens,
+                token_usage.output_tokens,
+                exc_info=True,
+            )
+            return LiteLLMCostReport.initialize_empty(model_name=self.model_id)
