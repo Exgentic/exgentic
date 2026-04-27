@@ -208,6 +208,25 @@ async def test_acheck_defaults_to_model_settings_when_none():
     assert mock.call_count == 2
 
 
+@pytest.mark.asyncio
+async def test_acheck_forwards_provider_kwargs_to_litellm():
+    """Custom provider args should reach the LiteLLM completion call."""
+    mock = AsyncMock(return_value=None)
+
+    with patch("litellm.acompletion", mock):
+        await acheck_model_accessible(
+            "hosted_vllm/granite",
+            api_base="https://rits.example/granite/v1",
+            api_key="secret",
+            headers={"RITS_API_KEY": "secret"},
+        )
+
+    mock.assert_awaited_once()
+    assert mock.await_args.kwargs["api_base"] == "https://rits.example/granite/v1"
+    assert mock.await_args.kwargs["api_key"] == "secret"
+    assert mock.await_args.kwargs["headers"] == {"RITS_API_KEY": "secret"}
+
+
 # ---------------------------------------------------------------------------
 # Transient error detection
 # ---------------------------------------------------------------------------
