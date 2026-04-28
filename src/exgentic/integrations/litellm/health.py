@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -190,6 +192,14 @@ async def acheck_model_accessible(
     is_exponential = model_settings.retry_strategy == RetryStrategy.EXPONENTIAL_BACKOFF
 
     last_exc: BaseException | None = None
+    extra_kwargs: dict = {}
+    api_base = os.environ.get("LITELLM_API_BASE")
+    if api_base:
+        extra_kwargs["api_base"] = api_base
+        extra_kwargs["api_key"] = os.environ.get("OPENAI_API_KEY") or "dummy"
+    extra_headers_raw = os.environ.get("LITELLM_EXTRA_HEADERS")
+    if extra_headers_raw:
+        extra_kwargs["extra_headers"] = json.loads(extra_headers_raw)
     for attempt in range(1 + num_retries):
         try:
             await litellm.acompletion(
@@ -197,6 +207,7 @@ async def acheck_model_accessible(
                 messages=[{"role": "user", "content": "hi"}],
                 max_tokens=1,
                 caching=False,
+                **extra_kwargs,
             )
             return
         except Exception as exc:

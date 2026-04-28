@@ -159,6 +159,13 @@ class LitellmProxy:
             litellm_params["max_tokens"] = self.model_settings.max_tokens
         if self.model_settings.top_p is not None:
             litellm_params["top_p"] = self.model_settings.top_p
+        api_base = os.environ.get("LITELLM_API_BASE")
+        if api_base:
+            litellm_params["api_base"] = api_base
+            litellm_params["api_key"] = os.environ.get("OPENAI_API_KEY") or "dummy"
+        extra_headers_raw = os.environ.get("LITELLM_EXTRA_HEADERS")
+        if extra_headers_raw:
+            litellm_params["extra_headers"] = json.loads(extra_headers_raw)
         return litellm_params
 
     def _build_config_data(self) -> dict[str, object]:
