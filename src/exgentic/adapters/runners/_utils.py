@@ -66,6 +66,7 @@ _FORWARD_SUFFIXES = (
     "_API_BASE",
     "_API_VERSION",
     "_API_TYPE",
+    "_API_URL",
     "_BASE_URL",
     "_ACCESS_KEY",
     "_SECRET_KEY",
