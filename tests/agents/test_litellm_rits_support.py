@@ -7,9 +7,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-
-from exgentic.agents.litellm_tool_calling import instance as tool_instance_mod  # noqa: E402
-from exgentic.agents.litellm_tool_calling.instance import LiteLLMToolCallingAgentInstance  # noqa: E402
+from exgentic.agents.litellm_tool_calling import instance as tool_instance_mod
+from exgentic.agents.litellm_tool_calling.instance import LiteLLMToolCallingAgentInstance
 
 RITS_OVERRIDES = {
     "model": "hosted_vllm/granite",

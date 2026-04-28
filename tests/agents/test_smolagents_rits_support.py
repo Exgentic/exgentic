@@ -18,6 +18,7 @@ if not hasattr(_smolagents_models, "is_rate_limit_error") or not hasattr(_smolag
         allow_module_level=True,
     )
 
+
 @pytest.fixture(autouse=True)
 def _set_test_environment(monkeypatch, tmp_path):
     cache_dir = tmp_path / "exgentic-rits-test-cache"
@@ -25,6 +26,7 @@ def _set_test_environment(monkeypatch, tmp_path):
     litellm_cache_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("EXGENTIC_CACHE_DIR", str(cache_dir))
     monkeypatch.setenv("EXGENTIC_LITELLM_CACHE_DIR", str(litellm_cache_dir))
+
 
 from exgentic.agents.smolagents import base_instance as smol_base_mod  # noqa: E402
 from exgentic.agents.smolagents.base_instance import SmolagentBaseAgentInstance  # noqa: E402
