@@ -13,7 +13,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
-RITS_API_KEY_ENV = "RITS_API_KEY"
+RITS_API_KEY_ENV = "RITS_API_KEY"  # pragma: allowlist secret
 RITS_API_URL_ENV = "RITS_API_URL"
 RITS_INFERENCE_INFO_URL = "https://rits.fmaas.res.ibm.com/ritsapi/inferenceinfo"
 RITS_REQUEST_TIMEOUT_SECONDS = 10.0
@@ -23,7 +23,7 @@ def get_rits_model_list() -> dict[str, str]:
     """Fetch available RITS models as ``model_name -> endpoint fragment``."""
     api_key = os.getenv(RITS_API_KEY_ENV)
     if not api_key:
-        raise EnvironmentError(f"Missing API key; please set '{RITS_API_KEY_ENV}'")
+        raise OSError(f"Missing API key; please set '{RITS_API_KEY_ENV}'")
     return _get_rits_model_list_cached(api_key, RITS_INFERENCE_INFO_URL)
 
 
@@ -36,9 +36,7 @@ def _get_rits_model_list_cached(api_key: str, inference_info_url: str) -> dict[s
             status = getattr(response, "status", 200)
     except HTTPError as exc:
         body = _read_error_body(exc)
-        raise RuntimeError(
-            f"Failed to fetch RITS model list: HTTP {exc.code} {exc.reason}. {body}"
-        ) from exc
+        raise RuntimeError(f"Failed to fetch RITS model list: HTTP {exc.code} {exc.reason}. {body}") from exc
     except URLError as exc:
         raise RuntimeError(f"Failed to fetch RITS model list: {exc.reason}") from exc
 
@@ -82,7 +80,7 @@ def resolve_rits_model(model_name: str) -> tuple[str, str]:
     """Resolve a RITS model name to ``(litellm_model, api_base)``."""
     api_url = os.getenv(RITS_API_URL_ENV)
     if not api_url:
-        raise EnvironmentError(f"Missing API URL; please set '{RITS_API_URL_ENV}'")
+        raise OSError(f"Missing API URL; please set '{RITS_API_URL_ENV}'")
 
     model_list = get_rits_model_list()
     model_url = model_list.get(model_name)
@@ -112,7 +110,7 @@ def build_rits_overrides(model: str) -> dict[str, Any]:
 
     api_key = os.getenv(RITS_API_KEY_ENV)
     if not api_key:
-        raise EnvironmentError(f"{RITS_API_KEY_ENV} environment variable must be set to use RITS models")
+        raise OSError(f"{RITS_API_KEY_ENV} environment variable must be set to use RITS models")
 
     return {
         "model": litellm_model,

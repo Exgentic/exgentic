@@ -217,14 +217,14 @@ async def test_acheck_forwards_provider_kwargs_to_litellm():
         await acheck_model_accessible(
             "hosted_vllm/granite",
             api_base="https://rits.example/granite/v1",
-            api_key="secret",
-            headers={"RITS_API_KEY": "secret"},
+            api_key="secret",  # pragma: allowlist secret
+            headers={"RITS_API_KEY": "secret"},  # pragma: allowlist secret
         )
 
     mock.assert_awaited_once()
     assert mock.await_args.kwargs["api_base"] == "https://rits.example/granite/v1"
-    assert mock.await_args.kwargs["api_key"] == "secret"
-    assert mock.await_args.kwargs["headers"] == {"RITS_API_KEY": "secret"}
+    assert mock.await_args.kwargs["api_key"] == "secret"  # pragma: allowlist secret
+    assert mock.await_args.kwargs["headers"] == {"RITS_API_KEY": "secret"}  # pragma: allowlist secret
 
 
 # ---------------------------------------------------------------------------

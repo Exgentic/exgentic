@@ -3,12 +3,11 @@
 
 from __future__ import annotations
 
-from io import BytesIO
 import json
+from io import BytesIO
 from urllib.error import HTTPError
 
 import pytest
-
 from exgentic.integrations.litellm.rits_resolver import (
     RITS_API_KEY_ENV,
     RITS_API_URL_ENV,
@@ -55,7 +54,7 @@ def test_get_rits_model_list_requires_api_key(monkeypatch):
 
 
 def test_resolve_rits_model_requires_api_url(monkeypatch):
-    monkeypatch.setenv(RITS_API_KEY_ENV, "secret")
+    monkeypatch.setenv(RITS_API_KEY_ENV, "secret")  # pragma: allowlist secret
     monkeypatch.delenv(RITS_API_URL_ENV, raising=False)
 
     with pytest.raises(EnvironmentError, match=RITS_API_URL_ENV):
@@ -63,7 +62,7 @@ def test_resolve_rits_model_requires_api_url(monkeypatch):
 
 
 def test_resolve_rits_model_fetches_and_builds_api_base(monkeypatch):
-    monkeypatch.setenv(RITS_API_KEY_ENV, "secret")
+    monkeypatch.setenv(RITS_API_KEY_ENV, "secret")  # pragma: allowlist secret
     monkeypatch.setenv(RITS_API_URL_ENV, "https://rits.example/base/")
     calls: list[object] = []
     _patch_urlopen(
@@ -77,16 +76,16 @@ def test_resolve_rits_model_fetches_and_builds_api_base(monkeypatch):
     assert model == "hosted_vllm/granite"
     assert api_base == "https://rits.example/base/granite-url/v1"
     request, timeout = calls[0]
+    expected_api_key = "secret"  # pragma: allowlist secret
     assert any(
-        key.lower().replace("_", "-") == RITS_API_KEY_ENV.lower().replace("_", "-")
-        and value == "secret"
+        key.lower().replace("_", "-") == RITS_API_KEY_ENV.lower().replace("_", "-") and value == expected_api_key
         for key, value in request.headers.items()
     )
     assert timeout > 0
 
 
 def test_build_rits_overrides_strips_provider_hint_after_full_lookup_misses(monkeypatch):
-    monkeypatch.setenv(RITS_API_KEY_ENV, "secret")
+    monkeypatch.setenv(RITS_API_KEY_ENV, "secret")  # pragma: allowlist secret
     monkeypatch.setenv(RITS_API_URL_ENV, "https://rits.example")
     _patch_urlopen(
         monkeypatch,
@@ -98,13 +97,13 @@ def test_build_rits_overrides_strips_provider_hint_after_full_lookup_misses(monk
     assert overrides == {
         "model": "hosted_vllm/gpt-oss-120b",
         "api_base": "https://rits.example/gpt-oss/v1",
-        "api_key": "secret",
-        "headers": {RITS_API_KEY_ENV: "secret"},
+        "api_key": "secret",  # pragma: allowlist secret
+        "headers": {RITS_API_KEY_ENV: "secret"},  # pragma: allowlist secret
     }
 
 
 def test_get_rits_model_list_raises_clear_error_for_http_error(monkeypatch):
-    monkeypatch.setenv(RITS_API_KEY_ENV, "secret")
+    monkeypatch.setenv(RITS_API_KEY_ENV, "secret")  # pragma: allowlist secret
 
     def fake_urlopen(request, timeout):
         raise HTTPError(
@@ -122,7 +121,7 @@ def test_get_rits_model_list_raises_clear_error_for_http_error(monkeypatch):
 
 
 def test_get_rits_model_list_rejects_malformed_payload(monkeypatch):
-    monkeypatch.setenv(RITS_API_KEY_ENV, "secret")
+    monkeypatch.setenv(RITS_API_KEY_ENV, "secret")  # pragma: allowlist secret
     _patch_urlopen(monkeypatch, {"model_name": "not-a-list"})
 
     with pytest.raises(RuntimeError, match="list"):
@@ -130,7 +129,7 @@ def test_get_rits_model_list_rejects_malformed_payload(monkeypatch):
 
 
 def test_clear_rits_model_cache_refetches(monkeypatch):
-    monkeypatch.setenv(RITS_API_KEY_ENV, "secret")
+    monkeypatch.setenv(RITS_API_KEY_ENV, "secret")  # pragma: allowlist secret
     calls: list[object] = []
     _patch_urlopen(
         monkeypatch,
