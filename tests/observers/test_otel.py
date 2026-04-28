@@ -3022,13 +3022,23 @@ class TestPrepareSubprocessEnvAllowlist:
         assert env.get("FIREWORKS_API_KEY") == "fw-key"
         assert env.get("ANTHROPIC_BASE_URL") == "https://example.com"
 
-    def test_provider_api_url_forwarded(self, monkeypatch):
-        """Suffix-match catches provider API URL variables such as RITS_API_URL."""
+    def test_rits_vars_forwarded(self, monkeypatch):
+        """RITS_ prefix forwards RITS_API_URL and other RITS vars."""
         from exgentic.adapters.runners._utils import prepare_subprocess_env
 
         monkeypatch.setenv("RITS_API_URL", "https://rits.example")
+        monkeypatch.setenv("RITS_API_KEY", "rits-key")  # pragma: allowlist secret
         env = prepare_subprocess_env()
         assert env.get("RITS_API_URL") == "https://rits.example"
+        assert env.get("RITS_API_KEY") == "rits-key"
+
+    def test_github_api_url_not_forwarded(self, monkeypatch):
+        """GITHUB_API_URL (a CI env var) must not be forwarded to subprocesses."""
+        from exgentic.adapters.runners._utils import prepare_subprocess_env
+
+        monkeypatch.setenv("GITHUB_API_URL", "https://api.github.com")
+        env = prepare_subprocess_env()
+        assert "GITHUB_API_URL" not in env
 
     def test_exgentic_vars_not_forwarded(self, monkeypatch):
         """EXGENTIC_* settings travel via runtime.json, not env vars."""
