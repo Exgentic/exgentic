@@ -30,7 +30,6 @@ from exgentic.agents.smolagents import base_instance as smol_base_mod  # noqa: E
 from exgentic.agents.smolagents.base_instance import SmolagentBaseAgentInstance  # noqa: E402
 from exgentic.utils.cost import LiteLLMCostReport  # noqa: E402
 
-
 RITS_OVERRIDES = {
     "model": "hosted_vllm/granite",
     "api_base": "https://rits.example/granite/v1",
