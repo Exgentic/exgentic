@@ -138,7 +138,7 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
     def _register_cost(self, usage: litellm.Usage):
         try:
             self._cost_data.update_cost_from_tokens(usage.prompt_tokens, usage.completion_tokens)
-        except Exception:
+        except ValueError:
             self.logger.debug(
                 "Cost tracking not available for model %s (prompt_tokens=%s completion_tokens=%s)",
                 self.model,

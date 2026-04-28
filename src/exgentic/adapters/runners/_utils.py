@@ -86,6 +86,7 @@ _FORWARD_PREFIXES = (
     "VERTEX_",
     "VERTEXAI_",
     "WATSONX_",
+    "RITS_",
     "HF_",
     "HUGGINGFACE_",
     "LITELLM_",

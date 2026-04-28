@@ -21,14 +21,14 @@ RITS_REQUEST_TIMEOUT_SECONDS = 10.0
 
 def get_rits_model_list() -> dict[str, str]:
     """Fetch available RITS models as ``model_name -> endpoint fragment``."""
-    api_key = os.getenv(RITS_API_KEY_ENV)
-    if not api_key:
-        raise OSError(f"Missing API key; please set '{RITS_API_KEY_ENV}'")
-    return _get_rits_model_list_cached(api_key, RITS_INFERENCE_INFO_URL)
+    return _get_rits_model_list_cached(RITS_INFERENCE_INFO_URL)
 
 
 @lru_cache(maxsize=8)
-def _get_rits_model_list_cached(api_key: str, inference_info_url: str) -> dict[str, str]:
+def _get_rits_model_list_cached(inference_info_url: str) -> dict[str, str]:
+    api_key = os.getenv(RITS_API_KEY_ENV)
+    if not api_key:
+        raise OSError(f"Missing API key; please set '{RITS_API_KEY_ENV}'")
     request = Request(inference_info_url, headers={RITS_API_KEY_ENV: api_key})
     try:
         with urllib.request.urlopen(request, timeout=RITS_REQUEST_TIMEOUT_SECONDS) as response:

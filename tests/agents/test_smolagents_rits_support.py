@@ -3,28 +3,28 @@
 
 from __future__ import annotations
 
-import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-os.environ.setdefault("EXGENTIC_CACHE_DIR", "/tmp/exgentic-rits-test-cache")
-os.environ.setdefault("EXGENTIC_LITELLM_CACHE_DIR", "/tmp/exgentic-rits-test-cache/litellm")
-
 smolagents = pytest.importorskip("smolagents")
 import smolagents.models as _smolagents_models  # noqa: E402
 import smolagents.utils as _smolagents_utils  # noqa: E402
 
-if not hasattr(_smolagents_models, "is_rate_limit_error"):
-    _smolagents_models.is_rate_limit_error = lambda exc: False  # type: ignore[attr-defined]
-if not hasattr(_smolagents_utils, "Retrying"):
+if not hasattr(_smolagents_models, "is_rate_limit_error") or not hasattr(_smolagents_utils, "Retrying"):
+    pytest.skip(
+        "smolagents compatibility APIs unavailable for RITS support tests",
+        allow_module_level=True,
+    )
 
-    class _Retrying:
-        def __init__(self, **kwargs):
-            self.kwargs = kwargs
-
-    _smolagents_utils.Retrying = _Retrying  # type: ignore[attr-defined]
+@pytest.fixture(autouse=True)
+def _set_test_environment(monkeypatch, tmp_path):
+    cache_dir = tmp_path / "exgentic-rits-test-cache"
+    litellm_cache_dir = cache_dir / "litellm"
+    litellm_cache_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("EXGENTIC_CACHE_DIR", str(cache_dir))
+    monkeypatch.setenv("EXGENTIC_LITELLM_CACHE_DIR", str(litellm_cache_dir))
 
 from exgentic.agents.smolagents import base_instance as smol_base_mod  # noqa: E402
 from exgentic.agents.smolagents.base_instance import SmolagentBaseAgentInstance  # noqa: E402
@@ -81,3 +81,18 @@ def test_smolagent_unknown_pricing_returns_empty_cost_report(monkeypatch):
     assert isinstance(report, LiteLLMCostReport)
     assert report.model_name == "rits/granite"
     assert report.total_cost == 0
+
+
+def test_smolagent_unexpected_cost_error_propagates(monkeypatch):
+    monkeypatch.setattr(smol_base_mod, "build_rits_overrides", MagicMock(return_value=RITS_OVERRIDES))
+    monkeypatch.setattr(smol_base_mod, "check_model_accessible_sync", MagicMock())
+    agent = ConcreteSmolagentInstance(session_id="s1", model_id="rits/granite")
+    agent._agent = SimpleNamespace(
+        monitor=SimpleNamespace(
+            get_total_token_counts=MagicMock(return_value=SimpleNamespace(input_tokens=10, output_tokens=5))
+        )
+    )
+    monkeypatch.setattr(LiteLLMCostReport, "from_token_counts", MagicMock(side_effect=RuntimeError("bad usage")))
+
+    with pytest.raises(RuntimeError, match="bad usage"):
+        agent.get_cost()

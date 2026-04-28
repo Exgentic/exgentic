@@ -178,7 +178,7 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
                 input_tokens=token_usage.input_tokens,
                 output_tokens=token_usage.output_tokens,
             )
-        except Exception:
+        except ValueError:
             self.logger.debug(
                 "Cost tracking not available for model %s (input_tokens=%s output_tokens=%s)",
                 self.model_id,

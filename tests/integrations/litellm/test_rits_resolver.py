@@ -144,3 +144,21 @@ def test_clear_rits_model_cache_refetches(monkeypatch):
     clear_rits_model_cache()
     assert get_rits_model_list() == {"granite": "granite"}
     assert len(calls) == 2
+
+
+def test_get_rits_model_list_cache_not_keyed_by_api_key(monkeypatch):
+    calls: list[object] = []
+    _patch_urlopen(
+        monkeypatch,
+        [{"model_name": "granite", "endpoint": "/serving/granite"}],
+        calls,
+    )
+
+    monkeypatch.setenv(RITS_API_KEY_ENV, "first-key")  # pragma: allowlist secret
+    assert get_rits_model_list() == {"granite": "granite"}
+
+    monkeypatch.setenv(RITS_API_KEY_ENV, "second-key")  # pragma: allowlist secret
+    assert get_rits_model_list() == {"granite": "granite"}
+
+    # Discovery cache should be keyed by endpoint only, not secret values.
+    assert len(calls) == 1

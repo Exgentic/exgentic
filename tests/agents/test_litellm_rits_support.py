@@ -3,12 +3,10 @@
 
 from __future__ import annotations
 
-import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-os.environ.setdefault("EXGENTIC_CACHE_DIR", "/tmp/exgentic-rits-test-cache")
-os.environ.setdefault("EXGENTIC_LITELLM_CACHE_DIR", "/tmp/exgentic-rits-test-cache/litellm")
+import pytest
 
 from exgentic.agents.litellm_tool_calling import instance as tool_instance_mod  # noqa: E402
 from exgentic.agents.litellm_tool_calling.instance import LiteLLMToolCallingAgentInstance  # noqa: E402
@@ -19,6 +17,15 @@ RITS_OVERRIDES = {
     "api_key": "secret",  # pragma: allowlist secret
     "headers": {"RITS_API_KEY": "secret"},  # pragma: allowlist secret
 }
+
+
+@pytest.fixture(autouse=True)
+def _set_test_cache_dirs(monkeypatch, tmp_path):
+    cache_dir = tmp_path / "exgentic-rits-test-cache"
+    litellm_cache_dir = cache_dir / "litellm"
+    litellm_cache_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("EXGENTIC_CACHE_DIR", str(cache_dir))
+    monkeypatch.setenv("EXGENTIC_LITELLM_CACHE_DIR", str(litellm_cache_dir))
 
 
 def test_litellm_tool_calling_resolves_rits_once_and_uses_resolved_health(monkeypatch):
@@ -64,3 +71,14 @@ def test_litellm_tool_calling_unknown_pricing_does_not_fail(monkeypatch):
     agent._register_cost(SimpleNamespace(prompt_tokens=10, completion_tokens=5))
 
     agent._cost_data.update_cost_from_tokens.assert_called_once_with(10, 5)
+
+
+def test_litellm_tool_calling_unexpected_cost_error_propagates(monkeypatch):
+    monkeypatch.setattr(tool_instance_mod, "build_rits_overrides", MagicMock(return_value=RITS_OVERRIDES))
+    monkeypatch.setattr(tool_instance_mod, "check_model_accessible_sync", MagicMock())
+    agent = LiteLLMToolCallingAgentInstance(session_id="s1", model="rits/granite")
+    agent._cost_data = MagicMock()
+    agent._cost_data.update_cost_from_tokens.side_effect = RuntimeError("broken usage object")
+
+    with pytest.raises(RuntimeError, match="broken usage object"):
+        agent._register_cost(SimpleNamespace(prompt_tokens=10, completion_tokens=5))

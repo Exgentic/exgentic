@@ -3040,6 +3040,14 @@ class TestPrepareSubprocessEnvAllowlist:
         env = prepare_subprocess_env()
         assert "GITHUB_API_URL" not in env
 
+    def test_non_provider_api_url_not_forwarded(self, monkeypatch):
+        """Avoid forwarding unrelated CI/tooling API URLs into subprocesses."""
+        from exgentic.adapters.runners._utils import prepare_subprocess_env
+
+        monkeypatch.setenv("GITHUB_API_URL", "https://api.github.example")
+        env = prepare_subprocess_env()
+        assert "GITHUB_API_URL" not in env
+
     def test_exgentic_vars_not_forwarded(self, monkeypatch):
         """EXGENTIC_* settings travel via runtime.json, not env vars."""
         from exgentic.adapters.runners._utils import prepare_subprocess_env
