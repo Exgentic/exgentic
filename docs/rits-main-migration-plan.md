@@ -101,4 +101,3 @@ against RITS endpoints.
 - Health tests proving provider kwargs reach `litellm.acompletion()`.
 - Agent tests proving RITS is resolved once, health checks and completions use
   resolved kwargs, and unknown pricing does not crash agent cost reporting.
-
