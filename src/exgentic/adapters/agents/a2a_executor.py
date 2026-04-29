@@ -41,14 +41,30 @@ class A2AEventEmitter:
             if failed:
                 await self.task_updater.failed()
         else:
-            await self.task_updater.update_status(
-                TaskState.working,
-                new_agent_text_message(
-                    message,
-                    self.task_updater.context_id,
-                    self.task_updater.task_id,
-                ),
-            )
+            try:
+                await self.task_updater.update_status(
+                    TaskState.working,
+                    new_agent_text_message(
+                        message,
+                        self.task_updater.context_id,
+                        self.task_updater.task_id,
+                    ),
+                )
+            except RuntimeError as e:
+                # Task may already be in terminal state if fire-and-forget
+                # status updates race with completion. This is expected.
+                error_msg = str(e).lower()
+                if "terminal state" in error_msg or "already" in error_msg:
+                    logging.debug(
+                        "Task update skipped - task already in terminal state (expected race condition): %s",
+                        e,
+                    )
+                else:
+                    logging.warning(
+                        "Unexpected RuntimeError during task status update: %s",
+                        e,
+                        exc_info=True,
+                    )
 
 
 class ExgenticAgentExecutor:
@@ -160,16 +176,81 @@ class ExgenticAgentExecutor:
         logger.info(f"Task execution logs: {output_dir_path / run_id}")
         print(f"\n📁 New request - Logs: {output_dir_path / run_id}")
 
-        await event_emitter.emit_event(f"🚀 Starting task execution with {self.agent_display_name}...")
+        _ = asyncio.create_task(
+            event_emitter.emit_event(f"🚀 Starting task execution with {self.agent_display_name}...")
+        )
+
+        # Extract session_id early (pure string parsing, no I/O)
+        session_id_match = re.search(r'session[_ ]id["\s:]+([a-f0-9-]{36})', user_input, re.IGNORECASE)
+        if not session_id_match:
+            error_msg = "No session_id found in task context. Task must include session_id."
+            await event_emitter.emit_event(f"❌ {error_msg}", failed=True)
+            return
+        session_id = session_id_match.group(1)
+
+        # Create mock session for tracker lifecycle
+        from ...core.session import Session as SessionBase
+
+        class A2ASession(SessionBase):
+            def __init__(self, task_str, actions, session_id_val, task_id_val):
+                self._session_id = session_id_val
+                self._task = task_str
+                self._actions = actions
+                self._task_id = task_id_val
+                super().__init__()
+
+            @property
+            def task(self) -> str:
+                return self._task
+
+            @property
+            def context(self) -> dict:
+                return {}
+
+            @property
+            def actions(self):
+                return self._actions
+
+            @property
+            def task_id(self) -> str:
+                return self._task_id
+
+            def start(self):
+                return None
+
+            def step(self, action):
+                return None
+
+            def done(self) -> bool:
+                return False
+
+            def score(self) -> dict:
+                return {"score": 1.0, "success": True}
+
+            def close(self) -> None:
+                pass
+
+        mock_session = A2ASession(user_input, self.action_types, session_id, f"a2a_{session_id}")
+
+        # Create the root invoke_agent span BEFORE setup so it captures full duration
+        tracker.on_session_enter(session_id, f"a2a_{session_id}")
+        tracker.on_session_creation(mock_session)
 
         # Connect to MCP server for tool execution
         mcp_session = None
         http_context = None
-        mock_session = None
         span_manager = None
 
         try:
-            await event_emitter.emit_event(f"🔗 Connecting to MCP server at {self.mcp_address}...")
+            # Connect to MCP server (captured as child span of invoke_agent)
+            if settings.otel_enabled:
+                span_manager = self._get_span_manager(tracker, session_id)
+                if span_manager:
+                    from opentelemetry.trace import SpanKind
+
+                    span_manager.start_span("connect_mcp", kind=SpanKind.INTERNAL)
+
+            _ = asyncio.create_task(event_emitter.emit_event(f"🔗 Connecting to MCP server at {self.mcp_address}..."))
 
             http_context = streamable_http_client(self.mcp_address)
             read_stream, write_stream, _ = await http_context.__aenter__()
@@ -178,65 +259,11 @@ class ExgenticAgentExecutor:
             await mcp_session.__aenter__()
             await mcp_session.initialize()
 
-            await event_emitter.emit_event("✓ Connected to MCP server")
+            _ = asyncio.create_task(event_emitter.emit_event("✓ Connected to MCP server"))
+            _ = asyncio.create_task(event_emitter.emit_event(f"✓ Using session_id from task: {session_id}"))
 
-            # Extract session_id from user_input
-            session_id_match = re.search(r'session[_ ]id["\s:]+([a-f0-9-]{36})', user_input, re.IGNORECASE)
-            if not session_id_match:
-                error_msg = "No session_id found in task context. Task must include session_id."
-                await event_emitter.emit_event(f"❌ {error_msg}", failed=True)
-                raise ValueError(error_msg)
-
-            session_id = session_id_match.group(1)
-            await event_emitter.emit_event(f"✓ Using session_id from task: {session_id}")
-
-            # Create a mock session for tracker lifecycle
-            from ...core.session import Session as SessionBase
-
-            class A2ASession(SessionBase):
-                def __init__(self, task_str, actions, session_id_val, task_id_val):
-                    self._session_id = session_id_val
-                    self._task = task_str
-                    self._actions = actions
-                    self._task_id = task_id_val
-                    super().__init__()
-
-                @property
-                def task(self) -> str:
-                    return self._task
-
-                @property
-                def context(self) -> dict:
-                    return {}
-
-                @property
-                def actions(self):
-                    return self._actions
-
-                @property
-                def task_id(self) -> str:
-                    return self._task_id
-
-                def start(self):
-                    return None
-
-                def step(self, action):
-                    return None
-
-                def done(self) -> bool:
-                    return False
-
-                def score(self) -> dict:
-                    return {"score": 1.0, "success": True}
-
-                def close(self) -> None:
-                    pass
-
-            mock_session = A2ASession(user_input, self.action_types, session_id, f"a2a_{session_id}")
-
-            # on_session_enter creates the root span via OtelTracingObserver
-            tracker.on_session_enter(session_id, f"a2a_{session_id}")
-            tracker.on_session_creation(mock_session)
+            if span_manager:
+                span_manager.end_current_span()
 
             # Rename the root span and set GenAI/MLflow/Phoenix attributes
             if settings.otel_enabled:
@@ -281,16 +308,26 @@ class ExgenticAgentExecutor:
                         )
 
             # Create agent instance — inherits OTEL context via RuntimeConfig
+            if span_manager:
+                from opentelemetry.trace import SpanKind
+
+                span_manager.start_span("create_agent", kind=SpanKind.INTERNAL)
             agent_instance = self.agent_cls(**self.agent_kwargs).get_instance(session_id=session_id)
-            tracker.on_session_start(mock_session, agent_instance, None)
 
             agent_instance.start(
                 task=user_input,
                 context={},
                 actions=self.action_types,
             )
+            if span_manager:
+                span_manager.end_current_span()
 
-            await event_emitter.emit_event(f"✓ Agent initialized with {len(self.action_types)} tools")
+            # on_session_start records initial_observation — must be after create_agent span closes
+            tracker.on_session_start(mock_session, agent_instance, None)
+
+            _ = asyncio.create_task(
+                event_emitter.emit_event(f"✓ Agent initialized with {len(self.action_types)} tools")
+            )
 
             # Agent loop
             max_iterations = 50
@@ -304,16 +341,18 @@ class ExgenticAgentExecutor:
                     action = await loop.run_in_executor(executor, agent_instance.react, current_observation)
 
                     if action is None:
-                        await event_emitter.emit_event("✓ Agent completed execution")
+                        _ = asyncio.create_task(event_emitter.emit_event("✓ Agent completed execution"))
                         break
 
                     tracker.on_react_success(mock_session, action)
                     actions_to_execute = action.to_action_list()
 
                     if len(actions_to_execute) > 1:
-                        await event_emitter.emit_event(f"🔧 Parallel Action: {len(actions_to_execute)} actions")
+                        _ = asyncio.create_task(
+                            event_emitter.emit_event(f"🔧 Parallel Action: {len(actions_to_execute)} actions")
+                        )
                     else:
-                        await event_emitter.emit_event(f"🔧 Action: {actions_to_execute[0].name}")
+                        _ = asyncio.create_task(event_emitter.emit_event(f"🔧 Action: {actions_to_execute[0].name}"))
 
                     # Check if any action is a finish action by matching action names to action types
                     has_finish_action = False
@@ -345,12 +384,16 @@ class ExgenticAgentExecutor:
                                 result_text = str(result)
 
                             results.append(result_text)
-                            await event_emitter.emit_event(f"📊 Result ({tool_name}): {str(result_text)[:200]}")
+                            _ = asyncio.create_task(
+                                event_emitter.emit_event(f"📊 Result ({tool_name}): {str(result_text)[:200]}")
+                            )
 
                             try:
                                 result_json = json.loads(result_text)
                                 if result_json.get("status") == "completed":
-                                    await event_emitter.emit_event("✓ Session completed successfully")
+                                    _ = asyncio.create_task(
+                                        event_emitter.emit_event("✓ Session completed successfully")
+                                    )
                                     final_result = "Session completed"
                                     break
                             except (json.JSONDecodeError, AttributeError):
@@ -359,10 +402,12 @@ class ExgenticAgentExecutor:
                         except Exception as e:
                             error_msg = f"Error executing {tool_name}: {e}"
                             results.append(error_msg)
-                            await event_emitter.emit_event(f"❌ {error_msg}")
+                            _ = asyncio.create_task(event_emitter.emit_event(f"❌ {error_msg}"))
 
                             if "timed out" in str(e).lower() or "timeout" in str(e).lower():
-                                await event_emitter.emit_event("⚠️  Timeout detected, assuming session completed")
+                                _ = asyncio.create_task(
+                                    event_emitter.emit_event("⚠️  Timeout detected, assuming session completed")
+                                )
                                 final_result = "Session completed (timeout)"
                                 break
 
@@ -391,7 +436,7 @@ class ExgenticAgentExecutor:
 
                     # Terminate after observation if any action was a finish action
                     if has_finish_action:
-                        await event_emitter.emit_event("✓ Finish action executed, terminating")
+                        _ = asyncio.create_task(event_emitter.emit_event("✓ Finish action executed, terminating"))
                         break
             finally:
                 executor.shutdown(wait=False)
