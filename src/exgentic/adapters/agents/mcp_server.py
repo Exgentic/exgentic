@@ -303,29 +303,6 @@ class MCPServer:
     def _build_server(self) -> uvicorn.Server:
         app = self._mcp.streamable_http_app()
 
-        # Add timing middleware to log request durations
-        from starlette.middleware.base import BaseHTTPMiddleware
-        from starlette.requests import Request
-
-        class TimingMiddleware(BaseHTTPMiddleware):
-            def __init__(self, app, logger):
-                super().__init__(app)
-                self.logger = logger
-
-            async def dispatch(self, request: Request, call_next):
-                start_time = time.perf_counter()
-                method = request.method
-                path = request.url.path
-                self.logger.info(f"→ {method} {path} started")
-
-                response = await call_next(request)
-
-                duration = time.perf_counter() - start_time
-                self.logger.info(f"← {method} {path} completed in {duration:.3f}s (status={response.status_code})")
-                return response
-
-        app.add_middleware(TimingMiddleware, logger=self._server_logger)
-
         config = uvicorn.Config(
             app,
             host=self._host,
