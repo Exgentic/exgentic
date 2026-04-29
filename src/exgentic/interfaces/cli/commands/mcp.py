@@ -136,6 +136,12 @@ def mcp_cmd(
         sessions = {}
         sessions_lock = threading.Lock()
         action_types = []  # Will be populated when first session is created
+        from concurrent.futures import ThreadPoolExecutor
+
+        # Thread pool for handling concurrent session operations
+        # High worker count (200) allows many parallel session creations/actions
+        # which is important for benchmarks with many tasks
+        session_executor = ThreadPoolExecutor(max_workers=200)
 
         # Get available tasks from benchmark evaluator
         try:
@@ -233,14 +239,13 @@ def mcp_cmd(
             """Create a session for a specific task."""
             if task_id not in task_ids:
                 return {"error": f"Invalid task_id: {task_id}. Available tasks: {task_ids[:10]}..."}
-            # Run in thread pool so the event loop stays free for parallel requests
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, create_session_for_task, task_id)
+            return await loop.run_in_executor(session_executor, create_session_for_task, task_id)
 
         async def delete_session_tool(session_id: str) -> dict:
             """Close and delete a session by its session_id."""
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, delete_session_by_id, session_id)
+            return await loop.run_in_executor(session_executor, delete_session_by_id, session_id)
 
         def _evaluate_session_sync(session_id: str) -> dict:
             """Evaluate a session (sync helper)."""
@@ -285,7 +290,7 @@ def mcp_cmd(
         async def evaluate_session_tool(session_id: str) -> dict:
             """Evaluate a session and return whether it was successful. Closes the session if not done."""
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(None, _evaluate_session_sync, session_id)
+            return await loop.run_in_executor(session_executor, _evaluate_session_sync, session_id)
 
         # Set up function signatures for management tools
         import inspect
@@ -394,7 +399,7 @@ def mcp_cmd(
             async def tool_fn(session_id: str, **kwargs):
                 """Tool function that executes action via session.step()."""
                 loop = asyncio.get_event_loop()
-                return await loop.run_in_executor(None, lambda: _execute_action_sync(session_id, **kwargs))
+                return await loop.run_in_executor(session_executor, lambda: _execute_action_sync(session_id, **kwargs))
 
             # Set function metadata
             tool_fn.__name__ = at.name
@@ -487,13 +492,21 @@ def mcp_cmd(
             def signal_handler(sig, frame):
                 click.echo("\n\nShutting down MCP server...")
                 server.stop()
+
+                # Shutdown thread pool executor
+                click.echo("  Shutting down thread pool...")
+                session_executor.shutdown(wait=True)
+
+                # Close all active sessions with proper locking
+                # Hold lock during entire cleanup since we're shutting down anyway
                 with sessions_lock:
                     for session_id, sess in list(sessions.items()):
                         try:
                             click.echo(f"  Closing session {session_id}...")
                             sess.close()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning(f"Error closing session {session_id}: {e}")
+
                 click.echo("Server stopped.")
                 sys.exit(0)
 
@@ -505,12 +518,19 @@ def mcp_cmd(
                 server.thread.join()
 
         except Exception as exc:
+            # Shutdown thread pool executor
+            session_executor.shutdown(wait=True)
+
+            # Close all sessions with proper locking
             with sessions_lock:
-                for sess in sessions.values():
-                    try:
-                        sess.close()
-                    except Exception:
-                        pass
+                session_list = list(sessions.values())
+
+            for sess in session_list:
+                try:
+                    sess.close()
+                except Exception as e:
+                    logger.warning(f"Error closing session during cleanup: {e}")
+
             raise click.ClickException(f"Failed to start MCP server: {exc}") from exc
 
 
