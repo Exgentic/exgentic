@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import logging
 import re
@@ -134,7 +135,7 @@ class ExgenticAgentExecutor:
 
         from opentelemetry import trace as otel_trace
 
-        from ...core.context import Context, OtelContext, get_context, set_context, set_context_fallback
+        from ...core.context import Context, OtelContext, get_context, set_context
         from ...core.orchestrator.tracker import Tracker
         from ...utils.settings import get_settings
 
@@ -162,7 +163,6 @@ class ExgenticAgentExecutor:
             otel_context=parent_otel_context,
         )
         set_context(ctx)
-        set_context_fallback(ctx)
 
         # Default observers include OtelTracingObserver when otel_enabled
         tracker = Tracker()
@@ -307,7 +307,6 @@ class ExgenticAgentExecutor:
                         current_ctx = get_context()
                         updated_ctx = current_ctx.with_session(session_id).with_otel_context(otel_ctx)
                         set_context(updated_ctx)
-                        set_context_fallback(updated_ctx)
                         logger.info(
                             f"Updated Context: session_id={session_id}, trace_id={otel_ctx.trace_id}, "
                             f"span_id={otel_ctx.span_id}"
@@ -319,17 +318,26 @@ class ExgenticAgentExecutor:
 
                 span_manager.start_span("create_agent", kind=SpanKind.INTERNAL)
             loop = asyncio.get_event_loop()
+            # Snapshot the current ContextVar state so that worker threads
+            # spawned by run_in_executor inherit the correct per-session context.
+            # Without this, run_in_executor threads get a bare context and fall
+            # back to the module-level _SUBPROCESS_CONTEXT global, which concurrent
+            # sessions overwrite — causing OTEL spans to be attributed to the
+            # wrong session.
+            ctx = contextvars.copy_context()
             agent_instance = await loop.run_in_executor(
                 None,
-                lambda: self.agent_cls(**self.agent_kwargs).get_instance(session_id=session_id),
+                lambda: ctx.run(lambda: self.agent_cls(**self.agent_kwargs).get_instance(session_id=session_id)),
             )
 
             await loop.run_in_executor(
                 None,
-                lambda: agent_instance.start(
-                    task=user_input,
-                    context={},
-                    actions=self.action_types,
+                lambda: ctx.run(
+                    lambda: agent_instance.start(
+                        task=user_input,
+                        context={},
+                        actions=self.action_types,
+                    )
                 ),
             )
             if span_manager:
@@ -349,7 +357,7 @@ class ExgenticAgentExecutor:
             try:
                 for _ in range(max_iterations):
                     loop = asyncio.get_event_loop()
-                    action = await loop.run_in_executor(executor, agent_instance.react, current_observation)
+                    action = await loop.run_in_executor(executor, ctx.run, agent_instance.react, current_observation)
 
                     if action is None:
                         self._fire_and_forget(event_emitter.emit_event("✓ Agent completed execution"))
@@ -471,13 +479,13 @@ class ExgenticAgentExecutor:
             tracker.on_session_success(mock_session, score, agent_instance)
 
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, agent_instance.close)
+            await loop.run_in_executor(None, ctx.run, agent_instance.close)
             await event_emitter.emit_event(final_result, final=True)
 
             # Flush traces to ensure they're exported
             from ...utils.otel import flush_traces
 
-            await loop.run_in_executor(None, flush_traces)
+            await loop.run_in_executor(None, ctx.run, flush_traces)
 
         except Exception as e:
             logger.exception(f"Error executing task: {e}")
