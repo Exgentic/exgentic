@@ -104,11 +104,12 @@ class ExgenticAgentExecutor:
         self.action_types = openai_tools_to_action_types(openai_tools)
 
         for action_type in self.action_types:
-            if action_type.name == "message":
+            # Set flags based on action name, check ending because MCP gateways can add prefixes
+            if action_type.name.endswith("message"):
                 action_type.is_message = True
-            if action_type.name == "finish":
+            if action_type.name.endswith("finish"):
                 action_type.is_finish = True
-            if action_type.name == "submit":
+            if action_type.name.endswith("submit"):
                 action_type.is_finish = True
 
         self._background_tasks: set[asyncio.Task] = set()
