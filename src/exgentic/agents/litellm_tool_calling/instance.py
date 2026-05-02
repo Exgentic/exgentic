@@ -19,8 +19,6 @@ from ...core.agent_instance import AgentInstance
 from ...core.types import (
     Action,
     ActionType,
-    Message,
-    MessageAction,
     MessageObservation,
     MessagePayload,
     ModelSettings,
@@ -100,6 +98,13 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         self._all_actions: list[ActionType] = list(self.actions)
         self._registry = ToolsActionsRegistry(self._all_actions)
 
+        # Find and store the message action type
+        self._message_action_type = None
+        for action_type in self._all_actions:
+            if action_type.is_message:
+                self._message_action_type = action_type
+                break
+
         # Seed conversation with task + context
         ctx = ""
         if self.context:
@@ -133,7 +138,7 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
 
             if len(obs.invoking_actions) > 0:
                 invoking = obs.invoking_actions[0]
-                if invoking.name == "message":
+                if self._message_action_type and invoking.name == self._message_action_type.name:
                     # Fallback: treat as user-visible content
                     self._add_message(ChatCompletionUserMessage(role="user", content=str(obs)))
                     continue
@@ -347,7 +352,13 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
             )
             actions = self._registry.tool_calls_to_action(tool_calls)
         else:
-            actions = MessageAction(arguments=Message(content=message.content))
+            # Use the message action type found in start()
+            if self._message_action_type is None:
+                raise RuntimeError("No action with is_message=True found in self._all_actions")
+
+            # Build the action using the found action type
+            # The arguments are passed as a dict and will be validated by build_action
+            actions = self._message_action_type.build_action(arguments={"content": message.content})
             self._add_message(
                 ChatCompletionAssistantMessage(
                     role="assistant",
