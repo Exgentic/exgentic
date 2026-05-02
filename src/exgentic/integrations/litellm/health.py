@@ -147,9 +147,8 @@ class HealthCheckError(RuntimeError):
     """Raised when the model health check fails."""
 
 
-# Health checks run once at session startup and are not
-# latency-sensitive, so we retry more patiently than regular API calls.
-_HEALTH_MIN_RETRIES = 7
+# Health checks run once at session startup with no retries to fail fast.
+_HEALTH_MIN_RETRIES = 0
 _HEALTH_MIN_RETRY_DELAY = 5.0
 _HEALTH_MAX_RETRY_DELAY = 30.0
 
@@ -221,7 +220,7 @@ async def acheck_model_accessible(
 def check_model_accessible_sync(
     model: str,
     logger: logging.Logger,
-    timeout: float = 60.0,
+    timeout: float = 30.0,
     model_settings: ModelSettings | None = None,
 ) -> None:
     """Synchronous wrapper for model health check.
@@ -229,7 +228,7 @@ def check_model_accessible_sync(
     Args:
         model: The model identifier to check
         logger: Logger for info/error messages
-        timeout: Timeout in seconds for the health check
+        timeout: Timeout in seconds for the health check (default: 30s)
         model_settings: Optional retry settings; uses ``ModelSettings()`` defaults
             when *None*.
 
