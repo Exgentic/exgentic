@@ -116,39 +116,38 @@ def test_smolagents_default_no_extras():
     assert "extra_headers" not in kwargs
 
 
-def test_openai_mcp_agent_translates_extras_for_litellm_model():
+def test_split_extras_for_openai_agents_pulls_out_known_keys():
     pytest.importorskip("agents")
-    from exgentic.agents.openai import instance as mod
+    from exgentic.agents.openai.instance import _split_litellm_params_extra_for_openai_agents
 
-    agent = mod.OpenAIMCPAgentInstance(
-        session_id="s1",
-        model_id="hosted_vllm/granite",
-        litellm_params_extra=EXTRAS,
-    )
+    base_url, api_key, extra_headers, remaining = _split_litellm_params_extra_for_openai_agents(EXTRAS)
 
-    captured = {}
+    assert base_url == EXTRAS["api_base"]
+    assert api_key == EXTRAS["api_key"]
+    assert extra_headers == EXTRAS["extra_headers"]
+    assert remaining == {}
 
-    class _CaptureRetryingLitellm:
-        def __init__(self, *args, **kwargs):
-            captured["init"] = kwargs
 
-    captured_settings = {}
+def test_split_extras_for_openai_agents_passes_through_unknown_keys():
+    pytest.importorskip("agents")
+    from exgentic.agents.openai.instance import _split_litellm_params_extra_for_openai_agents
 
-    class _CaptureSettings:
-        def __init__(self, **kwargs):
-            captured_settings["init"] = kwargs
-            self.extra_headers = None
-            self.extra_args = None
+    extras = {"api_base": "https://x", "timeout": 30, "custom_flag": True}
+    base_url, api_key, extra_headers, remaining = _split_litellm_params_extra_for_openai_agents(extras)
 
-    with (
-        patch.object(mod, "RetryingLitellmModel", _CaptureRetryingLitellm),
-        patch.object(mod, "OpenAIModelSettings", _CaptureSettings),
-    ):
-        # Exercise the construction block by calling the same code lazily —
-        # avoid running the whole MCP agent loop. Pull out the bits we care about
-        # by directly invoking the construction logic via a stub.
-        # Simpler: assert the agent stored the extras dict.
-        assert agent._litellm_params_extra == EXTRAS
+    assert base_url == "https://x"
+    assert api_key is None
+    assert extra_headers is None
+    assert remaining == {"timeout": 30, "custom_flag": True}
+
+
+def test_split_extras_for_openai_agents_does_not_mutate_input():
+    pytest.importorskip("agents")
+    from exgentic.agents.openai.instance import _split_litellm_params_extra_for_openai_agents
+
+    extras = dict(EXTRAS)
+    _split_litellm_params_extra_for_openai_agents(extras)
+    assert extras == EXTRAS
 
 
 def test_openai_mcp_agent_forwards_extras_to_health_check():
@@ -211,3 +210,31 @@ def test_proxy_backed_mcp_forwards_extras_to_health_check_and_proxy():
 
     assert health.call_args.kwargs["litellm_params_extra"] == EXTRAS
     assert agent._litellm_params_extra == EXTRAS
+
+
+@pytest.mark.parametrize(
+    "module_path,class_name",
+    [
+        ("exgentic.agents.cli.codex.agent", "CodexAgentInstance"),
+        ("exgentic.agents.cli.gemini.agent", "GeminiAgentInstance"),
+        ("exgentic.agents.cli.claude.agent", "ClaudeCodeAgentInstance"),
+    ],
+)
+def test_cli_agent_subclasses_forward_extras_to_base(module_path, class_name):
+    """Each CLI agent subclass must forward litellm_params_extra to its super().__init__()."""
+    import importlib
+
+    from exgentic.agents.cli import base as base_mod
+
+    mod = importlib.import_module(module_path)
+    agent_cls = getattr(mod, class_name)
+
+    with patch.object(base_mod, "check_model_accessible_sync") as health:
+        agent = agent_cls(
+            session_id="s1",
+            model_id="hosted_vllm/granite",
+            litellm_params_extra=EXTRAS,
+        )
+
+    assert agent._litellm_params_extra == EXTRAS
+    assert health.call_args.kwargs["litellm_params_extra"] == EXTRAS
