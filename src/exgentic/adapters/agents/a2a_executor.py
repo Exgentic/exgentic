@@ -9,7 +9,6 @@ import asyncio
 import contextvars
 import json
 import logging
-import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -238,13 +237,12 @@ class ExgenticAgentExecutor:
 
         self._fire_and_forget(event_emitter.emit_event(f"🚀 Starting task execution with {self.agent_display_name}..."))
 
-        # Extract session_id early (pure string parsing, no I/O)
-        session_id_match = re.search(r'session[_ ]id["\s:]+([a-f0-9-]{36})', user_input, re.IGNORECASE)
-        if not session_id_match:
-            error_msg = "No session_id found in task context. Task must include session_id."
+        # Extract session_id: prefer structured metadata, fall back to regex in text
+        session_id = context.metadata.get("session_id")
+        if not session_id:
+            error_msg = "No session_id found in request metadata or task text."
             await event_emitter.emit_event(f"❌ {error_msg}", failed=True)
             return
-        session_id = session_id_match.group(1)
 
         # Remove session_id from action types for agent and session serialization
         cleaned_action_types = self._remove_session_id_from_action_types(self.action_types)
@@ -322,7 +320,8 @@ class ExgenticAgentExecutor:
             await mcp_session.initialize()
 
             self._fire_and_forget(event_emitter.emit_event("✓ Connected to MCP server"))
-            self._fire_and_forget(event_emitter.emit_event(f"✓ Using session_id from task: {session_id}"))
+            session_id_source = "metadata" if context.metadata.get("session_id") else "text"
+            self._fire_and_forget(event_emitter.emit_event(f"✓ Using session_id ({session_id_source}): {session_id}"))
 
             if span_manager:
                 span_manager.end_current_span()
@@ -460,7 +459,6 @@ class ExgenticAgentExecutor:
                             else:
                                 result_text = str(result)
 
-                            results.append(result_text)
                             self._fire_and_forget(
                                 event_emitter.emit_event(f"📊 Result ({tool_name}): {str(result_text)[:200]}")
                             )
@@ -471,7 +469,13 @@ class ExgenticAgentExecutor:
                                     self._fire_and_forget(event_emitter.emit_event("✓ Session completed successfully"))
                                     final_result = "Session completed"
                                     break
+                                if result_json.get("status") == "success":
+                                    results.append(result_json["observation"])
+                                else:
+                                    raise ValueError("Failed to run mcp call" + result_text)
+
                             except (json.JSONDecodeError, AttributeError):
+                                results.append(result_text)
                                 pass
 
                         except Exception as e:
