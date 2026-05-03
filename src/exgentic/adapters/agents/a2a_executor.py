@@ -114,6 +114,57 @@ class ExgenticAgentExecutor:
 
         self._background_tasks: set[asyncio.Task] = set()
 
+    def _remove_session_id_from_action_types(self, action_types):
+        """Remove session_id field from action type schemas to pass to agent.
+
+        Creates new ActionTypes with modified Pydantic models that exclude session_id.
+        """
+        from pydantic import create_model
+
+        from ...core.types.action import ActionType, SingleAction
+
+        cleaned_action_types = []
+        for action_type in action_types:
+            # Get the original arguments Pydantic model
+            original_args_model = action_type.arguments
+
+            # Get all fields except session_id
+            new_fields = {}
+            for field_name, field_info in original_args_model.model_fields.items():
+                if field_name != "session_id":
+                    # Preserve the field with its type and metadata
+                    new_fields[field_name] = (field_info.annotation, field_info)
+
+            # Create a new Pydantic model without session_id
+            new_args_model = create_model(f"{original_args_model.__name__}WithoutSessionId", **new_fields)
+
+            # Create a new SingleAction subclass with the new arguments model
+            new_action_cls = type(
+                f"{action_type.cls.__name__}WithoutSessionId",
+                (SingleAction,),
+                {
+                    "__annotations__": {
+                        "name": str,
+                        "arguments": new_args_model,
+                    },
+                    "name": action_type.name,
+                },
+            )
+
+            # Create a new ActionType with the modified class
+            cleaned_action = ActionType(
+                name=action_type.name,
+                description=action_type.description,
+                cls=new_action_cls,
+                is_message=action_type.is_message,
+                is_finish=action_type.is_finish,
+                is_hidden=action_type.is_hidden,
+            )
+
+            cleaned_action_types.append(cleaned_action)
+
+        return cleaned_action_types
+
     def _fire_and_forget(self, coro) -> None:
         """Schedule a coroutine without blocking; prevent GC from cancelling it."""
         task = asyncio.create_task(coro)
@@ -195,6 +246,9 @@ class ExgenticAgentExecutor:
             return
         session_id = session_id_match.group(1)
 
+        # Remove session_id from action types for agent and session serialization
+        cleaned_action_types = self._remove_session_id_from_action_types(self.action_types)
+
         # Create mock session for tracker lifecycle
         from ...core.session import Session as SessionBase
 
@@ -237,7 +291,8 @@ class ExgenticAgentExecutor:
             def close(self) -> None:
                 pass
 
-        mock_session = A2ASession(user_input, self.action_types, session_id, f"a2a_{session_id}")
+        # Use cleaned action types for session (which gets serialized to session.json)
+        mock_session = A2ASession(user_input, cleaned_action_types, session_id, f"a2a_{session_id}")
 
         # Create the root invoke_agent span BEFORE setup so it captures full duration
         tracker.on_session_enter(session_id, f"a2a_{session_id}")
@@ -331,13 +386,14 @@ class ExgenticAgentExecutor:
                 lambda: ctx.run(lambda: self.agent_cls(**self.agent_kwargs).get_instance(session_id=session_id)),
             )
 
+            # Pass cleaned action types to agent (already created above)
             await loop.run_in_executor(
                 None,
                 lambda: ctx.run(
                     lambda: agent_instance.start(
                         task=user_input,
                         context={},
-                        actions=self.action_types,
+                        actions=cleaned_action_types,
                     )
                 ),
             )
@@ -388,7 +444,8 @@ class ExgenticAgentExecutor:
                         tool_name = single_action.name
                         args_dict = single_action.arguments.model_dump()
 
-                        if tool_name == "message" and "session_id" not in args_dict:
+                        # Add session_id to all actions if not present
+                        if "session_id" not in args_dict:
                             args_dict["session_id"] = session_id
 
                         try:
