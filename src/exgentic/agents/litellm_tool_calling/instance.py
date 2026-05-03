@@ -56,6 +56,7 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         max_selected_tools: int = 30,
         model_settings: ModelSettings | None = None,
         allow_truncated_messages: bool = False,
+        litellm_params_extra: dict[str, object] | None = None,
     ):
         super().__init__(session_id)
         self.model = model
@@ -69,6 +70,7 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         else:
             raise ValueError("model_settings must be a ModelSettings instance.")
         self._allow_truncated_messages = allow_truncated_messages
+        self._litellm_params_extra: dict[str, object] = dict(litellm_params_extra or {})
         self._use_cache = settings.litellm_caching
         self.logger.debug(
             "LiteLLM cache %s (dir=%s)",
@@ -87,7 +89,12 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         self._cost_data = LiteLLMCostReport.initialize_empty(model_name=self.model)
 
         # Check model accessibility
-        check_model_accessible_sync(self.model, logger=self.logger, model_settings=self.model_settings)
+        check_model_accessible_sync(
+            self.model,
+            logger=self.logger,
+            model_settings=self.model_settings,
+            litellm_params_extra=self._litellm_params_extra or None,
+        )
 
     def start(self, task, context, actions):
         """Receive work payload, build tool registry, and seed conversation."""
@@ -363,6 +370,7 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
             exclude_none=True,
             exclude={"num_retries", "retry_after", "retry_strategy"},
         )
+        call_kwargs.update(self._litellm_params_extra)
         call_kwargs.update(kwargs)
         return self._completion_with_retries(call_kwargs)
 

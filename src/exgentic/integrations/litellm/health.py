@@ -158,6 +158,7 @@ async def acheck_model_accessible(
     model: str,
     *,
     model_settings: ModelSettings | None = None,
+    litellm_params_extra: dict[str, object] | None = None,
 ) -> None:
     """Raise if LiteLLM cannot access the configured model.
 
@@ -176,6 +177,11 @@ async def acheck_model_accessible(
     attempts with at least :data:`_HEALTH_MIN_RETRY_DELAY` seconds
     base delay (capped at :data:`_HEALTH_MAX_RETRY_DELAY`) so that
     flaky endpoints have enough time to recover.
+
+    ``litellm_params_extra`` is forwarded to ``litellm.acompletion`` so
+    callers targeting non-standard backends can supply ``api_base``,
+    ``api_key``, ``extra_headers``, or any other LiteLLM-supported
+    per-call parameter.
     """
     import litellm
 
@@ -184,6 +190,7 @@ async def acheck_model_accessible(
 
     if model_settings is None:
         model_settings = _ModelSettings()
+    extra = dict(litellm_params_extra or {})
 
     num_retries = max(model_settings.num_retries or 0, _HEALTH_MIN_RETRIES)
     retry_after = max(model_settings.retry_after, _HEALTH_MIN_RETRY_DELAY)
@@ -197,6 +204,7 @@ async def acheck_model_accessible(
                 messages=[{"role": "user", "content": "hi"}],
                 max_tokens=1,
                 caching=False,
+                **extra,
             )
             return
         except Exception as exc:
@@ -223,6 +231,7 @@ def check_model_accessible_sync(
     logger: logging.Logger,
     timeout: float = 240.0,
     model_settings: ModelSettings | None = None,
+    litellm_params_extra: dict[str, object] | None = None,
 ) -> None:
     """Synchronous wrapper for model health check.
 
@@ -232,6 +241,9 @@ def check_model_accessible_sync(
         timeout: Timeout in seconds for the health check
         model_settings: Optional retry settings; uses ``ModelSettings()`` defaults
             when *None*.
+        litellm_params_extra: Optional dict forwarded to ``litellm.acompletion``
+            for non-standard backends (``api_base``, ``api_key``,
+            ``extra_headers``, ...).
 
     Raises:
         HealthCheckError: If the model is not accessible
@@ -241,7 +253,11 @@ def check_model_accessible_sync(
     logger.info("Running LiteLLM model health check (model=%s)", model)
     try:
         run_sync(
-            acheck_model_accessible(model, model_settings=model_settings),
+            acheck_model_accessible(
+                model,
+                model_settings=model_settings,
+                litellm_params_extra=litellm_params_extra,
+            ),
             timeout=timeout,
         )
         logger.info("Model health check passed for %s", model)

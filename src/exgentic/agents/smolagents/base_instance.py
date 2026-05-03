@@ -31,6 +31,7 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
         max_steps: int = 150,
         model_settings: ModelSettings | None = None,
         retry_on_all_errors: bool = True,
+        litellm_params_extra: dict[str, object] | None = None,
     ):
         super().__init__(session_id)
         self.model_id = model_id
@@ -42,11 +43,17 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
         else:
             raise ValueError("model_settings must be a ModelSettings instance.")
         self._retry_on_all_errors = retry_on_all_errors
+        self._litellm_params_extra: dict[str, object] = dict(litellm_params_extra or {})
         self._agent = None
         self._model = None
 
         # Check model accessibility
-        check_model_accessible_sync(self.model_id, logger=self.logger, model_settings=self.model_settings)
+        check_model_accessible_sync(
+            self.model_id,
+            logger=self.logger,
+            model_settings=self.model_settings,
+            litellm_params_extra=self._litellm_params_extra or None,
+        )
 
     def run_code_agent(self, functions: list[Callable]) -> None:
         def _wrap_tool(fn: Callable) -> Callable:
@@ -91,6 +98,7 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
                 temperature=temperature if temperature is not None else 1.0,
                 max_tokens=self.model_settings.max_tokens,
                 caching=settings.litellm_caching,
+                **self._litellm_params_extra,
             )
             num_retries = self.model_settings.num_retries or 0
             max_attempts = num_retries + 1 if num_retries > 0 else 1
