@@ -47,6 +47,8 @@ class SessionResults(BaseModel):
     agent_cost: float
     benchmark_cost: float
     execution_time: float
+    llm_time: float = 0.0
+    llm_call_count: int = 0
     details: dict[str, Any] = {}
     cost_reports: dict[str, CostReport] = Field(default_factory=dict)
     task_id: Optional[str] = None

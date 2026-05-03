@@ -172,6 +172,21 @@ class TraceLogger(CustomLogger):
     def _log_event(self, kwargs, response_obj, status, start_time=None, end_time=None):
         self._write_row(kwargs, response_obj, status)
         self._write_otel(kwargs, response_obj, status, start_time=start_time, end_time=end_time)
+        self._record_session_timing(kwargs, start_time, end_time)
+
+    def _record_session_timing(self, kwargs, start_time, end_time) -> None:
+        if start_time is None or end_time is None:
+            return
+        ctx = self.get_context(kwargs)
+        if ctx is None or not ctx.session_id:
+            return
+        try:
+            duration = (end_time - start_time).total_seconds()
+        except Exception:
+            return
+        from ...observers.handlers.session_timings import get_session_llm_timings
+
+        get_session_llm_timings().record(ctx.session_id, duration)
 
     def log_success_event(self, kwargs, response_obj, start_time, end_time):
         self._log_event(kwargs, response_obj, "success", start_time, end_time)
@@ -270,6 +285,9 @@ class TraceLogger(CustomLogger):
             # Routing key for PerSessionFileExporter.
             "exgentic.run.id": ctx.run_id,
         }
+        stream = kwargs.get("stream")
+        if stream is not None:
+            attrs["gen_ai.request.stream"] = bool(stream)
         self._collect_request_attrs(attrs, optional_params)
         self._collect_response_attrs(attrs, response_obj)
 
@@ -342,6 +360,19 @@ class TraceLogger(CustomLogger):
             output_tokens = _safe_get(usage, "completion_tokens")
             if output_tokens is not None:
                 attrs["gen_ai.usage.output_tokens"] = output_tokens
+
+            cache_creation_tokens = _safe_get(usage, "cache_creation_input_tokens")
+            if cache_creation_tokens is not None:
+                attrs["gen_ai.usage.cache_creation.input_tokens"] = cache_creation_tokens
+            cache_read_tokens = _safe_get(usage, "cache_read_input_tokens")
+            if cache_read_tokens is not None:
+                attrs["gen_ai.usage.cache_read.input_tokens"] = cache_read_tokens
+
+            completion_details = _safe_get(usage, "completion_tokens_details")
+            if completion_details:
+                reasoning_tokens = _safe_get(completion_details, "reasoning_tokens")
+                if reasoning_tokens is not None:
+                    attrs["gen_ai.usage.reasoning.output_tokens"] = reasoning_tokens
 
         choices = _safe_get(response_obj, "choices", [])
         if choices:

@@ -243,6 +243,9 @@ class ResultsObserver(Observer):
         agent_cost_report = agent.get_cost() if agent is not None else CostReport.initialize_empty()
         benchmark_cost_report = session.get_cost()
         status = self._resolve_session_status(score)
+        from .session_timings import get_session_llm_timings
+
+        llm_durations = get_session_llm_timings().pop(session_id)
         tr = SessionResults(
             session_id=session_id,
             success=success,
@@ -255,6 +258,8 @@ class ResultsObserver(Observer):
             agent_cost=agent_cost_report.total_cost,
             benchmark_cost=benchmark_cost_report.total_cost,
             execution_time=execution_time,
+            llm_time=sum(llm_durations),
+            llm_call_count=len(llm_durations),
             details=score.model_dump(),
             cost_reports={
                 "agent": agent_cost_report,
