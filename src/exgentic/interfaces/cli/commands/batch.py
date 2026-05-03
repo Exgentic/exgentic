@@ -216,7 +216,10 @@ def _apply_patch(payload: dict[str, Any], updates: dict[str, Any]) -> None:
 
 
 def _update_session_ids_in_dir(session_dir: Path, new_id: str) -> None:
-    for json_path in session_dir.rglob("*.json"):
+    # Top-level only: config.json and results.json carry session_id. Deeper
+    # files (litellm cache logs, etc.) don't, and rglob over them on NFS is
+    # wasteful.
+    for json_path in session_dir.glob("*.json"):
         try:
             payload = _load_config_file(str(json_path))
         except Exception:
@@ -251,9 +254,9 @@ def _recover_session_hashes(roots: list[Path], *, do_apply: bool) -> int:
         sessions_root = root / "sessions"
         if not sessions_root.exists():
             raise click.ClickException(f"sessions dir not found: {sessions_root}")
-        for cfg_path in sessions_root.rglob("config.json"):
-            if cfg_path.parent.parent != sessions_root:
-                continue
+        # Session config.json files live at sessions/{id}/config.json; the
+        # one-level glob avoids walking every nested benchmark/agent log dir.
+        for cfg_path in sessions_root.glob("*/config.json"):
             session_dir = cfg_path.parent
             old_id = session_dir.name
             config = _load_config_file(str(cfg_path))
@@ -473,8 +476,13 @@ def batch_status_cmd(
             if subset:
                 benchmark = f"{benchmark}/{subset}"
             sessions_dir = Path(run_status.results_path).parent / "sessions"
+            # Stat each session's results.json — that's the file we update on
+            # every observer write, so its mtime is the true "last activity"
+            # signal. Avoids rglob walking every trajectory/log file (which on
+            # NFS dominates wall time) while staying accurate during long-
+            # running sessions.
             latest = 0.0
-            for p in sessions_dir.rglob("*"):
+            for p in sessions_dir.glob("*/results.json"):
                 try:
                     m = p.stat().st_mtime
                 except OSError:
@@ -777,9 +785,9 @@ def batch_patch_cmd(
         if not sessions_root.exists():
             raise click.ClickException(f"sessions dir not found: {sessions_root}")
         changes = 0
-        for cfg_path in sessions_root.rglob("config.json"):
-            if cfg_path.parent.parent != sessions_root:
-                continue
+        # Session config.json files live at sessions/{id}/config.json; the
+        # one-level glob avoids walking every nested benchmark/agent log dir.
+        for cfg_path in sessions_root.glob("*/config.json"):
             session_dir = cfg_path.parent
             old_id = session_dir.name
             config = _load_config_file(str(cfg_path))

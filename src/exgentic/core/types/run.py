@@ -7,6 +7,8 @@ import hashlib
 import json
 import logging
 import random
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from typing import Any, ClassVar, Literal
 
@@ -151,13 +153,15 @@ class RunStatus(BaseModel):
                 context_config = run_config.model_copy(update=updates)
         with context_config.get_context():
             run_paths = get_run_paths()
-            statuses = [
-                SessionStatus.from_config(
-                    session_config,
-                    run_paths=run_paths,
-                )
-                for session_config in session_configs
-            ]
+            # Per-session status checks are pure I/O against shared storage
+            # (4 stat/read calls each on NFS) and independent across sessions.
+            # On a 4600-session tree this list comp serially burned 3-8 min;
+            # threading drops it to ~10s. pool.map preserves order, so the
+            # downstream RunPlan zips correctly with the input task order.
+            max_workers = min(32, len(session_configs)) or 1
+            scan = partial(SessionStatus.from_config, run_paths=run_paths)
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                statuses = list(pool.map(scan, session_configs))
             task_ids = [str(item.task_id) for item in session_configs]
             completed = sum(1 for item in statuses if item.status == SessionExecutionStatus.COMPLETED)
             running = sum(1 for item in statuses if item.status == SessionExecutionStatus.RUNNING)
