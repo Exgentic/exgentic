@@ -292,13 +292,16 @@ class MemoryMonitor:
             print("✓ No memory increase detected (or memory decreased)")
 
 
-async def call_a2a_agent(a2a_url: str, task_input: str, timeout: float = 600.0) -> Dict[str, Any]:
+async def call_a2a_agent(
+    a2a_url: str, task_input: str, timeout: float = 600.0, session_id: str | None = None
+) -> Dict[str, Any]:
     """Call the A2A agent to solve a task.
 
     Args:
         a2a_url: URL of the A2A agent server
         task_input: Task description/input
         timeout: Timeout in seconds for the A2A client (default: 600)
+        session_id: Session ID to pass via A2A request metadata
 
     Returns:
         Dictionary with result information
@@ -362,7 +365,8 @@ async def call_a2a_agent(a2a_url: str, task_input: str, timeout: float = 600.0) 
 
             logger.debug("Sending message to agent...")
 
-            async for response in client.send_message(message):
+            request_metadata = {"session_id": session_id} if session_id else None
+            async for response in client.send_message(message, request_metadata=request_metadata):
                 event_count += 1
                 logger.debug(f"Received response #{event_count}: type={type(response).__name__}")
 
@@ -540,13 +544,9 @@ def build_enhanced_task_input(task_input: str, session_id: str, context: Dict[st
 
     # Add session_id instructions
     prompt_parts.append(
-        f"""
+        """
 
-IMPORTANT: Use session id "{session_id}" in all your interactions with the benchmark tools.
-
-When calling any benchmark-related tools or APIs, you MUST include the session_id parameter with the value
-"{session_id}". This ensures your actions are properly tracked and evaluated within the correct benchmark session.
-
+IMPORTANT:
 If you are asked to submit an answer, make sure you call the submit MCP tool."""
     )
 
@@ -837,7 +837,9 @@ async def test_a2a_agent(
 
                         # Call A2A agent to solve the task
                         print("   🤖 Calling A2A agent...")
-                        result = await call_a2a_agent(a2a_url, enhanced_task_input, timeout=timeout)
+                        result = await call_a2a_agent(
+                            a2a_url, enhanced_task_input, timeout=timeout, session_id=session_id
+                        )
 
                         if result["success"]:
                             print(f"   ✓ Task completed in {result['elapsed_time']:.2f}s")
