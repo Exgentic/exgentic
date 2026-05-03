@@ -94,6 +94,16 @@ class Integration(BaseModel):
     entry_point: str
 
 
+_MAX_SCAN_WORKERS = 32
+"""Upper bound on threads used to fan out per-session status reads.
+
+Per-session checks are 4 stat/read calls each. On NFS, ~32 concurrent
+in-flight reads is enough to saturate metadata throughput on the trees
+we've measured; going wider gives diminishing returns and risks
+contention with concurrent batch evaluate workers.
+"""
+
+
 class RunStatus(BaseModel):
     """Snapshot of the current run status and existing session artifacts."""
 
@@ -137,6 +147,14 @@ class RunStatus(BaseModel):
         run_config: RunConfig,
         session_configs: list[SessionConfig],
     ) -> RunStatus:
+        """Build a :class:`RunStatus` by scanning each session's artifacts.
+
+        The per-session checks (``SessionStatus.from_config``) are pure I/O
+        against shared storage — 4 stat/read calls each on NFS — and
+        independent across sessions, so we fan them out via a
+        ``ThreadPoolExecutor``. ``pool.map`` preserves input order, so the
+        downstream ``RunPlan`` zips correctly with the input task order.
+        """
         from ...utils.paths import get_run_paths
 
         context_config = run_config
@@ -153,12 +171,7 @@ class RunStatus(BaseModel):
                 context_config = run_config.model_copy(update=updates)
         with context_config.get_context():
             run_paths = get_run_paths()
-            # Per-session status checks are pure I/O against shared storage
-            # (4 stat/read calls each on NFS) and independent across sessions.
-            # On a 4600-session tree this list comp serially burned 3-8 min;
-            # threading drops it to ~10s. pool.map preserves order, so the
-            # downstream RunPlan zips correctly with the input task order.
-            max_workers = min(32, len(session_configs)) or 1
+            max_workers = max(1, min(_MAX_SCAN_WORKERS, len(session_configs)))
             scan = partial(SessionStatus.from_config, run_paths=run_paths)
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
                 statuses = list(pool.map(scan, session_configs))

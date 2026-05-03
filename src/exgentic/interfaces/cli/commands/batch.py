@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -215,6 +216,15 @@ def _apply_patch(payload: dict[str, Any], updates: dict[str, Any]) -> None:
         cursor[parts[-1]] = value
 
 
+def _iter_session_files(sessions_root: Path, filename: str) -> Iterator[Path]:
+    """Yield ``sessions_root/{id}/{filename}`` for each session subdirectory.
+
+    A one-level glob avoids walking nested benchmark/agent log dirs, which
+    dominates wall time on NFS for large session trees.
+    """
+    return sessions_root.glob(f"*/{filename}")
+
+
 def _update_session_ids_in_dir(session_dir: Path, new_id: str) -> None:
     # Top-level only: config.json and results.json carry session_id. Deeper
     # files (litellm cache logs, etc.) don't, and rglob over them on NFS is
@@ -254,9 +264,7 @@ def _recover_session_hashes(roots: list[Path], *, do_apply: bool) -> int:
         sessions_root = root / "sessions"
         if not sessions_root.exists():
             raise click.ClickException(f"sessions dir not found: {sessions_root}")
-        # Session config.json files live at sessions/{id}/config.json; the
-        # one-level glob avoids walking every nested benchmark/agent log dir.
-        for cfg_path in sessions_root.glob("*/config.json"):
+        for cfg_path in _iter_session_files(sessions_root, "config.json"):
             session_dir = cfg_path.parent
             old_id = session_dir.name
             config = _load_config_file(str(cfg_path))
@@ -476,13 +484,11 @@ def batch_status_cmd(
             if subset:
                 benchmark = f"{benchmark}/{subset}"
             sessions_dir = Path(run_status.results_path).parent / "sessions"
-            # Stat each session's results.json — that's the file we update on
-            # every observer write, so its mtime is the true "last activity"
-            # signal. Avoids rglob walking every trajectory/log file (which on
-            # NFS dominates wall time) while staying accurate during long-
-            # running sessions.
+            # results.json is what observers touch on every write, so its
+            # mtime is the true last-activity signal — accurate even during
+            # long-running sessions.
             latest = 0.0
-            for p in sessions_dir.glob("*/results.json"):
+            for p in _iter_session_files(sessions_dir, "results.json"):
                 try:
                     m = p.stat().st_mtime
                 except OSError:
@@ -785,9 +791,7 @@ def batch_patch_cmd(
         if not sessions_root.exists():
             raise click.ClickException(f"sessions dir not found: {sessions_root}")
         changes = 0
-        # Session config.json files live at sessions/{id}/config.json; the
-        # one-level glob avoids walking every nested benchmark/agent log dir.
-        for cfg_path in sessions_root.glob("*/config.json"):
+        for cfg_path in _iter_session_files(sessions_root, "config.json"):
             session_dir = cfg_path.parent
             old_id = session_dir.name
             config = _load_config_file(str(cfg_path))
