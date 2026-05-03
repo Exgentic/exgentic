@@ -17,6 +17,7 @@ import rich_click as click
 
 from ....core.types import RunConfig, SessionConfig
 from ....core.types.session import SessionExecutionStatus, SessionOutcomeStatus
+from ....core.types.session_inventory import SessionRecord, scan_sessions
 from ....utils.paths import get_run_paths, get_session_paths
 from ...lib.api import aggregate, execute, status
 from ..options import (
@@ -287,6 +288,8 @@ def _recover_session_hashes(roots: list[Path], *, do_apply: bool) -> int:
 
 def _load_results_summary(
     path: str,
+    *,
+    session_records: list[SessionRecord] | None = None,
 ) -> tuple[str, str, str, int | None, int | None, int | None, int | None]:
     if not path:
         return "-", "-", "-", None, None, None, None
@@ -304,17 +307,17 @@ def _load_results_summary(
         cost = payload.get("total_agent_cost")
     # Run-level results.json is only written at end of run, so during a live
     # run its Score/Cost are stale. Prefer live session-level aggregates (#190).
+    if session_records is None:
+        session_records = scan_sessions(Path(path).parent / "sessions")
     live_cost = 0.0
     live_scores: list[float] = []
     found = False
-    for sp in (Path(path).parent / "sessions").glob("*/results.json"):
-        try:
-            sdata = json.loads(sp.read_text(encoding="utf-8"))
-        except Exception:
+    for r in session_records:
+        if r.results is None:
             continue
         found = True
-        live_cost += float(sdata.get("agent_cost") or 0) + float(sdata.get("benchmark_cost") or 0)
-        s = sdata.get("score")
+        live_cost += float(r.results.get("agent_cost") or 0) + float(r.results.get("benchmark_cost") or 0)
+        s = r.results.get("score")
         if s is not None:
             live_scores.append(float(s))
     if found:
@@ -471,7 +474,14 @@ def batch_status_cmd(
                 parts.append(f"{errors}err")
             sessions_str = " ".join(parts)
 
-            score, cost, models, *_ = _load_results_summary(run_status.results_path)
+            sessions_dir = Path(run_status.results_path).parent / "sessions"
+            # One walk feeds both consumers below — _load_results_summary's
+            # live aggregation and the last_event timestamp.
+            session_records = scan_sessions(sessions_dir)
+
+            score, cost, models, *_ = _load_results_summary(
+                run_status.results_path, session_records=session_records
+            )
             model = run_status.model_name or models
             if model != "-":
                 # Strip common prefixes for readability.
@@ -483,19 +493,10 @@ def batch_status_cmd(
             subset = run_status.subset_name
             if subset:
                 benchmark = f"{benchmark}/{subset}"
-            sessions_dir = Path(run_status.results_path).parent / "sessions"
-            # results.json is what observers touch on every write, so its
-            # mtime is the true last-activity signal — accurate even during
-            # long-running sessions.
-            latest = 0.0
-            for p in _iter_session_files(sessions_dir, "results.json"):
-                try:
-                    m = p.stat().st_mtime
-                except OSError:
-                    continue
-                if m > latest:
-                    latest = m
-            last_event = _format_ago(time.time() - latest) if latest else "-"
+            # results.json mtime is the true last-activity signal — observers
+            # touch it on every write, so it's accurate during long sessions.
+            mtimes = [r.mtime for r in session_records if r.mtime is not None]
+            last_event = _format_ago(time.time() - max(mtimes)) if mtimes else "-"
             row.update(
                 {
                     "benchmark": benchmark,
