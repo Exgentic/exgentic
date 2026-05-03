@@ -15,9 +15,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 EXTRAS = {
-    "api_base": "https://rits.example/granite/v1",
+    "api_base": "https://example.invalid/v1",
     "api_key": "secret",  # pragma: allowlist secret
-    "extra_headers": {"RITS_API_KEY": "secret"},  # pragma: allowlist secret
+    "extra_headers": {"X-Backend-Auth": "secret"},  # pragma: allowlist secret
 }
 
 
@@ -36,7 +36,7 @@ def test_litellm_tool_calling_forwards_extras_to_health_check():
     with patch.object(mod, "check_model_accessible_sync") as health:
         mod.LiteLLMToolCallingAgentInstance(
             session_id="s1",
-            model="hosted_vllm/granite",
+            model="openai/gpt-4o-mini",
             litellm_params_extra=EXTRAS,
         )
 
@@ -50,7 +50,7 @@ def test_litellm_tool_calling_completion_includes_extras():
     with patch.object(mod, "check_model_accessible_sync"):
         agent = mod.LiteLLMToolCallingAgentInstance(
             session_id="s1",
-            model="hosted_vllm/granite",
+            model="openai/gpt-4o-mini",
             litellm_params_extra=EXTRAS,
         )
 
@@ -61,7 +61,7 @@ def test_litellm_tool_calling_completion_includes_extras():
         return MagicMock()
 
     agent._completion_with_retries = _capture
-    agent._completion(model="hosted_vllm/granite", messages=[], caching=False)
+    agent._completion(model="openai/gpt-4o-mini", messages=[], caching=False)
 
     assert captured["api_base"] == EXTRAS["api_base"]
     assert captured["api_key"] == EXTRAS["api_key"]
@@ -84,7 +84,7 @@ def test_smolagents_forwards_extras_to_health_check_and_litellm_model():
     with patch.object(mod, "check_model_accessible_sync") as health:
         agent = mod.SmolagentBaseAgentInstance(
             session_id="s1",
-            model_id="hosted_vllm/granite",
+            model_id="openai/gpt-4o-mini",
             litellm_params_extra=EXTRAS,
         )
 
@@ -163,7 +163,7 @@ def test_openai_mcp_agent_forwards_extras_to_health_check():
 
     agent = mod.OpenAIMCPAgentInstance(
         session_id="s1",
-        model_id="hosted_vllm/granite",
+        model_id="openai/gpt-4o-mini",
         litellm_params_extra=EXTRAS,
     )
 
@@ -204,7 +204,7 @@ def test_proxy_backed_mcp_forwards_extras_to_health_check_and_proxy():
     with patch.object(mod, "check_model_accessible_sync") as health:
         agent = _ConcreteAgent(
             session_id="s1",
-            model_id="hosted_vllm/granite",
+            model_id="openai/gpt-4o-mini",
             litellm_params_extra=EXTRAS,
         )
 
@@ -232,7 +232,7 @@ def test_cli_agent_subclasses_forward_extras_to_base(module_path, class_name):
     with patch.object(base_mod, "check_model_accessible_sync") as health:
         agent = agent_cls(
             session_id="s1",
-            model_id="hosted_vllm/granite",
+            model_id="openai/gpt-4o-mini",
             litellm_params_extra=EXTRAS,
         )
 

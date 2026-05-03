@@ -35,9 +35,9 @@ def test_litellm_params_extra_merged_into_proxy_config(tmp_path, monkeypatch) ->
     log_path = tmp_path / "litellm.log"
 
     extras = {
-        "api_base": "https://rits.example/granite/v1",
+        "api_base": "https://example.invalid/v1",
         "api_key": "secret",  # pragma: allowlist secret
-        "extra_headers": {"RITS_API_KEY": "secret"},  # pragma: allowlist secret
+        "extra_headers": {"X-Backend-Auth": "secret"},  # pragma: allowlist secret
     }
 
     with LitellmProxy(
@@ -63,20 +63,20 @@ def test_litellm_params_extra_can_override_underlying_model(tmp_path, monkeypatc
     log_path = tmp_path / "litellm.log"
 
     with LitellmProxy(
-        model="rits/granite",
+        model="my-alias",
         port=49996,
         log_path=str(log_path),
         startup_timeout=1.0,
-        litellm_params_extra={"model": "hosted_vllm/granite"},
+        litellm_params_extra={"model": "hosted_vllm/some-model"},
     ):
         config_path = log_path.with_name("litellm_config.json")
         config_data = json.loads(config_path.read_text(encoding="utf-8"))
         entry = config_data["model_list"][0]
 
         # client-facing alias is unchanged …
-        assert entry["model_name"] == "rits/granite"
+        assert entry["model_name"] == "my-alias"
         # … but the underlying litellm_params.model is overridden
-        assert entry["litellm_params"]["model"] == "hosted_vllm/granite"
+        assert entry["litellm_params"]["model"] == "hosted_vllm/some-model"
 
 
 def test_litellm_params_extra_default_does_not_change_existing_config(tmp_path, monkeypatch) -> None:

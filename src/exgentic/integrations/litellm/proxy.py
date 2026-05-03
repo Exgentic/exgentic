@@ -14,15 +14,15 @@ For non-standard backends, ``litellm_params_extra`` forwards any
 LiteLLM-supported per-model parameter (e.g. ``api_base``, ``api_key``,
 ``extra_headers``, an alias-vs-actual ``model`` split) into the generated
 proxy config. Example for an OpenAI-compatible gateway that uses a custom
-auth header:
+auth header instead of ``Authorization: Bearer``:
 
     LitellmProxy(
-        model="rits/granite",
+        model="my-alias",
         litellm_params_extra={
-            "model": "hosted_vllm/granite",
-            "api_base": os.environ["RITS_GRANITE_API_BASE"],
-            "api_key": os.environ["RITS_API_KEY"],
-            "extra_headers": {"RITS_API_KEY": os.environ["RITS_API_KEY"]},
+            "model": "hosted_vllm/some-model",
+            "api_base": os.environ["BACKEND_URL"],
+            "api_key": os.environ["BACKEND_KEY"],
+            "extra_headers": {"X-Backend-Auth": os.environ["BACKEND_KEY"]},
         },
     )
 """

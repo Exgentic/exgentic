@@ -18,16 +18,16 @@ from exgentic.integrations.litellm.health import (
 @pytest.mark.asyncio
 async def test_acheck_forwards_litellm_params_extra():
     extras = {
-        "api_base": "https://rits.example/granite/v1",
+        "api_base": "https://example.invalid/v1",
         "api_key": "secret",  # pragma: allowlist secret
-        "extra_headers": {"RITS_API_KEY": "secret"},  # pragma: allowlist secret
+        "extra_headers": {"X-Backend-Auth": "secret"},  # pragma: allowlist secret
     }
     with patch("litellm.acompletion", new=AsyncMock()) as mock_completion:
-        await acheck_model_accessible("hosted_vllm/granite", litellm_params_extra=extras)
+        await acheck_model_accessible("openai/gpt-4o-mini", litellm_params_extra=extras)
 
     assert mock_completion.await_count == 1
     call_kwargs = mock_completion.await_args.kwargs
-    assert call_kwargs["model"] == "hosted_vllm/granite"
+    assert call_kwargs["model"] == "openai/gpt-4o-mini"
     assert call_kwargs["api_base"] == extras["api_base"]
     assert call_kwargs["api_key"] == extras["api_key"]
     assert call_kwargs["extra_headers"] == extras["extra_headers"]

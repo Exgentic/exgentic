@@ -10,9 +10,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 EXTRAS = {
-    "api_base": "https://rits.example/granite/v1",
+    "api_base": "https://example.invalid/v1",
     "api_key": "secret",  # pragma: allowlist secret
-    "extra_headers": {"RITS_API_KEY": "secret"},  # pragma: allowlist secret
+    "extra_headers": {"X-Backend-Auth": "secret"},  # pragma: allowlist secret
 }
 
 
