@@ -427,15 +427,12 @@ def batch_status_cmd(
     config_paths = _expand_config_inputs(config_values, list(ctx.args))
 
     # NFS reads are I/O-bound, so per-config work is parallelizable. Configs
-    # are independent; we preserve the original order via enumerate+sort.
-    max_workers = min(32, len(config_paths)) or 1
+    # are independent; pool.map preserves input order, so the rendered table
+    # matches the original sequential numbering.
+    max_workers = min(32, len(config_paths))
+    indexed = list(enumerate(config_paths, start=1))
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        rows = list(
-            pool.map(
-                lambda item: _build_status_row(item[0], item[1], num_tasks),
-                enumerate(config_paths, start=1),
-            )
-        )
+        rows = list(pool.map(lambda item: _build_status_row(*item, num_tasks), indexed))
 
     render_batch_status(rows)
 
@@ -491,15 +488,12 @@ def _build_status_row(
         if subset:
             benchmark = f"{benchmark}/{subset}"
         sessions_dir = Path(run_status.results_path).parent / "sessions"
-        # Stat session subdirectories one level deep (a directory's mtime is
-        # bumped when entries are added/removed). Avoids rglob walking every
-        # file in every session, which on NFS dominates wall time.
+        # Stat each session's results.json — that's the file we update on every
+        # observer write, so its mtime is the true "last activity" signal.
+        # Avoids rglob walking every trajectory/log file (dominates NFS time)
+        # while staying accurate during long-running sessions.
         latest = 0.0
-        try:
-            entries = list(sessions_dir.iterdir())
-        except OSError:
-            entries = []
-        for p in entries:
+        for p in sessions_dir.glob("*/results.json"):
             try:
                 m = p.stat().st_mtime
             except OSError:
