@@ -135,9 +135,11 @@ class TAU2Session(PairableProxySession):
         seed: int,
         use_cache: bool,
         session_id: str | None = None,
+        user_simulator_litellm_params_extra: dict[str, Any] | None = None,
     ):
         if session_id is not None:
             self._session_id = session_id
+        self._user_simulator_litellm_params_extra: dict[str, Any] = dict(user_simulator_litellm_params_extra or {})
         llm_args_user: dict[str, Any] = {
             "temperature": llm_temperature_user,
             "caching": settings.litellm_caching,
@@ -146,6 +148,9 @@ class TAU2Session(PairableProxySession):
             llm_args_user["input_cost_per_token"] = llm_user_input_cost_per_token
         if llm_user_output_cost_per_token is not None:
             llm_args_user["output_cost_per_token"] = llm_user_output_cost_per_token
+        # Forward user-supplied LiteLLM params (api_base, api_key, extra_headers, ...)
+        # so the Tau2 user simulator can hit non-standard backends.
+        llm_args_user.update(self._user_simulator_litellm_params_extra)
         self._cfg = RunConfig(
             domain=subset,
             user="user_simulator",
@@ -223,7 +228,11 @@ class TAU2Session(PairableProxySession):
         self.results_file = self.paths.benchmark_results
 
         # Check user simulator model accessibility before starting Tau2 runner
-        check_model_accessible_sync(self._cfg.llm_user, logger=self.logger)
+        check_model_accessible_sync(
+            self._cfg.llm_user,
+            logger=self.logger,
+            litellm_params_extra=self._user_simulator_litellm_params_extra or None,
+        )
 
         # Start Tau2 runner
         self.logger.debug("Staging for pairing")

@@ -21,6 +21,7 @@ class CodexAgentInstance(ProxyBackedMCPAgentInstance):
         max_steps: int = 150,
         execution_backend: ExecutionBackend = ExecutionBackend.DOCKER,
         model_settings: ModelSettings | None = None,
+        litellm_params_extra: dict[str, object] | None = None,
     ):
         super().__init__(
             session_id,
@@ -28,6 +29,7 @@ class CodexAgentInstance(ProxyBackedMCPAgentInstance):
             max_steps=max_steps,
             execution_backend=execution_backend,
             model_settings=model_settings,
+            litellm_params_extra=litellm_params_extra,
         )
         self._codex_log = self.paths.agent_dir / "codex_cli.log"
 

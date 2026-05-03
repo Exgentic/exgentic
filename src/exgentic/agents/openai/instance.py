@@ -48,8 +48,10 @@ class RetryingLitellmModel(LitellmModel):
         num_retries: int,
         retry_after: float,
         retry_strategy: str | RetryStrategy,
+        base_url: str | None = None,
+        api_key: str | None = None,
     ):
-        super().__init__(model=model)
+        super().__init__(model=model, base_url=base_url, api_key=api_key)
         if isinstance(retry_strategy, RetryStrategy):
             retry_strategy = retry_strategy.value
         if retry_strategy not in ("exponential_backoff_retry", "constant_retry"):
@@ -93,6 +95,7 @@ class OpenAIMCPAgentInstance(MCPAgentInstance):
         max_steps: int = 150,
         model_settings: ModelSettings | None = None,
         mcp_config: MCPConfig | dict | None = None,
+        litellm_params_extra: dict[str, object] | None = None,
     ):
         super().__init__(session_id)
         self.model_id = model_id
@@ -109,6 +112,7 @@ class OpenAIMCPAgentInstance(MCPAgentInstance):
             self.mcp_config = MCPConfig(**mcp_config)
         else:
             self.mcp_config = mcp_config
+        self._litellm_params_extra: dict[str, object] = dict(litellm_params_extra or {})
         self._total_input_tokens = 0
         self._total_output_tokens = 0
         self._model_access_checked = False
@@ -117,7 +121,11 @@ class OpenAIMCPAgentInstance(MCPAgentInstance):
         if self._model_access_checked or self.mcp_config.skip_health_check:
             return
         self.logger.info("Running LiteLLM model health check (model=%s)", self.model_id)
-        await acheck_model_accessible(self.model_id, model_settings=self.model_settings)
+        await acheck_model_accessible(
+            self.model_id,
+            model_settings=self.model_settings,
+            litellm_params_extra=self._litellm_params_extra or None,
+        )
         self._model_access_checked = True
 
     def _record_usage(self, usage: Usage | None) -> None:
@@ -203,10 +211,17 @@ class OpenAIMCPAgentInstance(MCPAgentInstance):
                 num_retries = self.model_settings.num_retries or 0
                 retry_after = self.model_settings.retry_after
                 retry_strategy = self.model_settings.retry_strategy.value
+                extras = dict(self._litellm_params_extra)
+                base_url = extras.pop("api_base", None)
+                api_key = extras.pop("api_key", None)
+                extra_headers = extras.pop("extra_headers", None)
                 openai_model_settings.extra_args = {
                     "caching": settings.litellm_caching,
                     "max_retries": 0 if num_retries > 0 else 5,
+                    **extras,
                 }
+                if extra_headers is not None:
+                    openai_model_settings.extra_headers = extra_headers
                 agent = OpenAIAgent(
                     name="Assistant",
                     instructions=prompt,
@@ -215,6 +230,8 @@ class OpenAIMCPAgentInstance(MCPAgentInstance):
                         num_retries=num_retries,
                         retry_after=retry_after,
                         retry_strategy=retry_strategy,
+                        base_url=base_url,
+                        api_key=api_key,
                     ),
                     model_settings=openai_model_settings,
                     mcp_servers=[mcp_server],

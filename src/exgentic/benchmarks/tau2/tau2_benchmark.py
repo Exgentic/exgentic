@@ -41,6 +41,7 @@ class TAU2Benchmark(Benchmark, BaseModel):
     max_errors: int = 10
     num_trials: int = 1
     score_path: str | None = None
+    user_simulator_litellm_params_extra: dict[str, Any] = {}
 
     def list_subsets(self) -> list[str]:  # type: ignore[override]
         return list(self.available_subsets)
@@ -63,4 +64,5 @@ class TAU2Benchmark(Benchmark, BaseModel):
             "num_trials": self.num_trials,
             "seed": self.seed,
             "use_cache": self.use_cache,
+            "user_simulator_litellm_params_extra": self.user_simulator_litellm_params_extra,
         }

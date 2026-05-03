@@ -45,6 +45,7 @@ class ClaudeCodeAgentInstance(ProxyBackedMCPAgentInstance):
         max_steps: int = 150,
         execution_backend: ExecutionBackend = ExecutionBackend.DOCKER,
         model_settings: ModelSettings | None = None,
+        litellm_params_extra: dict[str, object] | None = None,
     ):
         # The alias is what we ask Claude Code CLI for; the proxy maps it to the backend model.
         self._claude_model_alias = "claude-3-5-sonnet-20241022"
@@ -55,6 +56,7 @@ class ClaudeCodeAgentInstance(ProxyBackedMCPAgentInstance):
             model_alias=self._claude_model_alias,
             execution_backend=execution_backend,
             model_settings=model_settings,
+            litellm_params_extra=litellm_params_extra,
         )
         self._claude_log = self.paths.agent_dir / "claude_cli.log"
 

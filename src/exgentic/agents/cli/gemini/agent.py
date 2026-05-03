@@ -21,6 +21,7 @@ class GeminiAgentInstance(ProxyBackedMCPAgentInstance):
         max_steps: int = 150,
         execution_backend: ExecutionBackend = ExecutionBackend.DOCKER,
         model_settings: ModelSettings | None = None,
+        litellm_params_extra: dict[str, object] | None = None,
     ):
         self._gemini_model_alias = "gemini-2.5-pro"
         super().__init__(
@@ -30,6 +31,7 @@ class GeminiAgentInstance(ProxyBackedMCPAgentInstance):
             model_alias=self._gemini_model_alias,
             execution_backend=execution_backend,
             model_settings=model_settings,
+            litellm_params_extra=litellm_params_extra,
         )
         self._gemini_log = self.paths.agent_dir / "gemini_cli.log"
 
