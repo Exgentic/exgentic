@@ -140,7 +140,7 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
             self.model_id,
             logger=self.logger,
             model_settings=self.model_settings,
-            litellm_params_extra=self._litellm_params_extra or None,
+            litellm_params_extra=self._litellm_params_extra,
         )
 
     @property
@@ -202,7 +202,7 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
             usage_log_path=str(self._trace_log_path),
             model_alias_map=alias_map or None,
             model_settings=self.model_settings,
-            litellm_params_extra=self._litellm_params_extra or None,
+            litellm_params_extra=self._litellm_params_extra,
         )
         self._proxy = proxy
         try:

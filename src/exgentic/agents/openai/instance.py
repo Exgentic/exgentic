@@ -40,23 +40,6 @@ class _UsageRunHooks(RunHooksBase[dict[str, Any], OpenAIAgent]):
         self._record_usage(response.usage)
 
 
-def _split_litellm_params_extra_for_openai_agents(
-    extras: dict[str, object],
-) -> tuple[str | None, str | None, dict[str, str] | None, dict[str, object]]:
-    """Translate a ``litellm_params_extra`` dict into openai-agents shape.
-
-    The openai-agents ``LitellmModel`` splits the same concepts across the
-    constructor (``base_url``, ``api_key``) and ``model_settings``
-    (``extra_headers``, ``extra_args``).  Returns a 4-tuple of
-    ``(base_url, api_key, extra_headers, remaining_extras)``.
-    """
-    remaining = dict(extras)
-    base_url = remaining.pop("api_base", None)
-    api_key = remaining.pop("api_key", None)
-    extra_headers = remaining.pop("extra_headers", None)
-    return base_url, api_key, extra_headers, remaining
-
-
 class RetryingLitellmModel(LitellmModel):
     def __init__(
         self,
@@ -141,7 +124,7 @@ class OpenAIMCPAgentInstance(MCPAgentInstance):
         await acheck_model_accessible(
             self.model_id,
             model_settings=self.model_settings,
-            litellm_params_extra=self._litellm_params_extra or None,
+            litellm_params_extra=self._litellm_params_extra,
         )
         self._model_access_checked = True
 
@@ -228,13 +211,14 @@ class OpenAIMCPAgentInstance(MCPAgentInstance):
                 num_retries = self.model_settings.num_retries or 0
                 retry_after = self.model_settings.retry_after
                 retry_strategy = self.model_settings.retry_strategy.value
-                base_url, api_key, extra_headers, remaining_extras = _split_litellm_params_extra_for_openai_agents(
-                    self._litellm_params_extra
-                )
+                extras = dict(self._litellm_params_extra)
+                base_url = extras.pop("api_base", None)
+                api_key = extras.pop("api_key", None)
+                extra_headers = extras.pop("extra_headers", None)
                 openai_model_settings.extra_args = {
                     "caching": settings.litellm_caching,
                     "max_retries": 0 if num_retries > 0 else 5,
-                    **remaining_extras,
+                    **extras,
                 }
                 if extra_headers is not None:
                     openai_model_settings.extra_headers = extra_headers

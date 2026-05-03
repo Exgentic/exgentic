@@ -52,7 +52,7 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
             self.model_id,
             logger=self.logger,
             model_settings=self.model_settings,
-            litellm_params_extra=self._litellm_params_extra or None,
+            litellm_params_extra=self._litellm_params_extra,
         )
 
     def run_code_agent(self, functions: list[Callable]) -> None:

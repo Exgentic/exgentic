@@ -148,8 +148,6 @@ class TAU2Session(PairableProxySession):
             llm_args_user["input_cost_per_token"] = llm_user_input_cost_per_token
         if llm_user_output_cost_per_token is not None:
             llm_args_user["output_cost_per_token"] = llm_user_output_cost_per_token
-        # Forward user-supplied LiteLLM params (api_base, api_key, extra_headers, ...)
-        # so the Tau2 user simulator can hit non-standard backends.
         llm_args_user.update(self._user_simulator_litellm_params_extra)
         self._cfg = RunConfig(
             domain=subset,

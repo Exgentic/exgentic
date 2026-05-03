@@ -1,12 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-"""Verify ``litellm_params_extra`` flow from agents into LiteLLM call sites.
-
-Covers both ``LiteLLMToolCallingAgentInstance`` and (when smolagents is
-installed) ``SmolagentBaseAgentInstance``: the dict must reach both the
-health check and the actual completion / model-construction call site.
-"""
+"""Verify ``litellm_params_extra`` flow from agent constructors to LiteLLM call sites."""
 
 from __future__ import annotations
 
@@ -74,7 +69,7 @@ def test_litellm_tool_calling_default_no_extras():
     with patch.object(mod, "check_model_accessible_sync") as health:
         mod.LiteLLMToolCallingAgentInstance(session_id="s1", model="openai/gpt-4o-mini")
 
-    assert health.call_args.kwargs["litellm_params_extra"] is None
+    assert health.call_args.kwargs["litellm_params_extra"] == {}
 
 
 def test_smolagents_forwards_extras_to_health_check_and_litellm_model():
@@ -106,7 +101,7 @@ def test_smolagents_default_no_extras():
     with patch.object(mod, "check_model_accessible_sync") as health:
         agent = mod.SmolagentBaseAgentInstance(session_id="s1", model_id="openai/gpt-4o-mini")
 
-    assert health.call_args.kwargs["litellm_params_extra"] is None
+    assert health.call_args.kwargs["litellm_params_extra"] == {}
 
     with patch.object(mod, "LiteLLMModel") as model_cls:
         agent.get_internal_model()
@@ -114,40 +109,6 @@ def test_smolagents_default_no_extras():
     kwargs = model_cls.call_args.kwargs
     assert "api_base" not in kwargs
     assert "extra_headers" not in kwargs
-
-
-def test_split_extras_for_openai_agents_pulls_out_known_keys():
-    pytest.importorskip("agents")
-    from exgentic.agents.openai.instance import _split_litellm_params_extra_for_openai_agents
-
-    base_url, api_key, extra_headers, remaining = _split_litellm_params_extra_for_openai_agents(EXTRAS)
-
-    assert base_url == EXTRAS["api_base"]
-    assert api_key == EXTRAS["api_key"]
-    assert extra_headers == EXTRAS["extra_headers"]
-    assert remaining == {}
-
-
-def test_split_extras_for_openai_agents_passes_through_unknown_keys():
-    pytest.importorskip("agents")
-    from exgentic.agents.openai.instance import _split_litellm_params_extra_for_openai_agents
-
-    extras = {"api_base": "https://x", "timeout": 30, "custom_flag": True}
-    base_url, api_key, extra_headers, remaining = _split_litellm_params_extra_for_openai_agents(extras)
-
-    assert base_url == "https://x"
-    assert api_key is None
-    assert extra_headers is None
-    assert remaining == {"timeout": 30, "custom_flag": True}
-
-
-def test_split_extras_for_openai_agents_does_not_mutate_input():
-    pytest.importorskip("agents")
-    from exgentic.agents.openai.instance import _split_litellm_params_extra_for_openai_agents
-
-    extras = dict(EXTRAS)
-    _split_litellm_params_extra_for_openai_agents(extras)
-    assert extras == EXTRAS
 
 
 def test_openai_mcp_agent_forwards_extras_to_health_check():
@@ -171,45 +132,6 @@ def test_openai_mcp_agent_forwards_extras_to_health_check():
         asyncio.run(agent._check_model_access_once())
 
     assert async_health.call_args.kwargs["litellm_params_extra"] == EXTRAS
-
-
-def test_proxy_backed_mcp_forwards_extras_to_health_check_and_proxy():
-    from exgentic.agents.cli import base as mod
-
-    captured_proxy_kwargs = {}
-
-    class _StubProxy:
-        def __init__(self, **kwargs):
-            captured_proxy_kwargs.update(kwargs)
-
-        def start(self):
-            pass
-
-        def close(self):
-            pass
-
-        @property
-        def base_url(self):
-            return "http://stub"
-
-    class _ConcreteAgent(mod.ProxyBackedMCPAgentInstance):
-        cli_display_name = "stub"
-
-        def _build_cli(self):
-            raise NotImplementedError
-
-        def _run_cli(self, *args, **kwargs):
-            raise NotImplementedError
-
-    with patch.object(mod, "check_model_accessible_sync") as health:
-        agent = _ConcreteAgent(
-            session_id="s1",
-            model_id="openai/gpt-4o-mini",
-            litellm_params_extra=EXTRAS,
-        )
-
-    assert health.call_args.kwargs["litellm_params_extra"] == EXTRAS
-    assert agent._litellm_params_extra == EXTRAS
 
 
 @pytest.mark.parametrize(

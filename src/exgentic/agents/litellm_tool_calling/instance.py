@@ -93,7 +93,7 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
             self.model,
             logger=self.logger,
             model_settings=self.model_settings,
-            litellm_params_extra=self._litellm_params_extra or None,
+            litellm_params_extra=self._litellm_params_extra,
         )
 
     def start(self, task, context, actions):
