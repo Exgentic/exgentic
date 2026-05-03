@@ -479,9 +479,7 @@ def batch_status_cmd(
             # live aggregation and the last_event timestamp.
             session_records = scan_sessions(sessions_dir)
 
-            score, cost, models, *_ = _load_results_summary(
-                run_status.results_path, session_records=session_records
-            )
+            score, cost, models, *_ = _load_results_summary(run_status.results_path, session_records=session_records)
             model = run_status.model_name or models
             if model != "-":
                 # Strip common prefixes for readability.

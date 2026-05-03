@@ -41,7 +41,7 @@ def test_from_session_configs_preserves_input_order(tmp_path: Path):
     assert all(s.status == SessionExecutionStatus.MISSING for s in run_status.session_statuses)
 
     # Critical invariant: status[i].task_id == session_configs[i].task_id.
-    for sc, status in zip(session_configs, run_status.session_statuses):
+    for sc, status in zip(session_configs, run_status.session_statuses, strict=True):
         assert status.task_id == str(sc.task_id), (
             f"Order desync: input {sc.task_id!r} -> status.task_id {status.task_id!r}"
         )
