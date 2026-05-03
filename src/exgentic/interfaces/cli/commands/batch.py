@@ -218,18 +218,12 @@ def _apply_patch(payload: dict[str, Any], updates: dict[str, Any]) -> None:
 
 
 def _iter_session_files(sessions_root: Path, filename: str) -> Iterator[Path]:
-    """Yield ``sessions_root/{id}/{filename}`` for each session subdirectory.
-
-    A one-level glob avoids walking nested benchmark/agent log dirs, which
-    dominates wall time on NFS for large session trees.
-    """
+    """Yield ``sessions_root/{id}/{filename}``; one-level glob (NFS-friendly)."""
     return sessions_root.glob(f"*/{filename}")
 
 
 def _update_session_ids_in_dir(session_dir: Path, new_id: str) -> None:
-    # Top-level only: config.json and results.json carry session_id. Deeper
-    # files (litellm cache logs, etc.) don't, and rglob over them on NFS is
-    # wasteful.
+    # Top-level only — only config.json/results.json carry session_id.
     for json_path in session_dir.glob("*.json"):
         try:
             payload = _load_config_file(str(json_path))
@@ -475,10 +469,7 @@ def batch_status_cmd(
             sessions_str = " ".join(parts)
 
             sessions_dir = Path(run_status.results_path).parent / "sessions"
-            # One walk feeds both consumers below — _load_results_summary's
-            # live aggregation and the last_event timestamp.
             session_records = scan_sessions(sessions_dir)
-
             score, cost, models, *_ = _load_results_summary(run_status.results_path, session_records=session_records)
             model = run_status.model_name or models
             if model != "-":
@@ -491,8 +482,6 @@ def batch_status_cmd(
             subset = run_status.subset_name
             if subset:
                 benchmark = f"{benchmark}/{subset}"
-            # results.json mtime is the true last-activity signal — observers
-            # touch it on every write, so it's accurate during long sessions.
             mtimes = [r.mtime for r in session_records if r.mtime is not None]
             last_event = _format_ago(time.time() - max(mtimes)) if mtimes else "-"
             row.update(

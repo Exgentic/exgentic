@@ -95,13 +95,6 @@ class Integration(BaseModel):
 
 
 _MAX_SCAN_WORKERS = 32
-"""Upper bound on threads used to fan out per-session status reads.
-
-Per-session checks are 4 stat/read calls each. On NFS, ~32 concurrent
-in-flight reads is enough to saturate metadata throughput on the trees
-we've measured; going wider gives diminishing returns and risks
-contention with concurrent batch evaluate workers.
-"""
 
 
 class RunStatus(BaseModel):
@@ -149,11 +142,8 @@ class RunStatus(BaseModel):
     ) -> RunStatus:
         """Build a :class:`RunStatus` by scanning each session's artifacts.
 
-        The per-session checks (``SessionStatus.from_config``) are pure I/O
-        against shared storage — 4 stat/read calls each on NFS — and
-        independent across sessions, so we fan them out via a
-        ``ThreadPoolExecutor``. ``pool.map`` preserves input order, so the
-        downstream ``RunPlan`` zips correctly with the input task order.
+        Per-session checks fan out via a ``ThreadPoolExecutor``; ``pool.map``
+        preserves input order so :class:`RunPlan` zips correctly downstream.
         """
         from ...utils.paths import get_run_paths
 

@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
-"""Tests for the SessionRecord / scan_sessions module."""
-
 from __future__ import annotations
 
 import json
@@ -12,7 +10,6 @@ from exgentic.core.types.session_inventory import scan_sessions
 
 
 def _write_session(sessions_dir: Path, session_id: str, payload: dict | None) -> Path:
-    """Create sessions_dir/{session_id}/results.json with payload (or skip the file)."""
     session_dir = sessions_dir / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
     if payload is not None:
@@ -27,7 +24,6 @@ def test_empty_sessions_dir(tmp_path: Path):
 
 
 def test_missing_sessions_dir(tmp_path: Path):
-    """Missing directory must not raise — returns empty list."""
     assert scan_sessions(tmp_path / "nonexistent") == []
 
 
@@ -51,18 +47,16 @@ def test_parses_results_payload(tmp_path: Path):
 
 
 def test_corrupt_json_yields_record_with_none_results(tmp_path: Path):
-    """Unparseable results.json must not crash the scan."""
     sessions_dir = tmp_path / "sessions"
     session_dir = sessions_dir / "broken"
     session_dir.mkdir(parents=True)
     (session_dir / "results.json").write_text("not json", encoding="utf-8")
     [r] = scan_sessions(sessions_dir)
     assert r.results is None
-    assert r.mtime is not None  # file still stat-able
+    assert r.mtime is not None
 
 
 def test_non_dict_json_yields_none_results(tmp_path: Path):
-    """A JSON list/string/number at the root is invalid for results.json."""
     sessions_dir = tmp_path / "sessions"
     session_dir = sessions_dir / "list-payload"
     session_dir.mkdir(parents=True)
@@ -72,9 +66,8 @@ def test_non_dict_json_yields_none_results(tmp_path: Path):
 
 
 def test_parallel_scan_returns_all_records(tmp_path: Path):
-    """64 sessions > pool size (32) — exercises real parallel execution."""
     sessions_dir = tmp_path / "sessions"
-    for i in range(64):
+    for i in range(64):  # > pool size of 32 forces real parallelism
         _write_session(sessions_dir, f"s{i:02d}", {"score": i / 100})
     records = scan_sessions(sessions_dir)
     assert len(records) == 64
