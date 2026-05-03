@@ -98,20 +98,23 @@ def run_session(
     except (AgentTerminationError, BenchmarkTerminationError):
         tracker.on_session_scoring(session)
         # If the benchmark scorer itself crashes (e.g. tau2 rejecting a
-        # malformed AssistantMessage), treat that as a benchmark error so
-        # observers still write results.json. Otherwise the session leaves
-        # only trajectory/otel/agent logs on disk and is reclassified as
-        # INCOMPLETE on the next pass — re-running the same crash forever.
+        # malformed AssistantMessage), treat it as a benchmark error so
+        # observers still write results.json. Otherwise the session
+        # leaves only trajectory/otel/agent logs on disk, is reclassified
+        # INCOMPLETE on the next pass, and re-runs the same crash forever.
+        # Cleanup mirrors the BenchmarkError handler below — only the
+        # agent is closed; the benchmark already raised, so we avoid
+        # touching session.close().
         try:
             score = session.score()
         except Exception as exc:
             tracker.on_session_error(session, BenchmarkError(exc))
+            agent_instance.close()
+        else:
+            if score.is_finished is None:
+                score.is_finished = True
+            tracker.on_session_success(session, score, agent_instance)
             _close_session_agent(session, agent_instance)
-            return
-        if score.is_finished is None:
-            score.is_finished = True
-        tracker.on_session_success(session, score, agent_instance)
-        _close_session_agent(session, agent_instance)
     except BenchmarkError as exc:
         tracker.on_session_error(session, exc)
         agent_instance.close()
