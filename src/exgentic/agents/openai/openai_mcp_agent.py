@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ...core.agent import Agent
 from ...core.types import ModelSettings
@@ -37,6 +37,7 @@ class OpenAIMCPAgent(Agent):
     max_steps: int = 150
     model_settings: ModelSettings | None = None
     mcp_config: MCPConfig | dict | None = None
+    litellm_params_extra: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def _get_instance_class(cls):
@@ -58,6 +59,7 @@ class OpenAIMCPAgent(Agent):
             "max_steps": self.max_steps,
             "model_settings": self.model_settings,
             "mcp_config": self.mcp_config,
+            "litellm_params_extra": self.litellm_params_extra,
         }
 
     @property

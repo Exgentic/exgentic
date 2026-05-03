@@ -10,6 +10,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from pydantic import Field
+
 from ...adapters.agents.mcp_agent import MCPAgentInstance
 from ...core.agent import Agent
 from ...core.context import get_runtime_env
@@ -321,6 +323,7 @@ class ProxyBackedAgent(Agent):
 
     execution_backend: ExecutionBackend = ExecutionBackend.DOCKER
     model_settings: ModelSettings | None = None
+    litellm_params_extra: dict[str, Any] = Field(default_factory=dict)
 
     def _get_instance_kwargs(
         self,
@@ -332,6 +335,7 @@ class ProxyBackedAgent(Agent):
             "max_steps": self.max_steps,
             "execution_backend": self.execution_backend,
             "model_settings": self.model_settings,
+            "litellm_params_extra": self.litellm_params_extra,
         }
 
     @property

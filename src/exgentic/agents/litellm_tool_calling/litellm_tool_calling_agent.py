@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
+from pydantic import Field
+
 from ...core.agent import Agent
 from ...core.types import ModelSettings
 
@@ -21,6 +23,7 @@ class LiteLLMToolCallingAgent(Agent):
     max_selected_tools: int = 30
     model_settings: ModelSettings | None = None
     allow_truncated_messages: bool = False
+    litellm_params_extra: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def _get_instance_class(cls):
@@ -51,4 +54,5 @@ class LiteLLMToolCallingAgent(Agent):
             "max_steps": self.max_steps,
             "model_settings": self.model_settings,
             "allow_truncated_messages": self.allow_truncated_messages,
+            "litellm_params_extra": self.litellm_params_extra,
         }

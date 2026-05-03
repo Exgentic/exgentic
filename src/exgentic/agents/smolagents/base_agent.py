@@ -3,6 +3,8 @@
 
 from typing import Any, ClassVar
 
+from pydantic import Field
+
 from ...core.agent import Agent
 from ...core.types import ModelSettings
 
@@ -15,6 +17,7 @@ class SmolagentBaseAgent(Agent):
     max_steps: int = 150
     model_settings: ModelSettings | None = None
     retry_on_all_errors: bool = True
+    litellm_params_extra: dict[str, Any] = Field(default_factory=dict)
 
     def _get_instance_kwargs(
         self,
@@ -26,6 +29,7 @@ class SmolagentBaseAgent(Agent):
             "max_steps": self.max_steps,
             "model_settings": self.model_settings,
             "retry_on_all_errors": self.retry_on_all_errors,
+            "litellm_params_extra": self.litellm_params_extra,
         }
 
     @property

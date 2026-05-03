@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ...core import Benchmark
 
@@ -41,7 +41,7 @@ class TAU2Benchmark(Benchmark, BaseModel):
     max_errors: int = 10
     num_trials: int = 1
     score_path: str | None = None
-    user_simulator_litellm_params_extra: dict[str, Any] = {}
+    user_simulator_litellm_params_extra: dict[str, Any] = Field(default_factory=dict)
 
     def list_subsets(self) -> list[str]:  # type: ignore[override]
         return list(self.available_subsets)

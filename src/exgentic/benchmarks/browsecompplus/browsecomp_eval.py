@@ -5,7 +5,7 @@ import json
 from typing import Any
 
 import litellm
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from scripts_evaluation.evaluate_with_openai import (
     GRADER_TEMPLATE as GRADER_TEMPLATE_OPENAI,
 )
@@ -27,7 +27,7 @@ class BrowseCompEvaluator(BaseModel):
     eval_model_id: str
     sampling_params: dict[str, Any] = {}
     grader_template: str
-    litellm_params_extra: dict[str, Any] = {}
+    litellm_params_extra: dict[str, Any] = Field(default_factory=dict)
 
     def evaluate_response(
         self,
