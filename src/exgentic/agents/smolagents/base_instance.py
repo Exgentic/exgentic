@@ -46,37 +46,37 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
         self._retry_on_all_errors = retry_on_all_errors
         self._agent = None
         self._model = None
-        self._rits_overrides: dict[str, Any] = {}
+        self._litellm_model_id = self.model_id
+        self._litellm_model_kwargs: dict[str, Any] = {}
         if self.model_id.startswith("rits/"):
-            self._rits_overrides = build_rits_overrides(self.model_id)
+            rits_overrides = build_rits_overrides(self.model_id)
+            self._litellm_model_id = str(rits_overrides["model"])
+            self._litellm_model_kwargs = {
+                "api_base": rits_overrides["api_base"],
+                "api_key": rits_overrides["api_key"],
+                "extra_headers": rits_overrides["headers"],
+            }
             self.logger.info(
                 "Resolved RITS model %s -> %s @ %s",
                 self.model_id,
-                self._rits_overrides["model"],
-                self._rits_overrides["api_base"],
+                self._litellm_model_id,
+                self._litellm_model_kwargs["api_base"],
             )
 
         # Check model accessibility
         check_model_accessible_sync(
-            self._completion_model,
+            self._litellm_model_id,
             logger=self.logger,
             model_settings=self.model_settings,
-            **self._provider_health_kwargs,
+            **self._health_kwargs,
         )
 
     @property
-    def _completion_model(self) -> str:
-        return str(self._rits_overrides.get("model", self.model_id))
-
-    @property
-    def _provider_health_kwargs(self) -> dict[str, Any]:
-        if not self._rits_overrides:
-            return {}
-        return {
-            "api_base": self._rits_overrides["api_base"],
-            "api_key": self._rits_overrides["api_key"],
-            "headers": self._rits_overrides["headers"],
-        }
+    def _health_kwargs(self) -> dict[str, Any]:
+        kwargs = dict(self._litellm_model_kwargs)
+        if "extra_headers" in kwargs:
+            kwargs["headers"] = kwargs.pop("extra_headers")
+        return kwargs
 
     def run_code_agent(self, functions: list[Callable]) -> None:
         def _wrap_tool(fn: Callable) -> Callable:
@@ -116,21 +116,12 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
     def get_internal_model(self):
         if self._model is None:
             temperature = self.model_settings.temperature
-            model_kwargs: dict[str, Any] = {}
-            if self._rits_overrides:
-                model_kwargs.update(
-                    {
-                        "api_base": self._rits_overrides["api_base"],
-                        "api_key": self._rits_overrides["api_key"],
-                        "extra_headers": self._rits_overrides["headers"],
-                    }
-                )
             self._model = LiteLLMModel(
-                model_id=self._completion_model,
+                model_id=self._litellm_model_id,
                 temperature=temperature if temperature is not None else 1.0,
                 max_tokens=self.model_settings.max_tokens,
                 caching=settings.litellm_caching,
-                **model_kwargs,
+                **self._litellm_model_kwargs,
             )
             num_retries = self.model_settings.num_retries or 0
             max_attempts = num_retries + 1 if num_retries > 0 else 1

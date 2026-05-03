@@ -3032,6 +3032,12 @@ class TestPrepareSubprocessEnvAllowlist:
         assert env.get("RITS_API_URL") == "https://rits.example"
         assert env.get("RITS_API_KEY") == "rits-key"
 
+    def test_forward_prefixes_are_unique(self):
+        """Forward-prefix allowlist entries should not be duplicated."""
+        from exgentic.adapters.runners._utils import _FORWARD_PREFIXES
+
+        assert len(_FORWARD_PREFIXES) == len(set(_FORWARD_PREFIXES))
+
     def test_github_api_url_not_forwarded(self, monkeypatch):
         """GITHUB_API_URL (a CI env var) must not be forwarded to subprocesses."""
         from exgentic.adapters.runners._utils import prepare_subprocess_env

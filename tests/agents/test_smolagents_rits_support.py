@@ -67,6 +67,16 @@ def test_smolagent_internal_model_receives_rits_kwargs(monkeypatch):
     assert model_cls.call_args.kwargs["extra_headers"] == {"RITS_API_KEY": "secret"}  # pragma: allowlist secret
 
 
+def test_smolagent_preserves_public_model_id_for_rits(monkeypatch):
+    monkeypatch.setattr(smol_base_mod, "build_rits_overrides", MagicMock(return_value=RITS_OVERRIDES))
+    monkeypatch.setattr(smol_base_mod, "check_model_accessible_sync", MagicMock())
+
+    agent = ConcreteSmolagentInstance(session_id="s1", model_id="rits/granite")
+
+    assert agent.model_id == "rits/granite"
+    assert agent._litellm_model_id == "hosted_vllm/granite"
+
+
 def test_smolagent_unknown_pricing_returns_empty_cost_report(monkeypatch):
     monkeypatch.setattr(smol_base_mod, "build_rits_overrides", MagicMock(return_value=RITS_OVERRIDES))
     monkeypatch.setattr(smol_base_mod, "check_model_accessible_sync", MagicMock())

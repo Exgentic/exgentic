@@ -91,7 +91,6 @@ _FORWARD_PREFIXES = (
     "HUGGINGFACE_",
     "LITELLM_",
     "OTEL_",
-    "RITS_",
 )
 
 

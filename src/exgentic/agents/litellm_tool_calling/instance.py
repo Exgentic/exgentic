@@ -86,37 +86,30 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         ] = []
         self._step_count = 0
         self._cost_data = LiteLLMCostReport.initialize_empty(model_name=self.model)
-        self._rits_overrides: dict[str, Any] = {}
+        self._litellm_model = self.model
+        self._litellm_provider_kwargs: dict[str, Any] = {}
         if self.model.startswith("rits/"):
-            self._rits_overrides = build_rits_overrides(self.model)
+            rits_overrides = build_rits_overrides(self.model)
+            self._litellm_model = str(rits_overrides["model"])
+            self._litellm_provider_kwargs = {
+                "api_base": rits_overrides["api_base"],
+                "api_key": rits_overrides["api_key"],
+                "headers": rits_overrides["headers"],
+            }
             self.logger.info(
                 "Resolved RITS model %s -> %s @ %s",
                 self.model,
-                self._rits_overrides["model"],
-                self._rits_overrides["api_base"],
+                self._litellm_model,
+                self._litellm_provider_kwargs["api_base"],
             )
 
         # Check model accessibility
         check_model_accessible_sync(
-            self._completion_model,
+            self._litellm_model,
             logger=self.logger,
             model_settings=self.model_settings,
-            **self._provider_health_kwargs,
+            **self._litellm_provider_kwargs,
         )
-
-    @property
-    def _completion_model(self) -> str:
-        return str(self._rits_overrides.get("model", self.model))
-
-    @property
-    def _provider_health_kwargs(self) -> dict[str, Any]:
-        if not self._rits_overrides:
-            return {}
-        return {
-            "api_base": self._rits_overrides["api_base"],
-            "api_key": self._rits_overrides["api_key"],
-            "headers": self._rits_overrides["headers"],
-        }
 
     def start(self, task, context, actions):
         """Receive work payload, build tool registry, and seed conversation."""
@@ -248,7 +241,7 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         )
 
         response = self._completion(
-            model=self.model,
+            model=self._litellm_model,
             messages=[dev, history],
             caching=self._use_cache,
         )
@@ -353,7 +346,7 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
         self._observe(observation)
 
         response = self._completion(
-            model=self.model,
+            model=self._litellm_model,
             messages=self.messages,
             tools=self._assistant_tools(),
             caching=self._use_cache,
@@ -402,8 +395,8 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
             exclude={"num_retries", "retry_after", "retry_strategy"},
         )
         call_kwargs.update(kwargs)
-        if self._rits_overrides:
-            call_kwargs.update(self._rits_overrides)
+        if kwargs.get("model") == self._litellm_model:
+            call_kwargs.update(self._litellm_provider_kwargs)
         return self._completion_with_retries(call_kwargs)
 
     def _completion_with_retries(self, call_kwargs: dict[str, Any]):
