@@ -195,6 +195,79 @@ results = evaluate(
 
 ---
 
+## Non-standard backends (custom headers, custom auth)
+
+Some OpenAI-compatible gateways require auth to ride in a custom HTTP header (e.g. `X-Backend-Auth: <token>`) instead of the standard `Authorization: Bearer <token>`. Setting `OPENAI_API_BASE` alone isn't enough in that case — LiteLLM also needs to know to send the custom header.
+
+For these backends, every Exgentic agent and benchmark accepts a `litellm_params_extra` dict that is forwarded to LiteLLM verbatim. It accepts any key LiteLLM's per-model `litellm_params` block accepts: `api_base`, `api_key`, `extra_headers`, an alias-vs-actual `model` split, etc.
+
+### CLI
+
+```bash
+exgentic evaluate --benchmark gsm8k --agent tool_calling \
+  --model openai/my-model \
+  --set agent.litellm_params_extra='{"api_base":"https://gateway.example/v1","api_key":"$BACKEND_KEY","extra_headers":{"X-Backend-Auth":"$BACKEND_KEY"}}'
+```
+
+The value after `=` is parsed as JSON. Quote it carefully in your shell.
+
+For benchmarks that drive their own LLM (e.g. Tau2's user simulator, BrowseComp's judge), use the benchmark's own field:
+
+```bash
+# Tau2 user simulator
+--set benchmark.user_simulator_litellm_params_extra='{"api_base":"...","extra_headers":{"X-Backend-Auth":"$KEY"}}'
+```
+
+### Python API
+
+```python
+from exgentic import evaluate
+
+extras = {
+    "api_base": "https://gateway.example/v1",
+    "api_key": os.environ["BACKEND_KEY"],
+    "extra_headers": {"X-Backend-Auth": os.environ["BACKEND_KEY"]},
+}
+
+results = evaluate(
+    benchmark="gsm8k",
+    agent="tool_calling",
+    num_tasks=5,
+    model="openai/my-model",
+    agent_kwargs={"litellm_params_extra": extras},
+    # For Tau2: benchmark_kwargs={"user_simulator_litellm_params_extra": extras}
+)
+```
+
+### Aliasing one model name to another
+
+You can expose a friendly alias to clients while routing to a different underlying model:
+
+```python
+agent_kwargs={
+    "litellm_params_extra": {
+        "model": "hosted_vllm/some-model",  # what LiteLLM actually calls
+        "api_base": "...",
+        "api_key": "...",
+    },
+}
+# Clients still address the agent as "my-alias" via the `model=` argument.
+```
+
+### Where this is wired
+
+The same `litellm_params_extra` dict reaches every LiteLLM call site Exgentic owns:
+
+- The LiteLLM proxy started by CLI agents (Codex, Gemini, Claude Code).
+- The direct `litellm.acompletion` calls in `LiteLLMToolCallingAgentInstance` and the model-accessibility health check.
+- The smolagents `LiteLLMModel` constructor.
+- The openai-agents `LitellmModel` (with `api_base` mapped to its `base_url` constructor kwarg, `extra_headers` to `OpenAIModelSettings.extra_headers`, and any other keys forwarded as `extra_args`).
+- The judge model in `BrowseCompEvaluator` and the user simulator in `TAU2Session`.
+
+So the same config works everywhere — pick the agent and benchmark you want, supply the dict once, and you're done.
+
+---
+
 ## Reasoning models
 
 For models that support reasoning effort (OpenAI o1, o3, etc.):

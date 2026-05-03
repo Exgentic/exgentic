@@ -156,6 +156,10 @@ exgentic evaluate \
 --set agent.model.num_retries=3
 --set agent.model.retry_after=1.0
 --set agent.model.retry_strategy=constant
+
+# Non-standard backend params (api_base, custom auth headers, etc.)
+# See docs/custom-models.md → "Non-standard backends"
+--set agent.litellm_params_extra='{"api_base":"https://gw.example/v1","extra_headers":{"X-Backend-Auth":"$KEY"}}'
 ```
 
 ---
