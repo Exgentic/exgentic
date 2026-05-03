@@ -266,6 +266,49 @@ The same `litellm_params_extra` dict reaches every LiteLLM call site Exgentic ow
 
 So the same config works everywhere — pick the agent and benchmark you want, supply the dict once, and you're done.
 
+### Custom-model pricing (cost tracking for non-standard backends)
+
+Exgentic's cost tracking calls `litellm.cost_per_token(model=...)`, which looks the model up in LiteLLM's built-in pricing database. For non-standard backends (your own gateway, an internal deployment, RITS, etc.) the model isn't in that database, so the lookup raises `ValueError("No pricing info found for model '...'")` and your run fails when it tries to record cost.
+
+LiteLLM's native fix is `litellm.register_model()` — register your model once, before constructing the agent, and the lookup succeeds from then on:
+
+```python
+import litellm
+
+litellm.register_model({
+    "hosted_vllm/granite": {
+        "input_cost_per_token": 0.0001,    # USD per token
+        "output_cost_per_token": 0.0002,
+        "litellm_provider": "hosted_vllm",
+    },
+})
+
+# Now any agent using "hosted_vllm/granite" will report accurate cost.
+agent = LiteLLMToolCallingAgentInstance(
+    session_id=...,
+    model="hosted_vllm/granite",
+    litellm_params_extra={"api_base": "https://gateway.example/v1"},
+)
+```
+
+If you don't know the rates, set both to `0`:
+
+```python
+litellm.register_model({
+    "hosted_vllm/granite": {
+        "input_cost_per_token": 0,
+        "output_cost_per_token": 0,
+        "litellm_provider": "hosted_vllm",
+    },
+})
+```
+
+Cost will report as `$0` — your explicit choice, not a silent fallback. The framework deliberately doesn't auto-suppress the pricing-lookup failure: a silent `$0` for an unregistered model would hide a real bill from you.
+
+Reference: [LiteLLM custom pricing docs](https://docs.litellm.ai/docs/proxy/custom_pricing).
+
+> **CLI users**: cost registration currently only works through the Python API (the CLI subprocess has no place to slip in a `register_model` call). If you're driving from the CLI against a non-standard backend, either run via `exgentic.evaluate(...)` from a script that does the registration first, or accept the cost-tracking failure for now. A follow-up will add CLI support if there's demand.
+
 ---
 
 ## Reasoning models
