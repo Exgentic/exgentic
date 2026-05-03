@@ -9,6 +9,22 @@ Usage (expects OPENAI_API_BASE/OPENAI_API_KEY already set for your backend):
     with LitellmProxy(model="openai/gpt-4o-mini") as proxy:
         os.environ["OPENAI_API_BASE"] = proxy.base_url
         # run your Codex/Exgentic flow that expects an OpenAI-compatible endpoint
+
+For non-standard backends, ``litellm_params_extra`` forwards any
+LiteLLM-supported per-model parameter (e.g. ``api_base``, ``api_key``,
+``extra_headers``, an alias-vs-actual ``model`` split) into the generated
+proxy config. Example for an OpenAI-compatible gateway that uses a custom
+auth header:
+
+    LitellmProxy(
+        model="rits/granite",
+        litellm_params_extra={
+            "model": "hosted_vllm/granite",
+            "api_base": os.environ["RITS_GRANITE_API_BASE"],
+            "api_key": os.environ["RITS_API_KEY"],
+            "extra_headers": {"RITS_API_KEY": os.environ["RITS_API_KEY"]},
+        },
+    )
 """
 
 from __future__ import annotations
@@ -59,6 +75,7 @@ class LitellmProxy:
         usage_log_path: str | None = None,
         startup_timeout: float = 15.0,
         model_settings: ModelSettings | None = None,
+        litellm_params_extra: dict[str, object] | None = None,
     ) -> None:
         self.model = model
         self.port = port or _get_free_port()
@@ -68,6 +85,7 @@ class LitellmProxy:
         self.usage_log_path = usage_log_path
         self.startup_timeout = startup_timeout
         self.model_settings = model_settings or ModelSettings()
+        self._litellm_params_extra = litellm_params_extra or {}
         self._log_file = None
         self._proc: subprocess.Popen[str] | None = None
         self._config_file: Path | None = None
@@ -159,6 +177,7 @@ class LitellmProxy:
             litellm_params["max_tokens"] = self.model_settings.max_tokens
         if self.model_settings.top_p is not None:
             litellm_params["top_p"] = self.model_settings.top_p
+        litellm_params.update(self._litellm_params_extra)
         return litellm_params
 
     def _build_config_data(self) -> dict[str, object]:
