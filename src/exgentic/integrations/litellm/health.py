@@ -104,10 +104,11 @@ def classify_error(exc: BaseException) -> ErrorCategory:
 
     Classification priority:
     1. Python built-in types (TimeoutError, ConnectionError)
-    2. Auth-error message markers (override status: some proxies wrap
-       expired/invalid-key errors in HTTP 400)
-    3. HTTP status code (extracted from exc or exc.original_exception)
-    4. litellm exception type name
+    2. HTTP status code (extracted from exc or exc.original_exception).
+       For REACHABLE statuses (400/422), an auth marker in the message
+       overrides to PERMANENT — some proxies wrap expired/invalid-key
+       errors in a 400 response that would otherwise pass the health check.
+    3. litellm exception type name
     """
     # 1. Python built-ins
     if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
@@ -120,12 +121,7 @@ def classify_error(exc: BaseException) -> ErrorCategory:
     if original is not None and isinstance(original, (TimeoutError, asyncio.TimeoutError)):
         return ErrorCategory.TRANSIENT
 
-    # 2. Auth markers in message body — checked before status so that an
-    # expired_key wrapped as 400 isn't treated as REACHABLE.
-    if _looks_like_auth_error(exc) or (original is not None and _looks_like_auth_error(original)):
-        return ErrorCategory.PERMANENT
-
-    # 3. HTTP status code (from exc or exc.original_exception)
+    # 2. HTTP status code (from exc or exc.original_exception)
     status = getattr(exc, "status_code", None)
     if status is None and original is not None:
         status = getattr(original, "status_code", None)
@@ -134,11 +130,15 @@ def classify_error(exc: BaseException) -> ErrorCategory:
         if status in _PERMANENT_STATUS_CODES:
             return ErrorCategory.PERMANENT
         if status in _REACHABLE_STATUS_CODES:
+            # Refine: a "reachable" status with an auth marker in the body
+            # is still permanent (LiteLLM proxy returns expired_key as 400).
+            if _looks_like_auth_error(exc) or (original is not None and _looks_like_auth_error(original)):
+                return ErrorCategory.PERMANENT
             return ErrorCategory.REACHABLE
         if status in _TRANSIENT_STATUS_CODES:
             return ErrorCategory.TRANSIENT
 
-    # 4. litellm exception type name
+    # 3. litellm exception type name
     name = type(exc).__name__
     if name in _PERMANENT_TYPES:
         return ErrorCategory.PERMANENT
