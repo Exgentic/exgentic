@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -424,80 +425,102 @@ def batch_status_cmd(
     """Show a status table for multiple config files."""
     apply_debug_mode(debug)
     config_paths = _expand_config_inputs(config_values, list(ctx.args))
-    rows: list[dict[str, str]] = []
 
-    for i, config_path in enumerate(config_paths, start=1):
-        row: dict[str, str] = {
-            "#": str(i),
-            "benchmark": "-",
-            "agent": "-",
-            "model": "-",
-            "sessions": "-",
-            "score": "-",
-            "cost": "-",
-            "last_event": "-",
-        }
-        try:
-            cfg = _load_run_like_config(config_path)
-            if num_tasks is not None and isinstance(cfg, RunConfig):
-                cfg = cfg.with_overrides(num_tasks=num_tasks)
-            run_status = status(cfg)
-            completed = 0
-            running = 0
-            errors = 0
-            for s in run_status.session_statuses:
-                if s.status == SessionExecutionStatus.RUNNING:
-                    running += 1
-                elif s.status == SessionExecutionStatus.COMPLETED:
-                    completed += 1
-                    if s.result_status in (SessionOutcomeStatus.ERROR, SessionOutcomeStatus.CANCELLED):
-                        errors += 1
-            total = run_status.total_tasks
-            parts = [f"{completed}/{total}"]
-            if running:
-                parts.append(f"{running}run")
-            if errors:
-                parts.append(f"{errors}err")
-            sessions_str = " ".join(parts)
-
-            score, cost, models, *_ = _load_results_summary(run_status.results_path)
-            model = run_status.model_name or models
-            if model != "-":
-                # Strip common prefixes for readability.
-                for prefix in ("openai/azure/", "openai/Azure/", "openai/"):
-                    if model.startswith(prefix):
-                        model = model[len(prefix) :]
-                        break
-            benchmark = run_status.benchmark_slug_name
-            subset = run_status.subset_name
-            if subset:
-                benchmark = f"{benchmark}/{subset}"
-            sessions_dir = Path(run_status.results_path).parent / "sessions"
-            latest = 0.0
-            for p in sessions_dir.rglob("*"):
-                try:
-                    m = p.stat().st_mtime
-                except OSError:
-                    continue
-                if m > latest:
-                    latest = m
-            last_event = _format_ago(time.time() - latest) if latest else "-"
-            row.update(
-                {
-                    "benchmark": benchmark,
-                    "agent": run_status.agent_slug_name,
-                    "model": model,
-                    "sessions": sessions_str,
-                    "score": score,
-                    "cost": cost,
-                    "last_event": last_event,
-                }
+    # NFS reads are I/O-bound, so per-config work is parallelizable. Configs
+    # are independent; we preserve the original order via enumerate+sort.
+    max_workers = min(32, len(config_paths)) or 1
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        rows = list(
+            pool.map(
+                lambda item: _build_status_row(item[0], item[1], num_tasks),
+                enumerate(config_paths, start=1),
             )
-        except Exception:
-            row["benchmark"] = _short_config_path(config_path)
-        rows.append(row)
+        )
 
     render_batch_status(rows)
+
+
+def _build_status_row(
+    idx: int,
+    config_path: str,
+    num_tasks: int | None,
+) -> dict[str, str]:
+    row: dict[str, str] = {
+        "#": str(idx),
+        "benchmark": "-",
+        "agent": "-",
+        "model": "-",
+        "sessions": "-",
+        "score": "-",
+        "cost": "-",
+        "last_event": "-",
+    }
+    try:
+        cfg = _load_run_like_config(config_path)
+        if num_tasks is not None and isinstance(cfg, RunConfig):
+            cfg = cfg.with_overrides(num_tasks=num_tasks)
+        run_status = status(cfg)
+        completed = 0
+        running = 0
+        errors = 0
+        for s in run_status.session_statuses:
+            if s.status == SessionExecutionStatus.RUNNING:
+                running += 1
+            elif s.status == SessionExecutionStatus.COMPLETED:
+                completed += 1
+                if s.result_status in (SessionOutcomeStatus.ERROR, SessionOutcomeStatus.CANCELLED):
+                    errors += 1
+        total = run_status.total_tasks
+        parts = [f"{completed}/{total}"]
+        if running:
+            parts.append(f"{running}run")
+        if errors:
+            parts.append(f"{errors}err")
+        sessions_str = " ".join(parts)
+
+        score, cost, models, *_ = _load_results_summary(run_status.results_path)
+        model = run_status.model_name or models
+        if model != "-":
+            # Strip common prefixes for readability.
+            for prefix in ("openai/azure/", "openai/Azure/", "openai/"):
+                if model.startswith(prefix):
+                    model = model[len(prefix) :]
+                    break
+        benchmark = run_status.benchmark_slug_name
+        subset = run_status.subset_name
+        if subset:
+            benchmark = f"{benchmark}/{subset}"
+        sessions_dir = Path(run_status.results_path).parent / "sessions"
+        # Stat session subdirectories one level deep (a directory's mtime is
+        # bumped when entries are added/removed). Avoids rglob walking every
+        # file in every session, which on NFS dominates wall time.
+        latest = 0.0
+        try:
+            entries = list(sessions_dir.iterdir())
+        except OSError:
+            entries = []
+        for p in entries:
+            try:
+                m = p.stat().st_mtime
+            except OSError:
+                continue
+            if m > latest:
+                latest = m
+        last_event = _format_ago(time.time() - latest) if latest else "-"
+        row.update(
+            {
+                "benchmark": benchmark,
+                "agent": run_status.agent_slug_name,
+                "model": model,
+                "sessions": sessions_str,
+                "score": score,
+                "cost": cost,
+                "last_event": last_event,
+            }
+        )
+    except Exception:
+        row["benchmark"] = _short_config_path(config_path)
+    return row
 
 
 @batch_cmd.command(
