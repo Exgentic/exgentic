@@ -411,6 +411,56 @@ def test_is_permanent_error_404():
     assert classify_error(_FakeNotFoundError()) == ErrorCategory.PERMANENT
 
 
+# Some proxies (LiteLLM proxy in particular) wrap auth failures inside an
+# HTTP 400 response. Without the auth-marker override, classify_error would
+# call these REACHABLE and the health check would silently pass on a dead key.
+
+
+class _FakeProxyExpiredKey400Error(Exception):
+    """LiteLLM proxy returns expired-key as 400 with type=expired_key."""
+
+    def __init__(self):
+        self.status_code = 400
+        super().__init__(
+            "Error code: 400 - {'error': {'message': 'Authentication Error - "
+            "Expired Key. Key Expiry time 2026-04-28', 'type': 'expired_key', "
+            "'code': '400'}}"
+        )
+
+
+class _FakeProxyInvalidKey400Error(Exception):
+    def __init__(self):
+        self.status_code = 400
+        super().__init__("invalid api key")
+
+
+def test_proxy_expired_key_400_is_permanent_not_reachable():
+    """Regression: LiteLLM proxy wraps expired_key in 400 — must not pass health."""
+    assert classify_error(_FakeProxyExpiredKey400Error()) == ErrorCategory.PERMANENT
+
+
+def test_proxy_invalid_key_400_is_permanent():
+    assert classify_error(_FakeProxyInvalidKey400Error()) == ErrorCategory.PERMANENT
+
+
+def test_400_without_auth_marker_still_reachable():
+    """Regression guard: ordinary 400s (e.g. content policy) stay REACHABLE."""
+    assert classify_error(_FakeContentPolicyError()) == ErrorCategory.REACHABLE
+
+
+@pytest.mark.asyncio
+async def test_acheck_fails_fast_on_proxy_expired_key():
+    """Health check must NOT pass on proxy-wrapped expired_key responses."""
+    mock = AsyncMock(side_effect=_FakeProxyExpiredKey400Error())
+
+    with patch("litellm.acompletion", mock):
+        with pytest.raises(_FakeProxyExpiredKey400Error):
+            await acheck_model_accessible("m")
+
+    # No retries — fail on first attempt.
+    assert mock.call_count == 1
+
+
 def test_is_permanent_error_not_permanent():
     """Transient errors should NOT be permanent."""
     assert classify_error(TimeoutError()) == ErrorCategory.TRANSIENT

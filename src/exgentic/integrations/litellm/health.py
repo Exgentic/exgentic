@@ -64,6 +64,24 @@ _TRANSIENT_STATUS_CODES = frozenset({429, 500, 502, 503})
 _REACHABLE_STATUS_CODES = frozenset({400, 422})
 _PERMANENT_STATUS_CODES = frozenset({401, 403, 404})
 
+# Lowercase substrings identifying authentication failures regardless of HTTP
+# status. The LiteLLM proxy wraps expired/invalid-key errors inside a 400
+# response, which would otherwise be classified as REACHABLE and silently pass
+# the health check.
+_AUTH_ERROR_MARKERS = (
+    "authentication error",
+    "expired_key",
+    "expired key",
+    "invalid_api_key",
+    "invalid api key",
+    "incorrect api key",
+)
+
+
+def _looks_like_auth_error(exc: BaseException) -> bool:
+    msg = (getattr(exc, "message", None) or str(exc) or "").lower()
+    return any(marker in msg for marker in _AUTH_ERROR_MARKERS)
+
 
 class ErrorCategory(Enum):
     """Classification of a litellm error for retry/health-check decisions."""
@@ -86,8 +104,10 @@ def classify_error(exc: BaseException) -> ErrorCategory:
 
     Classification priority:
     1. Python built-in types (TimeoutError, ConnectionError)
-    2. HTTP status code (extracted from exc or exc.original_exception)
-    3. litellm exception type name
+    2. Auth-error message markers (override status: some proxies wrap
+       expired/invalid-key errors in HTTP 400)
+    3. HTTP status code (extracted from exc or exc.original_exception)
+    4. litellm exception type name
     """
     # 1. Python built-ins
     if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
@@ -100,7 +120,12 @@ def classify_error(exc: BaseException) -> ErrorCategory:
     if original is not None and isinstance(original, (TimeoutError, asyncio.TimeoutError)):
         return ErrorCategory.TRANSIENT
 
-    # 2. HTTP status code (from exc or exc.original_exception)
+    # 2. Auth markers in message body — checked before status so that an
+    # expired_key wrapped as 400 isn't treated as REACHABLE.
+    if _looks_like_auth_error(exc) or (original is not None and _looks_like_auth_error(original)):
+        return ErrorCategory.PERMANENT
+
+    # 3. HTTP status code (from exc or exc.original_exception)
     status = getattr(exc, "status_code", None)
     if status is None and original is not None:
         status = getattr(original, "status_code", None)
@@ -113,7 +138,7 @@ def classify_error(exc: BaseException) -> ErrorCategory:
         if status in _TRANSIENT_STATUS_CODES:
             return ErrorCategory.TRANSIENT
 
-    # 3. litellm exception type name
+    # 4. litellm exception type name
     name = type(exc).__name__
     if name in _PERMANENT_TYPES:
         return ErrorCategory.PERMANENT
