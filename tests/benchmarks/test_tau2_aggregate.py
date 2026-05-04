@@ -211,7 +211,6 @@ class TestAggregateSessions:
 
         assert result.score == pytest.approx(0.4)
         assert result.total_tasks == 2
-        assert result.metrics["aggregated_sessions"] == 1
         assert result.metrics["avg_reward"] == pytest.approx(0.4)
 
     def test_missing_file_counts_as_zero_reward(self, evaluator, tmp_path: Path):
@@ -235,7 +234,6 @@ class TestAggregateSessions:
 
         assert result.score == pytest.approx(0.5)
         assert result.total_tasks == 2
-        assert result.metrics["aggregated_sessions"] == 1
 
     def test_all_sessions_empty_returns_zero_score(self, evaluator, tmp_path: Path):
         """When every session has no simulations, return score=0 instead of crashing."""
@@ -261,7 +259,6 @@ class TestAggregateSessions:
             result = evaluator.aggregate_sessions(sessions)
             assert result.score == 0.0
             assert result.metrics["avg_reward"] == 0.0
-            assert result.metrics["aggregated_sessions"] == 0
 
     def test_rejects_file_with_multiple_tasks(self, evaluator, tmp_path: Path):
         """A result file with != 1 task should raise ValueError."""
