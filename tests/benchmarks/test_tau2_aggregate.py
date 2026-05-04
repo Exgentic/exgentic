@@ -189,8 +189,8 @@ def evaluator(tmp_path: Path):
 class TestAggregateSessions:
     """Tests for TAU2Evaluator.aggregate_sessions."""
 
-    def test_skips_errored_sessions_with_no_simulations(self, evaluator, tmp_path: Path):
-        """Sessions with 0 simulations (errored) should be skipped gracefully."""
+    def test_empty_sessions_count_as_zero_reward(self, evaluator, tmp_path: Path):
+        """Sessions with 0 simulations contribute reward=0 to the average."""
         ok_path = tmp_path / "ok" / "results.json"
         err_path = tmp_path / "err" / "results.json"
 
@@ -209,8 +209,33 @@ class TestAggregateSessions:
         ):
             result = evaluator.aggregate_sessions(sessions)
 
-        assert result.score == 0.8
+        assert result.score == pytest.approx(0.4)
         assert result.total_tasks == 2
+        assert result.metrics["aggregated_sessions"] == 1
+        assert result.metrics["avg_reward"] == pytest.approx(0.4)
+
+    def test_missing_file_counts_as_zero_reward(self, evaluator, tmp_path: Path):
+        """Sessions with no benchmark_results file contribute reward=0."""
+        ok_path = tmp_path / "ok" / "results.json"
+        missing_path = tmp_path / "missing" / "results.json"  # never written
+
+        _write_result(ok_path, tasks=[{"id": "t1"}], simulations=[{"reward": 1.0}])
+
+        sessions = [SimpleNamespace(session_id="ok"), SimpleNamespace(session_id="missing")]
+
+        with mock.patch.object(
+            type(evaluator),
+            "get_sessions_paths",
+            return_value=[
+                _make_session_paths(ok_path, "ok"),
+                _make_session_paths(missing_path, "missing"),
+            ],
+        ):
+            result = evaluator.aggregate_sessions(sessions)
+
+        assert result.score == pytest.approx(0.5)
+        assert result.total_tasks == 2
+        assert result.metrics["aggregated_sessions"] == 1
 
     def test_all_sessions_empty_returns_zero_score(self, evaluator, tmp_path: Path):
         """When every session has no simulations, return score=0 instead of crashing."""
@@ -236,6 +261,7 @@ class TestAggregateSessions:
             result = evaluator.aggregate_sessions(sessions)
             assert result.score == 0.0
             assert result.metrics["avg_reward"] == 0.0
+            assert result.metrics["aggregated_sessions"] == 0
 
     def test_rejects_file_with_multiple_tasks(self, evaluator, tmp_path: Path):
         """A result file with != 1 task should raise ValueError."""

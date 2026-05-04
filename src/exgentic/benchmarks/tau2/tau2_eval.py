@@ -618,22 +618,22 @@ class TAU2Evaluator(Evaluator):
         return [str(t.id) for t in tasks]
 
     def aggregate_sessions(self, sessions: list[SessionIndex]) -> BenchmarkResults:
-        """Aggregate per-session Tau2 result files and expose a final score.
+        """Aggregate Tau2 results into a benchmark-level score.
 
-        - Computes Tau2 metrics via ``compute_metrics`` for detailed reporting.
-        - Derives a top-level ``score`` as the mean per-session reward to provide
-          a single scalar suitable for tracker summaries and comparisons.
+        Sessions without a simulation file (e.g. agent returned text instead of
+        tool calls) contribute reward=0, matching the per-session ``score()``
+        contract and keeping ``score`` consistent with ``total_tasks``.
         """
-        files: list[Path] = []
-        for paths in self.get_sessions_paths(sessions):
-            fp = paths.benchmark_results
-            if fp.exists():
-                files.append(fp)
-
         base: Results | None = None
         all_sims = []
         task_map: dict[str, Any] = {}
-        for fp in files:
+        aggregated_sessions = 0
+        total_sessions = len(sessions)
+
+        for paths in self.get_sessions_paths(sessions):
+            fp = paths.benchmark_results
+            if not fp.exists():
+                continue
             r = Results.load(fp)
             if base is None:
                 base = r
@@ -643,27 +643,41 @@ class TAU2Evaluator(Evaluator):
                 raise ValueError(f"Expected at most 1 simulation per result file, got {len(r.simulations)} in {fp}")
             if len(r.simulations) == 0:
                 continue
+            aggregated_sessions += 1
             all_sims.extend(r.simulations)
             for t in r.tasks:
                 task_map[t.id] = t
 
-        total_sessions = len(sessions)
+        if aggregated_sessions < total_sessions:
+            logger.warning(
+                "tau2 aggregation: %d/%d sessions contributed simulations; remaining %d count as reward=0",
+                aggregated_sessions,
+                total_sessions,
+                total_sessions - aggregated_sessions,
+            )
 
-        # No simulations at all → return score=0 instead of crashing.
-        if len(all_sims) == 0 or base is None:
+        if base is None or not all_sims:
             return BenchmarkResults(
                 benchmark_name=f"tau2-{self._subset}",
                 total_tasks=total_sessions,
                 score=0.0,
-                metrics={"avg_reward": 0.0},
+                metrics={"avg_reward": 0.0, "aggregated_sessions": 0},
             )
 
         combined = Results(info=base.info, tasks=list(task_map.values()), simulations=all_sims)
         m = compute_metrics(combined)
 
+        # compute_metrics averages over present simulations only; rescale to the
+        # planned denominator so missing sessions count as reward=0.
+        score = float(m.avg_reward) * aggregated_sessions / total_sessions
+
+        metrics = m.as_dict()
+        metrics["avg_reward"] = score
+        metrics["aggregated_sessions"] = aggregated_sessions
+
         return BenchmarkResults(
             benchmark_name=f"tau2-{self._subset}",
             total_tasks=total_sessions,
-            score=m.avg_reward,
-            metrics=m.as_dict(),
+            score=score,
+            metrics=metrics,
         )
