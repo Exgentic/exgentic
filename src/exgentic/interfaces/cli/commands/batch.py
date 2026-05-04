@@ -826,10 +826,8 @@ def batch_patch_cmd(
         click.echo(f"Done. {changes} session(s) renamed.")
 
 
-# Bulky/redundant fields to drop when --slim is requested.
-#
-# Run scope: these embed data accessible elsewhere (session_results ==
-# --scope=session output) or are large free-form text/list blobs.
+# Fields dropped under --slim. Run-scope drops blobs that duplicate
+# --scope=session output; session-scope drops the two JSON-encoded sub-objects.
 _SLIM_EXCLUDE_FIELDS_RUN: set[str] = {
     "session_results",
     "executed_session_ids",
@@ -842,15 +840,7 @@ _SLIM_EXCLUDE_FIELDS_RUN: set[str] = {
     "accumulated_benchmark_report",
     "benchmark_results",
 }
-
-# Session scope: these are JSON-encoded internal structures (cost breakdowns,
-# benchmark-specific metrics, full error tracebacks). The scalar score/cost/
-# status fields stay. Errors are still surfaced via error_source in the
-# session-level results.json and via the session-level error.log file.
-_SLIM_EXCLUDE_FIELDS_SESSION: set[str] = {
-    "cost_reports",
-    "details",
-}
+_SLIM_EXCLUDE_FIELDS_SESSION: set[str] = {"cost_reports", "details"}
 
 
 @batch_cmd.command(
@@ -891,15 +881,7 @@ def batch_extract_cmd(
     scope: str,
     slim: bool,
 ) -> None:
-    """Extract run or per-session results from multiple configs into a single CSV.
-
-    --scope=run    one row per config; emits aggregates from each run's
-                   results.json (default).
-    --scope=session  one row per session; flattens the embedded
-                   session_results list with run-identity columns prepended.
-
-    --slim          drop bulky/redundant fields (only meaningful for --scope=run).
-    """
+    """Extract run-level or per-session results into a single CSV."""
     config_paths = _expand_config_inputs(config_values, list(ctx.args))
     failures: list[tuple[str, str]] = []
     rows: list[dict[str, Any]] = []
