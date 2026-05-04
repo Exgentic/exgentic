@@ -11,7 +11,6 @@ Usage:
 Options:
     --mcp-url URL           MCP server URL (default: http://127.0.0.1:8000/mcp)
     --a2a-url URL           A2A agent server URL (default: http://127.0.0.1:9999)
-    --cleanup               Delete sessions after completion (default: False)
     --delay SECS            Delay between task executions in seconds (default: 1.0)
     --limit NUM             Limit number of tasks to test (default: all tasks)
     --server-pid PID        PID of A2A server process to monitor (default: auto-detect)
@@ -676,7 +675,6 @@ def print_task_results_summary(task_results: List[Dict[str, Any]]):
 async def test_a2a_agent(
     mcp_url: str,
     a2a_url: str,
-    cleanup: bool = False,
     delay: float = 1.0,
     limit: int = 0,
     server_pid: Optional[int] = None,
@@ -687,7 +685,6 @@ async def test_a2a_agent(
     Args:
         mcp_url: URL of the MCP server
         a2a_url: URL of the A2A agent server
-        cleanup: Whether to delete sessions after completion
         delay: Delay between task executions in seconds
         limit: Limit number of tasks to test (0 = all tasks)
         server_pid: PID of A2A server process to monitor (None = auto-detect)
@@ -763,7 +760,6 @@ async def test_a2a_agent(
     print(f"\nMCP Server URL: {mcp_url}")
     print(f"A2A Agent URL: {a2a_url}")
     print(f"Monitoring Process: {'PID ' + str(monitor.pid) if monitor else 'Disabled'}")
-    print(f"Cleanup after completion: {cleanup}")
     print(f"Delay between executions: {delay}s")
     print(f"Task limit: {limit if limit > 0 else 'all tasks'}")
 
@@ -892,7 +888,7 @@ async def test_a2a_agent(
                     monitor.print_measurement(final_mem)
 
                 # Cleanup if requested
-                if cleanup and created_sessions:
+                if created_sessions:
                     print("\n" + "-" * 80)
                     print("CLEANUP: DELETING SESSIONS")
                     print("-" * 80)
@@ -952,7 +948,6 @@ def main():
         default="http://127.0.0.1:9999",
         help="A2A agent server URL (default: http://127.0.0.1:9999)",
     )
-    parser.add_argument("--cleanup", action="store_true", help="Delete sessions after completion")
     parser.add_argument(
         "--delay", type=float, default=1.0, help="Delay between task executions in seconds (default: 1.0)"
     )
@@ -989,7 +984,6 @@ def main():
         test_a2a_agent(
             args.mcp_url,
             args.a2a_url,
-            args.cleanup,
             args.delay,
             args.limit,
             args.server_pid,
