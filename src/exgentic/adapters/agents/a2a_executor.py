@@ -543,6 +543,7 @@ class ExgenticAgentExecutor:
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, ctx.run, agent_instance.close)
             await event_emitter.emit_event(final_result, final=True)
+            print(f"📁 Completed request - Success {output_dir_path / run_id}")
 
             # Flush traces to ensure they're exported
             from ...utils.otel import flush_traces
@@ -560,6 +561,7 @@ class ExgenticAgentExecutor:
                 tracker.on_session_error(mock_session, e)
 
             await event_emitter.emit_event(f"Error: {e!s}", failed=True)
+            print(f"📁 Completed request - Failed {output_dir_path / run_id}")
         finally:
             if mcp_session:
                 try:

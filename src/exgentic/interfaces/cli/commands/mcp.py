@@ -185,6 +185,7 @@ def mcp_cmd(
                     if not action_types:
                         action_types = session_actions
 
+                print(f"📁 Created session - Logs: {output_dir / run_id / 'sessions' / session_id}")
                 return {
                     "status": "success",
                     "session_id": session_id,
@@ -212,6 +213,8 @@ def mcp_cmd(
 
             if session is None:
                 return {"error": f"No session found with session_id {session_id}"}
+
+            print(f"📁 Deleting session - Logs: {output_dir / run_id / 'sessions' / session_id}")
 
             try:
                 task_id = session.task_id if hasattr(session, "task_id") else "unknown"
