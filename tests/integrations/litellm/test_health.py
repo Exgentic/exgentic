@@ -417,6 +417,66 @@ def test_is_permanent_error_not_permanent():
     assert classify_error(_FakeRateLimitError()) == ErrorCategory.TRANSIENT
 
 
+# Some proxies (LiteLLM proxy) wrap auth and model-availability failures
+# inside HTTP 400 responses. Without the permanent-marker override, these
+# would be classified REACHABLE and the health check would silently pass.
+
+
+class _FakeProxyExpiredKey400Error(Exception):
+    def __init__(self):
+        self.status_code = 400
+        super().__init__(
+            "Error code: 400 - {'error': {'message': 'Authentication Error - "
+            "Expired Key. Key Expiry time 2026-04-28', 'type': 'expired_key'}}"
+        )
+
+
+class _FakeProxyInvalidModel400Error(Exception):
+    def __init__(self):
+        self.status_code = 400
+        super().__init__(
+            "/chat/completions: Invalid model name passed in model=azure/X. "
+            "Call `/v1/models` to view available models for your key."
+        )
+
+
+class _FakeProxyTeamBlocked400Error(Exception):
+    def __init__(self):
+        self.status_code = 400
+        super().__init__("team not allowed to access model.")
+
+
+def test_proxy_expired_key_400_is_permanent():
+    assert classify_error(_FakeProxyExpiredKey400Error()) == ErrorCategory.PERMANENT
+
+
+def test_proxy_invalid_model_400_is_permanent():
+    """Regression: model-not-available wrapped in 400 should not silently pass."""
+    assert classify_error(_FakeProxyInvalidModel400Error()) == ErrorCategory.PERMANENT
+
+
+def test_proxy_team_blocked_400_is_permanent():
+    assert classify_error(_FakeProxyTeamBlocked400Error()) == ErrorCategory.PERMANENT
+
+
+def test_400_without_permanent_marker_still_reachable():
+    """Regression guard: ordinary 400s (e.g. content policy) stay REACHABLE."""
+    assert classify_error(_FakeContentPolicyError()) == ErrorCategory.REACHABLE
+
+
+@pytest.mark.asyncio
+async def test_acheck_fails_fast_on_proxy_invalid_model():
+    """Health check must NOT pass when the proxy returns invalid-model in a 400."""
+    mock = AsyncMock(side_effect=_FakeProxyInvalidModel400Error())
+
+    with patch("litellm.acompletion", mock):
+        with pytest.raises(_FakeProxyInvalidModel400Error):
+            await acheck_model_accessible("m")
+
+    # No retries — fail on first attempt.
+    assert mock.call_count == 1
+
+
 @pytest.mark.asyncio
 async def test_acheck_does_not_retry_auth_error():
     """401 auth errors should fail immediately without retry."""
