@@ -1,0 +1,106 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026, Anonymous Authors.
+
+"""LiteLLM configuration helpers."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class LitellmSettings:
+    """Global LiteLLM configuration."""
+
+    litellm_caching: bool
+    litellm_delete_time_from_cache_key: bool
+    cache_dir: str
+    litellm_cache_dir: str
+    log_level: str
+    drop_params: bool = True
+    modify_params: bool = True
+    timeout: int = 180
+
+
+def configure_litellm(
+    *,
+    config: LitellmSettings,
+    cache_only: bool = False,
+) -> None:
+    """Configure LiteLLM for Framework.
+
+    Args:
+        config: Explicit LiteLLM configuration.
+        cache_only: When True, only refresh cache configuration.
+    """
+    _configure_cache(config)
+    if cache_only:
+        return
+    _configure_logging(config)
+    _configure_callbacks()
+    _configure_inference(config)
+
+
+def _configure_cache(config: LitellmSettings) -> None:
+    if not config.litellm_caching:
+        return
+    try:
+        import litellm
+    except ImportError:
+        return
+    from .cache_utils import build_litellm_cache
+
+    litellm.cache = build_litellm_cache(config)
+    litellm.enable_cache()
+
+
+def _configure_callbacks() -> None:
+    try:
+        import litellm
+    except ImportError:
+        return
+    from .trace_logger import (
+        SyncTraceLogger,
+        sync_trace_logger,
+    )
+
+    # A single CustomLogger handles both sync (log_success_event) and async
+    # (async_log_success_event) — litellm picks the right method per call.
+    # Registering two instances caused duplicate OTEL spans (litellm invokes
+    # every callback in the list for each call).
+    # TODO: previously both SyncTraceLogger and AsyncTraceLogger were
+    # registered — possibly to work around a quirk in an older litellm
+    # version. Verified single-instance works on litellm 1.82.2. If async
+    # callbacks stop firing, re-add AsyncTraceLogger here.
+    if not any(isinstance(cb, SyncTraceLogger) for cb in litellm.callbacks):
+        litellm.callbacks.append(sync_trace_logger)
+
+
+def _configure_logging(config: LitellmSettings) -> None:
+    try:
+        import logging
+
+        import litellm
+    except ImportError:
+        return
+
+    level = logging.DEBUG if str(config.log_level).upper() == "DEBUG" else logging.WARNING
+    litellm.log_level = "DEBUG" if level == logging.DEBUG else "WARNING"
+    litellm.suppress_debug_info = level != logging.DEBUG
+    litellm.set_verbose = level == logging.DEBUG
+
+    for name in ("LiteLLM", "LiteLLM Proxy", "LiteLLM Router", "litellm"):
+        logger = logging.getLogger(name)
+        logger.setLevel(level)
+        logger.propagate = False
+
+
+def _configure_inference(config: LitellmSettings) -> None:
+    try:
+        import litellm
+    except ImportError:
+        return
+
+    litellm.drop_params = config.drop_params
+    litellm.modify_params = config.modify_params
+    litellm.timeout = config.timeout

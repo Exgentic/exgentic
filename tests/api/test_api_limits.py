@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
-from exgentic import execute
-from exgentic.core.types import RunConfig, SessionOutcomeStatus
+from framework import execute
+from framework.core.types import RunConfig, SessionOutcomeStatus
 
 
 def _base_config(tmp_path, *, run_id: str) -> RunConfig:

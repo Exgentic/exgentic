@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 # Re-export from the installed package so existing tests keep working.
-from exgentic.testing.benchmark import (
+from framework.testing.benchmark import (
     TestBenchmark,
     TestEvaluator,
     TestSession,

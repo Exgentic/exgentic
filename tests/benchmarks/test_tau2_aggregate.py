@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Tests for TAU2Evaluator.aggregate_sessions edge-case handling (issue #136).
 
@@ -158,10 +158,10 @@ def _make_session_paths(result_path: Path, session_id: str) -> Any:
 def evaluator(tmp_path: Path):
     """Return a TAU2Evaluator with mocked session paths."""
     # Patch get_tau2_data_dir so the shim __init__ doesn't try to resolve real dirs
-    with mock.patch("exgentic.benchmarks.tau2.get_tau2_data_dir", return_value="/fake"):
+    with mock.patch("framework.benchmarks.tau2.get_tau2_data_dir", return_value="/fake"):
         # Force re-import of tau2_shim and tau2_eval with stubs in place
-        shim_name = "exgentic.benchmarks.tau2.tau2_shim"
-        eval_name = "exgentic.benchmarks.tau2.tau2_eval"
+        shim_name = "framework.benchmarks.tau2.tau2_shim"
+        eval_name = "framework.benchmarks.tau2.tau2_eval"
 
         # Remove cached modules to force re-import with our stubs
         for mod_name in (shim_name, eval_name):
@@ -169,8 +169,8 @@ def evaluator(tmp_path: Path):
 
         # Patch configure_litellm and get_settings that tau2_shim calls at import time
         with (
-            mock.patch("exgentic.integrations.litellm.config.configure_litellm"),
-            mock.patch("exgentic.utils.settings.get_settings"),
+            mock.patch("framework.integrations.litellm.config.configure_litellm"),
+            mock.patch("framework.utils.settings.get_settings"),
         ):
             mod = importlib.import_module(eval_name)
 

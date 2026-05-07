@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 import pytest
-from exgentic.adapters.actions.functions import action_type_to_function, bind_arguments
-from exgentic.core.types import Action, ActionType, SingleAction, SingleObservation
+from framework.adapters.actions.functions import action_type_to_function, bind_arguments
+from framework.core.types import Action, ActionType, SingleAction, SingleObservation
 from pydantic import BaseModel
 
 

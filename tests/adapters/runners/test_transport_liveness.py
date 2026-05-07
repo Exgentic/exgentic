@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Liveness-check regression tests for HTTPTransport.
 
@@ -17,7 +17,7 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
-from exgentic.adapters.runners.service import HTTPTransport
+from framework.adapters.runners.service import HTTPTransport
 
 
 class _EchoHandler(BaseHTTPRequestHandler):

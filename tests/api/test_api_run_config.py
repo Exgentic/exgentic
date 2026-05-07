@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
 import json
 
-from exgentic import (
+from framework import (
     aggregate,
     evaluate,
     execute,
@@ -17,7 +17,7 @@ from exgentic import (
     results,
     status,
 )
-from exgentic.core.types import RunConfig, SessionOutcomeStatus
+from framework.core.types import RunConfig, SessionOutcomeStatus
 
 
 def _run_config(tmp_path, *, run_id: str, policy: str = "good_then_finish") -> RunConfig:
@@ -126,7 +126,7 @@ def test_api_functions_accept_overridable_fields():
     """Ensure Python API functions accept all OVERRIDABLE_FIELDS as parameters."""
     import inspect
 
-    from exgentic.interfaces.lib import api
+    from framework.interfaces.lib import api
 
     for fn_name in ("evaluate", "execute", "aggregate", "status"):
         fn = getattr(api, fn_name)
@@ -140,8 +140,8 @@ def test_api_functions_accept_overridable_fields():
 
 def test_cli_commands_accept_overridable_fields():
     """Ensure CLI commands that load configs accept all OVERRIDABLE_FIELDS as options."""
-    from exgentic.interfaces.cli.commands.batch import batch_evaluate_cmd, batch_execute_cmd
-    from exgentic.interfaces.cli.commands.evaluate import evaluate_cmd
+    from framework.interfaces.cli.commands.batch import batch_evaluate_cmd, batch_execute_cmd
+    from framework.interfaces.cli.commands.evaluate import evaluate_cmd
 
     for cmd in (evaluate_cmd, batch_evaluate_cmd, batch_execute_cmd):
         param_names = {p.name for p in cmd.params}
@@ -158,8 +158,8 @@ def test_run_id_not_inherited_from_outer_context(tmp_path):
     Regression test: run_id must be a deterministic hash of
     benchmark + agent + kwargs, never a leak from the ambient context.
     """
-    from exgentic.core.context import run_scope
-    from exgentic.core.types.evaluation import _compute_run_id
+    from framework.core.context import run_scope
+    from framework.core.types.evaluation import _compute_run_id
 
     outer = RunConfig(
         benchmark="test_benchmark",
@@ -192,7 +192,7 @@ def test_run_id_not_inherited_from_outer_context(tmp_path):
 
 def test_run_id_deterministic_across_contexts(tmp_path):
     """Same (benchmark, agent, kwargs) yields the same run_id regardless of ambient context."""
-    from exgentic.core.context import run_scope
+    from framework.core.context import run_scope
 
     fields = {
         "benchmark": "test_benchmark",
@@ -210,7 +210,7 @@ def test_run_id_deterministic_across_contexts(tmp_path):
 
 def test_batch_configs_get_distinct_run_ids(tmp_path):
     """Simulate the batch flow: multiple configs in one scope must get distinct run_ids."""
-    from exgentic.core.context import run_scope
+    from framework.core.context import run_scope
 
     base = {"benchmark": "test_benchmark", "agent": "test_agent", "output_dir": str(tmp_path)}
 
@@ -236,7 +236,7 @@ def test_batch_configs_get_distinct_run_ids(tmp_path):
 
 def test_has_run_options_allows_overridable_fields():
     """Ensure has_run_options does not reject overridable fields."""
-    from exgentic.interfaces.cli.options import has_run_options
+    from framework.interfaces.cli.options import has_run_options
 
     # All overridable fields set, nothing else — should return False
     kwargs = {

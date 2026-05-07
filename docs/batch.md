@@ -11,7 +11,7 @@ The `batch` commands let you manage large evaluations across multiple configurat
 
 | Scenario | Command |
 |----------|---------|
-| Single benchmark run | `exgentic evaluate` |
+| Single benchmark run | `framework evaluate` |
 | Multiple models on one benchmark | `batch evaluate` with config files |
 | Re-run only failed sessions | `batch evaluate` (skips completed by default) |
 | Sweep temperature/model grids | `batch evaluate` + `batch patch` |
@@ -92,9 +92,9 @@ Describes a single task. Used when you need per-task control or when replaying i
 All batch commands accept one or more `--config` flags, each taking a file path or a glob pattern.
 
 ```bash
-exgentic batch <subcommand> --config path/to/config.json
-exgentic batch <subcommand> --config "configs/*.json"
-exgentic batch <subcommand> --config configs/run1.json --config configs/run2.json
+framework batch <subcommand> --config path/to/config.json
+framework batch <subcommand> --config "configs/*.json"
+framework batch <subcommand> --config configs/run1.json --config configs/run2.json
 ```
 
 ---
@@ -104,7 +104,7 @@ exgentic batch <subcommand> --config configs/run1.json --config configs/run2.jso
 Run all configs sequentially, executing sessions and aggregating results.
 
 ```bash
-exgentic batch evaluate --config "configs/*.json"
+framework batch evaluate --config "configs/*.json"
 ```
 
 Already-completed sessions are skipped unless `overwrite_sessions` is true in the config. This makes it safe to re-run after partial failures — only missing or failed sessions are executed.
@@ -116,8 +116,8 @@ Already-completed sessions are skipped unless `overwrite_sessions` is true in th
 Same as `batch evaluate` but skips the aggregation step. Use this when you want to run sessions and aggregate later.
 
 ```bash
-exgentic batch execute --config "configs/*.json"
-exgentic batch aggregate --config "configs/*.json"   # aggregate afterwards
+framework batch execute --config "configs/*.json"
+framework batch aggregate --config "configs/*.json"   # aggregate afterwards
 ```
 
 ---
@@ -127,7 +127,7 @@ exgentic batch aggregate --config "configs/*.json"   # aggregate afterwards
 Aggregate results from already-completed sessions without running anything.
 
 ```bash
-exgentic batch aggregate --config "configs/*.json"
+framework batch aggregate --config "configs/*.json"
 ```
 
 Useful when you have sessions from a previous run and want to recompute scores.
@@ -139,7 +139,7 @@ Useful when you have sessions from a previous run and want to recompute scores.
 Print a status table showing completion state for each config.
 
 ```bash
-exgentic batch status --config "configs/*.json"
+framework batch status --config "configs/*.json"
 ```
 
 ---
@@ -149,8 +149,8 @@ exgentic batch status --config "configs/*.json"
 Write session config files to disk without executing. Creates the session directory structure so you can inspect or modify configs before running.
 
 ```bash
-exgentic batch prepare --config run.json
-exgentic batch prepare --config run.json --overwrite   # overwrite existing session configs
+framework batch prepare --config run.json
+framework batch prepare --config run.json --overwrite   # overwrite existing session configs
 ```
 
 ---
@@ -161,12 +161,12 @@ Modify existing run or session config files in bulk using dotted-key notation.
 
 ```bash
 # Preview what would change
-exgentic batch patch --config "configs/*.json" \
+framework batch patch --config "configs/*.json" \
   --set model=gpt-4o \
   --dry-run
 
 # Apply changes
-exgentic batch patch --config "configs/*.json" \
+framework batch patch --config "configs/*.json" \
   --set model=gpt-4o \
   --set agent_kwargs.model_settings.temperature=0.2 \
   --apply
@@ -176,7 +176,7 @@ Dotted paths are resolved into nested dicts. Values are parsed as JSON first; if
 
 ```bash
 # Change model across a whole grid of configs
-exgentic batch patch --config "sweep_*.json" --set model=claude-3-5-sonnet-20241022 --apply
+framework batch patch --config "sweep_*.json" --set model=claude-3-5-sonnet-20241022 --apply
 ```
 
 ---
@@ -186,8 +186,8 @@ exgentic batch patch --config "sweep_*.json" --set model=claude-3-5-sonnet-20241
 Export results from multiple runs into a single CSV file.
 
 ```bash
-exgentic batch extract --config "configs/*.json" --output results.csv
-exgentic batch extract --config "configs/*.json" --output -   # print to stdout
+framework batch extract --config "configs/*.json" --output results.csv
+framework batch extract --config "configs/*.json" --output -   # print to stdout
 ```
 
 Each row is one run. Columns include all `RunResults` fields (see [Output Format](./output-format.md)).
@@ -199,9 +199,9 @@ Each row is one run. Columns include all `RunResults` fields (see [Output Format
 Push results to a [HuggingFace dataset](https://huggingface.co/docs/datasets/).
 
 ```bash
-exgentic batch publish \
+framework batch publish \
   --config "configs/*.json" \
-  --repo Exgentic/open-agent-leaderboard-results \
+  --repo Framework/open-agent-leaderboard-results \
   --append
 ```
 
@@ -233,30 +233,30 @@ export HF_TOKEN=hf_...
 # Create one config per model
 for model in gpt-4o claude-3-5-sonnet-20241022 gemini-2.0-flash; do
   cp base_config.json "configs/${model}.json"
-  exgentic batch patch --config "configs/${model}.json" --set model=${model} --apply
+  framework batch patch --config "configs/${model}.json" --set model=${model} --apply
 done
 
 # Run all
-exgentic batch evaluate --config "configs/*.json"
+framework batch evaluate --config "configs/*.json"
 
 # Export to CSV
-exgentic batch extract --config "configs/*.json" --output sweep_results.csv
+framework batch extract --config "configs/*.json" --output sweep_results.csv
 ```
 
 ### Resume after partial failure
 
 ```bash
 # Just re-run — completed sessions are skipped automatically
-exgentic batch evaluate --config "configs/*.json"
+framework batch evaluate --config "configs/*.json"
 ```
 
 ### Separate execute from aggregate
 
 ```bash
 # Run sessions in parallel across machines, then aggregate centrally
-exgentic batch execute --config "configs/*.json"
+framework batch execute --config "configs/*.json"
 # ... copy outputs to aggregation machine ...
-exgentic batch aggregate --config "configs/*.json"
+framework batch aggregate --config "configs/*.json"
 ```
 
 ---

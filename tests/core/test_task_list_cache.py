@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
-from exgentic.core.types.run import (
+from framework.core.types.run import (
     _load_cached_task_ids,
     _save_cached_task_ids,
     _task_ids_cache_key,
@@ -11,14 +11,14 @@ from exgentic.core.types.run import (
 
 
 def _fake_manager(tmp_path):
-    from exgentic.environment.manager import EnvironmentManager
+    from framework.environment.manager import EnvironmentManager
 
     return EnvironmentManager(base_dir=tmp_path)
 
 
 def test_save_and_load_round_trip(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
-        "exgentic.environment.instance.get_manager",
+        "framework.environment.instance.get_manager",
         lambda: _fake_manager(tmp_path),
     )
     key = _task_ids_cache_key("gsm8k", "main")
@@ -31,7 +31,7 @@ def test_save_and_load_round_trip(tmp_path, monkeypatch) -> None:
 
 def test_load_returns_none_when_no_cache(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
-        "exgentic.environment.instance.get_manager",
+        "framework.environment.instance.get_manager",
         lambda: _fake_manager(tmp_path),
     )
     key = _task_ids_cache_key("gsm8k", "main")
@@ -40,7 +40,7 @@ def test_load_returns_none_when_no_cache(tmp_path, monkeypatch) -> None:
 
 def test_load_returns_none_on_corrupt_file(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
-        "exgentic.environment.instance.get_manager",
+        "framework.environment.instance.get_manager",
         lambda: _fake_manager(tmp_path),
     )
     cache_dir = tmp_path / "benchmarks" / "gsm8k"
@@ -53,7 +53,7 @@ def test_load_returns_none_on_corrupt_file(tmp_path, monkeypatch) -> None:
 
 def test_different_subsets_cached_separately(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
-        "exgentic.environment.instance.get_manager",
+        "framework.environment.instance.get_manager",
         lambda: _fake_manager(tmp_path),
     )
     key_train = _task_ids_cache_key("appworld", "train")
@@ -67,7 +67,7 @@ def test_different_subsets_cached_separately(tmp_path, monkeypatch) -> None:
 
 def test_different_kwargs_cached_separately(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
-        "exgentic.environment.instance.get_manager",
+        "framework.environment.instance.get_manager",
         lambda: _fake_manager(tmp_path),
     )
     key1 = _task_ids_cache_key("test", "main", {"tasks": ["a"]})

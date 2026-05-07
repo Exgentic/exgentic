@@ -1,4 +1,4 @@
-# How to contribute to Exgentic
+# How to contribute to Framework
 
 Thank you for your interest in contributing!
 
@@ -19,7 +19,7 @@ uv lock --upgrade-package <package-name>
 
 ## How to Contribute
 
-1. Fork the [repository](https://github.com/exgentic/exgentic).
+1. Fork the repository (URL withheld for double-blind review).
 2. Create a new branch for your changes.
 3. Sign your commits using the `-s` flag (see [Legal](#legal))
 4. Submit a pull request to the `main` branch with a clear title and description.
@@ -38,7 +38,7 @@ Each source code file must include the following SPDX headers at the top of the 
 **For Python files:**
 ```python
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2025, The Exgentic organization and its contributors.
+# Copyright (C) 2025, Anonymous Authors.
 
 """Module docstring here."""
 import ...

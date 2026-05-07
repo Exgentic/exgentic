@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
-from exgentic import aggregate, execute
-from exgentic.core.types import RunConfig
+from framework import aggregate, execute
+from framework.core.types import RunConfig
 
 
 def test_aggregate_logs_missing_results_and_records_ids(tmp_path):

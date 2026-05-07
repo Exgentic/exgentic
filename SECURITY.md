@@ -1,8 +1,8 @@
-# Exgentic Security Policy & Responsible Disclosure
+# Framework Security Policy & Responsible Disclosure
 
 ## Security Policy
 
-This security policy applies to all public projects under the Exgentic organization on GitHub. We prioritize security and continuously work to safeguard our systems. However, vulnerabilities can still exist. If you identify a security issue, please report it to us so we can address it promptly.
+This security policy applies to all public projects in the Framework codebase. We prioritize security and continuously work to safeguard our systems. However, vulnerabilities can still exist. If you identify a security issue, please report it to us so we can address it promptly.
 
 ### Security/Bugfix Versions
 
@@ -15,7 +15,7 @@ We encourage responsible disclosure of security vulnerabilities. If you find som
 
 ### How to Report
 
-Use the "Report a vulnerability" button under the "Security" tab of the [repository](https://github.com/exgentic/exgentic/security). This creates a private communication channel between you and the maintainers.
+Use the "Report a vulnerability" button under the "Security" tab of the repository (URL withheld for double-blind review). This creates a private communication channel between you and the maintainers.
 
 ### Reporting Guidelines
 
@@ -107,7 +107,7 @@ If a malicious package version is discovered in our dependencies:
 3. **Clean infected environments:**
    ```bash
    # Remove all virtual environments
-   rm -rf .venv venv .exgentic/
+   rm -rf .venv venv .framework/
    
    # Reinstall with the patched dependency specification
    uv sync

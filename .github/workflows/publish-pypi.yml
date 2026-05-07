@@ -47,7 +47,7 @@ jobs:
       id-token: write
     environment:
       name: pypi
-      url: https://pypi.org/project/exgentic/
+      url: https://pypi.org/project/framework/
     steps:
       - name: Download distributions
         uses: actions/download-artifact@v4

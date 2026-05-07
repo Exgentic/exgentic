@@ -1,17 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from unittest.mock import MagicMock, patch
 
 import pytest
-from exgentic.core.orchestrator.termination import (
+from framework.core.orchestrator.termination import (
     AgentError,
     BenchmarkError,
     SessionCancelError,
 )
-from exgentic.interfaces.dashboard.views.runtime import process_new_events
-from exgentic.interfaces.dashboard.views.state import RunState
-from exgentic.observers.handlers.dashboard_events import DashboardEventsObserver
+from framework.interfaces.dashboard.views.runtime import process_new_events
+from framework.interfaces.dashboard.views.state import RunState
+from framework.observers.handlers.dashboard_events import DashboardEventsObserver
 
 
 def _make_score(success=True, score=1.0, is_finished=True):
@@ -56,7 +56,7 @@ class TestDashboardEventsObserver:
         obs = DashboardEventsObserver()
         assert obs.events.empty()
 
-    @patch("exgentic.observers.handlers.dashboard_events.get_context")
+    @patch("framework.observers.handlers.dashboard_events.get_context")
     def test_on_run_start_emits_run_meta(self, mock_ctx):
         mock_ctx.return_value.run_id = "run-123"
         obs = DashboardEventsObserver()
@@ -66,7 +66,7 @@ class TestDashboardEventsObserver:
         assert len(run_meta) == 1
         assert run_meta[0]["run_id"] == "run-123"
 
-    @patch("exgentic.observers.handlers.dashboard_events.get_context")
+    @patch("framework.observers.handlers.dashboard_events.get_context")
     def test_run_meta_emitted_only_once(self, mock_ctx):
         mock_ctx.return_value.run_id = "run-123"
         obs = DashboardEventsObserver()
@@ -184,7 +184,7 @@ class TestDashboardEventsObserver:
         step_nums = [e["n"] for e in steps]
         assert step_nums == [1, 2, 3]
 
-    @patch("exgentic.observers.handlers.dashboard_events.get_context")
+    @patch("framework.observers.handlers.dashboard_events.get_context")
     def test_on_run_success_emits_saved(self, mock_ctx):
         mock_ctx.return_value.run_id = "run-1"
         mock_ctx.return_value.output_dir = "/tmp/test"
@@ -192,7 +192,7 @@ class TestDashboardEventsObserver:
         results = MagicMock()
         results.model_dump.return_value = {"score": 0.5}
 
-        with patch("exgentic.observers.handlers.dashboard_events.RunPaths") as mock_paths:
+        with patch("framework.observers.handlers.dashboard_events.RunPaths") as mock_paths:
             mock_paths.from_context.return_value.results = "/tmp/test/run-1/results.json"
             obs.on_run_success(results, MagicMock())
 

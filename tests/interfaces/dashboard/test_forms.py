@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from types import SimpleNamespace
 
 import pytest
-from exgentic.interfaces.dashboard.views.forms import _collect_values
+from framework.interfaces.dashboard.views.forms import _collect_values
 
 
 def _ctrl(value):

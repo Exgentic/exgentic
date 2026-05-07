@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from typing import Any, Dict, List, Optional
 
-from exgentic.core.agent import Agent
-from exgentic.core.agent_instance import AgentInstance
-from exgentic.core.types import ModelSettings
+from framework.core.agent import Agent
+from framework.core.agent_instance import AgentInstance
+from framework.core.types import ModelSettings
 
 
 class SimpleTestAgentInstance(AgentInstance):

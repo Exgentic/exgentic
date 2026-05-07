@@ -1,4 +1,4 @@
-# Ruff configuration for Exgentic project
+# Ruff configuration for Framework project
 
 # Set line length
 line-length = 120
@@ -11,7 +11,7 @@ extend-exclude = [
     ".git",
     "__pycache__",
     ".pytest_cache",
-    ".exgentic",
+    ".framework",
 ]
 
 [lint]

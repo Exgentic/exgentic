@@ -1,6 +1,6 @@
 # Semantic Conventions
 
-This document maps Exgentic's core types to [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/). It reflects the actual implementation in `src/exgentic/observers/handlers/otel.py` and `src/exgentic/integrations/litellm/trace_logger.py`.
+This document maps Framework's core types to [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/). It reflects the actual implementation in `src/framework/observers/handlers/otel.py` and `src/framework/integrations/litellm/trace_logger.py`.
 
 For setup instructions, see [Quick Start](./quickstart.md).
 
@@ -26,14 +26,14 @@ An agent's tool usage is observable at four distinct stages, each emitted on a d
 
 | Stage | Span | Attribute | Source |
 |-------|------|-----------|--------|
-| 1. Configured capability | Session (ROOT) | `exgentic.session.tools` | `Session.actions` (framework-level) |
+| 1. Configured capability | Session (ROOT) | `framework.session.tools` | `Session.actions` (framework-level) |
 | 2. Offered to LLM | LLM inference | `gen_ai.tool.definitions` | `LitellmKwargs.tools` (per-call) |
 | 3. Chosen by LLM | LLM inference | `gen_ai.output.messages[].tool_calls` | provider response |
 | 4. Execution result | execute_tool | `gen_ai.tool.result` | `Observation` |
 
-Stage 1 reflects what the agent is configured with — stable over the session. Stage 2 is what was actually sent to the model for a specific inference — may be filtered, reformatted per provider, or vary between calls (e.g., `is_finish` withheld until late). Stages 2–4 are opt-in (`EXGENTIC_OTEL_RECORD_CONTENT=true`).
+Stage 1 reflects what the agent is configured with — stable over the session. Stage 2 is what was actually sent to the model for a specific inference — may be filtered, reformatted per provider, or vary between calls (e.g., `is_finish` withheld until late). Stages 2–4 are opt-in (`FRAMEWORK_OTEL_RECORD_CONTENT=true`).
 
-All LLM calls in exgentic are routed through LiteLLM, so stages 2–3 are guaranteed to emit on every inference.
+All LLM calls in framework are routed through LiteLLM, so stages 2–3 are guaranteed to emit on every inference.
 
 ---
 
@@ -41,40 +41,40 @@ All LLM calls in exgentic are routed through LiteLLM, so stages 2–3 are guaran
 
 The table below documents every attribute actually emitted by the implementation, organised by span type.
 
-| Span type | OTel attribute | Exgentic source | Type | Requirement | Content-filtered | Notes |
+| Span type | OTel attribute | Framework source | Type | Requirement | Content-filtered | Notes |
 |-----------|---------------|-----------------|------|-------------|-----------------|-------|
-| **Session (ROOT)** | `exgentic.benchmark.slug_name` | `BenchmarkEntry.slug_name` | string | Custom | No | Heritable |
-| **Session (ROOT)** | `exgentic.benchmark.subset` | `RunConfig.subset` | string | Custom | No | Heritable |
-| **Session (ROOT)** | `exgentic.benchmark.agent.name` | `AgentEntry.display_name` | string | Custom | No | Heritable |
-| **Session (ROOT)** | `exgentic.agent.slug` | `RunConfig.agent` | string | Custom | No | Heritable |
-| **Session (ROOT)** | `exgentic.run.id` | `Context.run_id` | string | Custom | No | Heritable |
+| **Session (ROOT)** | `framework.benchmark.slug_name` | `BenchmarkEntry.slug_name` | string | Custom | No | Heritable |
+| **Session (ROOT)** | `framework.benchmark.subset` | `RunConfig.subset` | string | Custom | No | Heritable |
+| **Session (ROOT)** | `framework.benchmark.agent.name` | `AgentEntry.display_name` | string | Custom | No | Heritable |
+| **Session (ROOT)** | `framework.agent.slug` | `RunConfig.agent` | string | Custom | No | Heritable |
+| **Session (ROOT)** | `framework.run.id` | `Context.run_id` | string | Custom | No | Heritable |
 | **Session (ROOT)** | `gen_ai.request.model` | `RunConfig.model` | string | Recommended | No | Heritable; set when model is known at run start |
 | **Session (ROOT)** | `gen_ai.conversation.id` | `Session.session_id` | string | Recommended | No | Heritable; primary correlation attribute |
-| **Session (ROOT)** | `exgentic.session.id` | `Session.session_id` | string | Custom | No | Heritable; kept for backwards compatibility |
-| **Session (ROOT)** | `exgentic.session.task_id` | `Session.task_id` | string | Custom | No | |
-| **Session (ROOT)** | `exgentic.session.task` | `Session.task` | string | Opt-in | **Yes** | Task prompt; requires `EXGENTIC_OTEL_RECORD_CONTENT=true` |
-| **Session (ROOT)** | `exgentic.session.action.{name}.name` | `ActionType.name` | string | Custom | No | One entry per action in `Session.actions` |
-| **Session (ROOT)** | `exgentic.session.action.{name}.description` | `ActionType.description` | string | Custom | No | |
-| **Session (ROOT)** | `exgentic.session.action.{name}.is_message` | `ActionType.is_message` | bool | Custom | No | |
-| **Session (ROOT)** | `exgentic.session.action.{name}.is_finish` | `ActionType.is_finish` | bool | Custom | No | |
-| **Session (ROOT)** | `exgentic.session.tools` | `Session.actions` | string (JSON) | Custom | No | Comprehensive JSON list of all tools available at session start (name, description, is_message, is_finish). The per-action flat attributes (`exgentic.session.action.{name}.*`) above are deprecated-in-spirit and will be consolidated into this attribute in a follow-up. |
-| **Session (ROOT)** | `exgentic.context.{key}` | `Session.context[key]` | string | Custom | No | One entry per context key |
-| **Session (ROOT)** | `exgentic.session.agent.id` | `AgentInstance.agent_id` | string | Custom | No | |
-| **Session (ROOT)** | `exgentic.session.agent.path` | `AgentInstance.paths.agent_dir` | string | Custom | No | |
-| **Session (ROOT)** | `exgentic.score.success` | `SessionScore.success` | bool | Custom | No | Set on session close |
-| **Session (ROOT)** | `exgentic.score` | `SessionScore.score` | float | Custom | No | Set on session close |
-| **Session (ROOT)** | `exgentic.score.is_finished` | `SessionScore.is_finished` | bool | Custom | No | Set on session close |
-| **Session (ROOT)** | `exgentic.score.metrics.{key}` | `SessionScore.session_metrics[key]` | primitive or string (JSON) | Custom | No | One entry per metric; nested values JSON-encoded |
-| **Session (ROOT)** | `exgentic.score.metadata.{key}` | `SessionScore.session_metadata[key]` | primitive or string (JSON) | Custom | No | One entry per metadata field; nested values JSON-encoded |
-| **Session (ROOT)** | `exgentic.session.steps` | step counter | int | Custom | No | Set on session close |
-| **Session (ROOT)** | `exgentic.agent.agent_cost` | `AgentInstance.get_cost()` | string (JSON) | Custom | No | Set on session close |
-| **Session (ROOT)** | `exgentic.session.cost` | `Session.get_cost()` | string (JSON) | Custom | No | Set on session close |
+| **Session (ROOT)** | `framework.session.id` | `Session.session_id` | string | Custom | No | Heritable; kept for backwards compatibility |
+| **Session (ROOT)** | `framework.session.task_id` | `Session.task_id` | string | Custom | No | |
+| **Session (ROOT)** | `framework.session.task` | `Session.task` | string | Opt-in | **Yes** | Task prompt; requires `FRAMEWORK_OTEL_RECORD_CONTENT=true` |
+| **Session (ROOT)** | `framework.session.action.{name}.name` | `ActionType.name` | string | Custom | No | One entry per action in `Session.actions` |
+| **Session (ROOT)** | `framework.session.action.{name}.description` | `ActionType.description` | string | Custom | No | |
+| **Session (ROOT)** | `framework.session.action.{name}.is_message` | `ActionType.is_message` | bool | Custom | No | |
+| **Session (ROOT)** | `framework.session.action.{name}.is_finish` | `ActionType.is_finish` | bool | Custom | No | |
+| **Session (ROOT)** | `framework.session.tools` | `Session.actions` | string (JSON) | Custom | No | Comprehensive JSON list of all tools available at session start (name, description, is_message, is_finish). The per-action flat attributes (`framework.session.action.{name}.*`) above are deprecated-in-spirit and will be consolidated into this attribute in a follow-up. |
+| **Session (ROOT)** | `framework.context.{key}` | `Session.context[key]` | string | Custom | No | One entry per context key |
+| **Session (ROOT)** | `framework.session.agent.id` | `AgentInstance.agent_id` | string | Custom | No | |
+| **Session (ROOT)** | `framework.session.agent.path` | `AgentInstance.paths.agent_dir` | string | Custom | No | |
+| **Session (ROOT)** | `framework.score.success` | `SessionScore.success` | bool | Custom | No | Set on session close |
+| **Session (ROOT)** | `framework.score` | `SessionScore.score` | float | Custom | No | Set on session close |
+| **Session (ROOT)** | `framework.score.is_finished` | `SessionScore.is_finished` | bool | Custom | No | Set on session close |
+| **Session (ROOT)** | `framework.score.metrics.{key}` | `SessionScore.session_metrics[key]` | primitive or string (JSON) | Custom | No | One entry per metric; nested values JSON-encoded |
+| **Session (ROOT)** | `framework.score.metadata.{key}` | `SessionScore.session_metadata[key]` | primitive or string (JSON) | Custom | No | One entry per metadata field; nested values JSON-encoded |
+| **Session (ROOT)** | `framework.session.steps` | step counter | int | Custom | No | Set on session close |
+| **Session (ROOT)** | `framework.agent.agent_cost` | `AgentInstance.get_cost()` | string (JSON) | Custom | No | Set on session close |
+| **Session (ROOT)** | `framework.session.cost` | `Session.get_cost()` | string (JSON) | Custom | No | Set on session close |
 | **execute_tool** | `gen_ai.operation.name` | `"execute_tool"` | string | Required | No | Constant value |
 | **execute_tool** | `gen_ai.tool.name` | `Action.name` | string | Required | No | |
 | **execute_tool** | `gen_ai.tool.id` | `Action.id` | string | Recommended | No | |
 | **execute_tool** | `gen_ai.tool.description` | `ActionType.description` | string | Recommended | No | Looked up from `Session.actions` |
-| **execute_tool** | `gen_ai.tool.parameters` | `Action.arguments` | string (JSON) | Opt-in | **Yes** | Requires `EXGENTIC_OTEL_RECORD_CONTENT=true` |
-| **execute_tool** | `gen_ai.tool.result` | `Observation` | string | Opt-in | **Yes** | Requires `EXGENTIC_OTEL_RECORD_CONTENT=true` |
+| **execute_tool** | `gen_ai.tool.parameters` | `Action.arguments` | string (JSON) | Opt-in | **Yes** | Requires `FRAMEWORK_OTEL_RECORD_CONTENT=true` |
+| **execute_tool** | `gen_ai.tool.result` | `Observation` | string | Opt-in | **Yes** | Requires `FRAMEWORK_OTEL_RECORD_CONTENT=true` |
 | **execute_tool** | `gen_ai.conversation.id` | `Session.session_id` | string | Recommended | No | Inherited from session span |
 | **LLM inference** | `gen_ai.operation.name` | `"chat"` or `"text_completion"` | string | Required | No | |
 | **LLM inference** | `gen_ai.provider.name` | `litellm_params.custom_llm_provider` | string | Required | No | Mapped to standard provider names |
@@ -95,9 +95,9 @@ The table below documents every attribute actually emitted by the implementation
 | **LLM inference** | `gen_ai.usage.input_tokens` | `usage.prompt_tokens` | int | Recommended | No | |
 | **LLM inference** | `gen_ai.usage.output_tokens` | `usage.completion_tokens` | int | Recommended | No | |
 | **LLM inference** | `gen_ai.response.finish_reasons` | `choices[*].finish_reason` | string[] | Recommended | No | |
-| **LLM inference** | `gen_ai.tool.definitions` | `LitellmKwargs.tools` | string (JSON) | Opt-in | **Yes** | Requires `EXGENTIC_OTEL_RECORD_CONTENT=true` |
-| **LLM inference** | `gen_ai.input.messages` | `LitellmKwargs.messages` | string (JSON) | Opt-in | **Yes** | Requires `EXGENTIC_OTEL_RECORD_CONTENT=true` |
-| **LLM inference** | `gen_ai.output.messages` | `choices[*].message` | string (JSON) | Opt-in | **Yes** | Requires `EXGENTIC_OTEL_RECORD_CONTENT=true` |
+| **LLM inference** | `gen_ai.tool.definitions` | `LitellmKwargs.tools` | string (JSON) | Opt-in | **Yes** | Requires `FRAMEWORK_OTEL_RECORD_CONTENT=true` |
+| **LLM inference** | `gen_ai.input.messages` | `LitellmKwargs.messages` | string (JSON) | Opt-in | **Yes** | Requires `FRAMEWORK_OTEL_RECORD_CONTENT=true` |
+| **LLM inference** | `gen_ai.output.messages` | `choices[*].message` | string (JSON) | Opt-in | **Yes** | Requires `FRAMEWORK_OTEL_RECORD_CONTENT=true` |
 
 ---
 
@@ -135,13 +135,13 @@ The following attributes are set on the session span and automatically propagate
 | Attribute | Source |
 |-----------|--------|
 | `gen_ai.conversation.id` | `Session.session_id` — primary correlation key |
-| `exgentic.session.id` | `Session.session_id` — backwards compatibility |
+| `framework.session.id` | `Session.session_id` — backwards compatibility |
 | `gen_ai.request.model` | `RunConfig.model` (when available) |
-| `exgentic.run.id` | `Context.run_id` |
-| `exgentic.benchmark.slug_name` | `BenchmarkEntry.slug_name` |
-| `exgentic.benchmark.subset` | `RunConfig.subset` |
-| `exgentic.benchmark.agent.name` | `AgentEntry.display_name` |
-| `exgentic.agent.slug` | `RunConfig.agent` |
+| `framework.run.id` | `Context.run_id` |
+| `framework.benchmark.slug_name` | `BenchmarkEntry.slug_name` |
+| `framework.benchmark.subset` | `RunConfig.subset` |
+| `framework.benchmark.agent.name` | `AgentEntry.display_name` |
+| `framework.agent.slug` | `RunConfig.agent` |
 
 ---
 
@@ -150,7 +150,7 @@ The following attributes are set on the session span and automatically propagate
 Attributes marked **Yes** in the content-filtered column contain user data (prompts, tool arguments, model responses). They are **not recorded by default** and must be explicitly enabled:
 
 ```bash
-export EXGENTIC_OTEL_RECORD_CONTENT=true
+export FRAMEWORK_OTEL_RECORD_CONTENT=true
 ```
 
 Attributes that are never filtered include all IDs, names, counters, scores, and static schemas — only runtime user content requires opt-in.
@@ -171,8 +171,8 @@ model_name = run_config.model or (run_config.agent_kwargs or {}).get("model")
 
 `LiteLLMCostReport` and `UpdatableCostReport` are serialized to JSON strings for OTEL compatibility:
 
-- `exgentic.agent.agent_cost` — agent-level cost report
-- `exgentic.session.cost` — full session cost report
+- `framework.agent.agent_cost` — agent-level cost report
+- `framework.session.cost` — full session cost report
 
 ### LLM span parent context
 

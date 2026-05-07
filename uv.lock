@@ -711,7 +711,7 @@ wheels = [
 ]
 
 [[package]]
-name = "exgentic"
+name = "framework"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

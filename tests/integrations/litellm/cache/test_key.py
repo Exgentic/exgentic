@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
-from exgentic.integrations.litellm.cache import (
+from framework.integrations.litellm.cache import (
     CustomCache,
     strip_date_time_from_text,
 )

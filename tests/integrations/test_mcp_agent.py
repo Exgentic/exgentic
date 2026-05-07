@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 import threading
 import time
 from typing import Literal
 
 import pytest
-from exgentic.adapters.actions.functions import action_type_to_function
-from exgentic.adapters.agents import mcp_agent as mcp
-from exgentic.core.types import (
+from framework.adapters.actions.functions import action_type_to_function
+from framework.adapters.agents import mcp_agent as mcp
+from framework.core.types import (
     ActionType,
     MultiObservation,
     ParallelAction,
@@ -79,7 +79,7 @@ def _patch_mcp(monkeypatch):
 
 @pytest.fixture
 def env(tmp_path):
-    from exgentic.core.context import run_scope
+    from framework.core.context import run_scope
 
     with run_scope(run_id="test_run", output_dir=str(tmp_path)):
         yield tmp_path

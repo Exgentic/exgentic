@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Tests for CLI error surfacing.
 
@@ -10,7 +10,7 @@ coordinator and session orchestrator to the user.
 
 from __future__ import annotations
 
-from exgentic.agents.cli.command_runner import CLIExecutionError
+from framework.agents.cli.command_runner import CLIExecutionError
 
 
 def test_cli_execution_error_includes_stderr():

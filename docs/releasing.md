@@ -1,11 +1,11 @@
-# Releasing Exgentic
+# Releasing Framework
 
 **Related docs:**
 [docs/](./README.md) · [DEVELOPMENT.md](../DEVELOPMENT.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
 
 ## Release model
 
-Exgentic uses Git tags as the single source of truth for released versions.
+Framework uses Git tags as the single source of truth for released versions.
 There is no manually maintained version string in the source tree.
 
 - A release tag must look like `vX.Y.Z`, for example `v0.2.0`
@@ -16,11 +16,11 @@ There is no manually maintained version string in the source tree.
 
 ## One-time repository setup
 
-1. In PyPI, create the `exgentic` project if it does not exist yet.
+1. In PyPI, create the `framework` project if it does not exist yet.
 2. In PyPI project settings, add a Trusted Publisher for this GitHub repository.
 3. Use these GitHub values when configuring the publisher:
-   - Owner: `Exgentic`
-   - Repository: `exgentic`
+   - Owner: `Framework`
+   - Repository: `framework`
    - Workflow name: `publish-pypi.yml`
    - Environment name: `pypi`
 4. In GitHub, keep the `pypi` environment enabled for this workflow if you want environment-level protections.

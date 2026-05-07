@@ -1,17 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 ## CLI usage:
-# exgentic evaluate --benchmark tau2 --agent smolagents_code --subset retail --num-tasks 30 \
+# framework evaluate --benchmark tau2 --agent smolagents_code --subset retail --num-tasks 30 \
 #   --model gpt-4o --set benchmark.user_simulator_model=gpt-4o
 ## Python API usage:
-# from exgentic import RunConfig, evaluate
+# from framework import RunConfig, evaluate
 # evaluate(RunConfig(benchmark="tau2", agent="smolagents_code", subset="retail", num_tasks=30,
 #   model="gpt-4o", benchmark_kwargs={"user_simulator_model": "gpt-4o"}))
 ## Direct class usage (this script):
 # TAU2Benchmark + SmolagentCodeAgent
 
-from exgentic import SmolagentCodeAgent, TAU2Benchmark, evaluate
+from framework import SmolagentCodeAgent, TAU2Benchmark, evaluate
 
 
 def main() -> None:

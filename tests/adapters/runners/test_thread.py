@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Thread-specific tests that verify actual thread isolation."""
 
@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import threading
 
-from exgentic.adapters.runners import with_runner
+from framework.adapters.runners import with_runner
 
 from .conftest import Calculator
 

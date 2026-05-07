@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
 from typing import Any
 
 import pytest
-from exgentic.integrations.litellm.cache import CustomCache
+from framework.integrations.litellm.cache import CustomCache
 
 
 def _build_response() -> dict[str, Any]:

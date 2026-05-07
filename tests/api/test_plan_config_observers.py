@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
-"""Regression test for Exgentic/exgentic#202.
+"""Regression test for Framework/framework#202.
 
 ``_plan_config`` builds a Tracker for batch-mode session execution.
 A prior change set ``use_defaults=False`` on that Tracker to suppress
 console noise during planning, which silently removed **all** default
 observers -- including ``ResultsObserver``, the one that writes
-``sessions/{id}/results.json``. The result: every ``exgentic batch
+``sessions/{id}/results.json``. The result: every ``framework batch
 evaluate`` run appeared to complete but recorded zero session-level
 results.
 
@@ -21,10 +21,10 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-from exgentic.core.orchestrator.run import _plan_config
-from exgentic.core.types import RunConfig
-from exgentic.observers.handlers.logger import ConsoleLoggerObserver
-from exgentic.observers.handlers.results import ResultsObserver
+from framework.core.orchestrator.run import _plan_config
+from framework.core.types import RunConfig
+from framework.observers.handlers.logger import ConsoleLoggerObserver
+from framework.observers.handlers.results import ResultsObserver
 
 
 @pytest.fixture
@@ -83,10 +83,10 @@ def test_plan_config_tracker_excludes_console_logger(run_config):
 
 def test_plan_config_tracker_registers_otel_when_enabled(run_config):
     """OtelTracingObserver must be registered when ``otel_enabled`` is True."""
-    from exgentic.observers.handlers.otel import OtelTracingObserver
+    from framework.observers.handlers.otel import OtelTracingObserver
 
     with patch(
-        "exgentic.utils.settings.get_settings",
+        "framework.utils.settings.get_settings",
         return_value=MagicMock(otel_enabled=True),
     ):
         _, tracker, _ = _plan_config(run_config)
@@ -99,10 +99,10 @@ def test_plan_config_tracker_registers_otel_when_enabled(run_config):
 
 def test_plan_config_tracker_skips_otel_when_disabled(run_config):
     """OtelTracingObserver must NOT be registered when ``otel_enabled`` is False."""
-    from exgentic.observers.handlers.otel import OtelTracingObserver
+    from framework.observers.handlers.otel import OtelTracingObserver
 
     with patch(
-        "exgentic.utils.settings.get_settings",
+        "framework.utils.settings.get_settings",
         return_value=MagicMock(otel_enabled=False),
     ):
         _, tracker, _ = _plan_config(run_config)

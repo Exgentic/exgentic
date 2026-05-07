@@ -1,6 +1,6 @@
 # CLI Reference
 
-Complete reference for all `exgentic` CLI commands.
+Complete reference for all `framework` CLI commands.
 
 **Related docs:**
 [docs/](./README.md) · [Python API](./python-api.md) · [Batch Runs](./batch.md) · [Custom Models](./custom-models.md) · [Output Format](./output-format.md)
@@ -23,7 +23,7 @@ Complete reference for all `exgentic` CLI commands.
 List all available benchmarks.
 
 ```bash
-exgentic list benchmarks
+framework list benchmarks
 ```
 
 ### list agents
@@ -31,7 +31,7 @@ exgentic list benchmarks
 List all available agents.
 
 ```bash
-exgentic list agents
+framework list agents
 ```
 
 ### list subsets
@@ -39,7 +39,7 @@ exgentic list agents
 List subsets for a benchmark.
 
 ```bash
-exgentic list subsets --benchmark tau2
+framework list subsets --benchmark tau2
 ```
 
 ### list tasks
@@ -47,8 +47,8 @@ exgentic list subsets --benchmark tau2
 List task IDs for a benchmark (or subset).
 
 ```bash
-exgentic list tasks --benchmark tau2 --subset retail
-exgentic list tasks --benchmark tau2 --subset retail --limit 20
+framework list tasks --benchmark tau2 --subset retail
+framework list tasks --benchmark tau2 --subset retail --limit 20
 ```
 
 | Flag | Description |
@@ -64,11 +64,11 @@ exgentic list tasks --benchmark tau2 --subset retail --limit 20
 Install a benchmark's or agent's dependencies (default: isolated venv).
 
 ```bash
-exgentic install --benchmark tau2              # install deps + data (default: venv)
-exgentic install --agent tool_calling
-exgentic install --benchmark tau2 --force       # reinstall even if already set up
-exgentic install --benchmark tau2 --docker      # build Docker image
-exgentic install --benchmark tau2 --local       # install into local environment
+framework install --benchmark tau2              # install deps + data (default: venv)
+framework install --agent tool_calling
+framework install --benchmark tau2 --force       # reinstall even if already set up
+framework install --benchmark tau2 --docker      # build Docker image
+framework install --benchmark tau2 --local       # install into local environment
 ```
 
 | Flag | Description |
@@ -88,8 +88,8 @@ See [Runners](./runners.md) for details on runner types.
 Remove an installed benchmark's or agent's environment.
 
 ```bash
-exgentic uninstall --benchmark tau2
-exgentic uninstall --agent tool_calling
+framework uninstall --benchmark tau2
+framework uninstall --agent tool_calling
 ```
 
 | Flag | Description |
@@ -101,7 +101,7 @@ exgentic uninstall --agent tool_calling
 
 ## setup (deprecated)
 
-> **Deprecated:** `exgentic setup` is an alias for `exgentic install` and will be removed in a future release. Use `install`/`uninstall` instead.
+> **Deprecated:** `framework setup` is an alias for `framework install` and will be removed in a future release. Use `install`/`uninstall` instead.
 
 ---
 
@@ -110,7 +110,7 @@ exgentic uninstall --agent tool_calling
 Run an evaluation end-to-end: execute sessions and aggregate results.
 
 ```bash
-exgentic evaluate \
+framework evaluate \
   --benchmark tau2 \
   --agent tool_calling \
   --subset retail \
@@ -169,7 +169,7 @@ exgentic evaluate \
 Show the execution status of a run (how many sessions are done, running, missing).
 
 ```bash
-exgentic status --benchmark tau2 --agent tool_calling --subset retail --num-tasks 10
+framework status --benchmark tau2 --agent tool_calling --subset retail --num-tasks 10
 ```
 
 Accepts the same flags as `evaluate`.
@@ -181,7 +181,7 @@ Accepts the same flags as `evaluate`.
 Show which tasks would run without executing anything.
 
 ```bash
-exgentic preview --benchmark tau2 --agent tool_calling --subset retail --num-tasks 10
+framework preview --benchmark tau2 --agent tool_calling --subset retail --num-tasks 10
 ```
 
 Prints a plan showing which sessions would be new, which already exist, and which are currently running.
@@ -193,7 +193,7 @@ Prints a plan showing which sessions would be new, which already exist, and whic
 Load and display results from a completed run.
 
 ```bash
-exgentic results --benchmark tau2 --agent tool_calling --subset retail --num-tasks 10
+framework results --benchmark tau2 --agent tool_calling --subset retail --num-tasks 10
 ```
 
 Reads `results.json` from the run directory. Accepts the same config flags as `evaluate`.
@@ -207,7 +207,7 @@ See [Output Format](./output-format.md) for the full results schema.
 Statistical comparison between two run configurations.
 
 ```bash
-exgentic compare \
+framework compare \
   --agents tool_calling openai_solo \
   --benchmark tau2 \
   --subset retail \
@@ -219,7 +219,7 @@ Runs a Breslow-Day homogeneity test across subsets and reports whether the diffe
 Requires the `analysis` extra:
 
 ```bash
-pip install "exgentic[analysis]"
+pip install "framework[analysis]"
 ```
 
 ---
@@ -229,7 +229,7 @@ pip install "exgentic[analysis]"
 Generate comparison plots for multiple benchmarks or agents.
 
 ```bash
-exgentic analyze \
+framework analyze \
   --agents tool_calling openai_solo \
   --benchmarks tau2 gsm8k \
   --output report.png
@@ -238,7 +238,7 @@ exgentic analyze \
 Requires the `analysis` extra:
 
 ```bash
-pip install "exgentic[analysis]"
+pip install "framework[analysis]"
 ```
 
 ---
@@ -248,7 +248,7 @@ pip install "exgentic[analysis]"
 Launch the interactive web dashboard.
 
 ```bash
-exgentic dashboard
+framework dashboard
 ```
 
 Opens a NiceGUI interface for exploring runs, browsing session trajectories, and monitoring live evaluations.
@@ -260,34 +260,34 @@ Opens a NiceGUI interface for exploring runs, browsing session trajectories, and
 All batch subcommands. See [Batch Runs](./batch.md) for full documentation.
 
 ```bash
-exgentic batch evaluate  --config "configs/*.json"
-exgentic batch execute   --config "configs/*.json"
-exgentic batch aggregate --config "configs/*.json"
-exgentic batch status    --config "configs/*.json"
-exgentic batch prepare   --config run.json [--overwrite]
-exgentic batch patch     --config "configs/*.json" --set key=value [--apply | --dry-run]
-exgentic batch extract   --config "configs/*.json" --output results.csv
-exgentic batch publish   --config "configs/*.json" --repo org/dataset [--append | --overwrite] [--private | --public]
+framework batch evaluate  --config "configs/*.json"
+framework batch execute   --config "configs/*.json"
+framework batch aggregate --config "configs/*.json"
+framework batch status    --config "configs/*.json"
+framework batch prepare   --config run.json [--overwrite]
+framework batch patch     --config "configs/*.json" --set key=value [--apply | --dry-run]
+framework batch extract   --config "configs/*.json" --output results.csv
+framework batch publish   --config "configs/*.json" --repo org/dataset [--append | --overwrite] [--private | --public]
 ```
 
 ---
 
 ## Environment variables
 
-Exgentic reads the following environment variables.
+Framework reads the following environment variables.
 
-### Exgentic settings
+### Framework settings
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `EXGENTIC_LOG_LEVEL` | `INFO` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
-| `EXGENTIC_CACHE_DIR` | `~/.exgentic` | Cache directory for venvs and setup state |
-| `EXGENTIC_DOTENV_PATH` | `.env` | Path to `.env` file loaded automatically |
-| `EXGENTIC_OTEL_ENABLED` | `false` | Enable OpenTelemetry tracing |
-| `EXGENTIC_OTEL_RECORD_CONTENT` | `false` | Include prompts/responses in traces (opt-in) |
-| `EXGENTIC_LITELLM_CACHING` | `true` | Enable LiteLLM response caching |
-| `EXGENTIC_LITELLM_CACHE_DIR` | `~/.cache/exgentic/litellm` | LiteLLM cache directory |
-| `EXGENTIC_LITELLM_LOG_LEVEL` | `WARNING` | LiteLLM internal log level |
+| `FRAMEWORK_LOG_LEVEL` | `INFO` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+| `FRAMEWORK_CACHE_DIR` | `~/.framework` | Cache directory for venvs and setup state |
+| `FRAMEWORK_DOTENV_PATH` | `.env` | Path to `.env` file loaded automatically |
+| `FRAMEWORK_OTEL_ENABLED` | `false` | Enable OpenTelemetry tracing |
+| `FRAMEWORK_OTEL_RECORD_CONTENT` | `false` | Include prompts/responses in traces (opt-in) |
+| `FRAMEWORK_LITELLM_CACHING` | `true` | Enable LiteLLM response caching |
+| `FRAMEWORK_LITELLM_CACHE_DIR` | `~/.cache/framework/litellm` | LiteLLM cache directory |
+| `FRAMEWORK_LITELLM_LOG_LEVEL` | `WARNING` | LiteLLM internal log level |
 
 ### LLM provider credentials
 
@@ -312,7 +312,7 @@ See [Custom Models](./custom-models.md) for full provider setup instructions.
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | OTLP collector endpoint (optional — omit for local-only file export) |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `http/protobuf` or `grpc` (only needed with endpoint) |
 
-When `EXGENTIC_OTEL_ENABLED=true`, each session writes `otel_spans.jsonl` to its output directory regardless of whether a collector is configured. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to also send traces to Jaeger or another collector.
+When `FRAMEWORK_OTEL_ENABLED=true`, each session writes `otel_spans.jsonl` to its output directory regardless of whether a collector is configured. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to also send traces to Jaeger or another collector.
 
 See [Observability Quick Start](./observability/quickstart.md) for tracing setup.
 

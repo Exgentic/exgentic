@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 import requests
-from exgentic.integrations.litellm import LitellmProxy
+from framework.integrations.litellm import LitellmProxy
 
 
 @pytest.mark.skipif(
@@ -25,10 +25,10 @@ def test_proxy_reuses_cached_completion_response(tmp_path, fake_openai_server) -
     env = {
         "OPENAI_API_BASE": backend_base,
         "OPENAI_API_KEY": "test-key",  # pragma: allowlist secret
-        "EXGENTIC_CACHE_DIR": str(tmp_path / "cache"),
-        "EXGENTIC_litellm_cache_dir": ".litellm_cache",
-        "EXGENTIC_litellm_caching": "true",
-        "EXGENTIC_LOG_LEVEL": "DEBUG",
+        "FRAMEWORK_CACHE_DIR": str(tmp_path / "cache"),
+        "FRAMEWORK_litellm_cache_dir": ".litellm_cache",
+        "FRAMEWORK_litellm_caching": "true",
+        "FRAMEWORK_LOG_LEVEL": "DEBUG",
         "PATH": f"{venv_bin}{os.pathsep}{os.environ.get('PATH', '')}",
     }
     payload = {

@@ -1,15 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
 import json
 
-from exgentic.integrations.litellm import LitellmProxy
+from framework.integrations.litellm import LitellmProxy
 
 
-def test_proxy_writes_exgentic_trace_callback_to_litellm_settings_config(tmp_path, monkeypatch) -> None:
-    import exgentic.integrations.litellm.proxy as proxy_mod
+def test_proxy_writes_framework_trace_callback_to_litellm_settings_config(tmp_path, monkeypatch) -> None:
+    import framework.integrations.litellm.proxy as proxy_mod
 
     class _DummyProc:
         def poll(self):
@@ -42,6 +42,6 @@ def test_proxy_writes_exgentic_trace_callback_to_litellm_settings_config(tmp_pat
         config_path = log_path.with_name("litellm_config.json")
         assert config_path.exists()
         config_data = json.loads(config_path.read_text(encoding="utf-8"))
-        callback = "exgentic.integrations.litellm.trace_logger.trace_logger"
+        callback = "framework.integrations.litellm.trace_logger.trace_logger"
         assert set(config_data["litellm_settings"]["success_callback"]) == {callback}
         assert set(config_data["litellm_settings"]["failure_callback"]) == {callback}

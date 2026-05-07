@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Tests for agent/benchmark package integrity.
 
@@ -22,7 +22,7 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
-from exgentic.interfaces.registry import get_agent_entries, get_benchmark_entries, load_agent
+from framework.interfaces.registry import get_agent_entries, get_benchmark_entries, load_agent
 
 
 def test_all_agent_packages_have_init():
@@ -33,7 +33,7 @@ def test_all_agent_packages_have_init():
     """
     entries = get_agent_entries()
     for slug, entry in entries.items():
-        # entry.module is like "exgentic.agents.openai.openai_mcp_agent"
+        # entry.module is like "framework.agents.openai.openai_mcp_agent"
         parts = entry.module.split(".")
         # Check every package directory from the agent package up
         for depth in range(3, len(parts)):
@@ -125,9 +125,9 @@ def test_agent_instance_class_ref_module_file_exists():
 
 def test_with_runner_accepts_string_cls():
     """with_runner() must accept a 'module:class' string for the direct runner."""
-    from exgentic.adapters.runners import with_runner
+    from framework.adapters.runners import with_runner
 
-    ref = "exgentic.testing.agent:TestAgentInstance"
+    ref = "framework.testing.agent:TestAgentInstance"
     proxy = with_runner(
         ref,
         runner="direct",

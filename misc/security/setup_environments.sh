@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup_environments.sh - Create multiple UV virtual environments for Exgentic
+# setup_environments.sh - Create multiple UV virtual environments for Framework
 #
 # Usage: ./setup_environments.sh [benchmark1 benchmark2 ...]
 #
@@ -120,7 +120,7 @@ if [ "$CREATE_CORE" = true ]; then
     # Generate requirements.txt for core environment
     log_info "Generating requirements.txt for core environment..."
     mkdir -p "${REQUIREMENTS_DIR}/core"
-    uv pip freeze | grep -v "^-e " | grep -v " @ file://" | grep -v "github.ibm.com" | grep -v " @ git+https://" | grep -v " @ git+ssh://" > "${REQUIREMENTS_DIR}/core/requirements.txt"
+    uv pip freeze | grep -v "^-e " | grep -v " @ file://" | grep -v " @ git+https://" | grep -v " @ git+ssh://" > "${REQUIREMENTS_DIR}/core/requirements.txt"
     core_pkg_count=$(wc -l < "${REQUIREMENTS_DIR}/core/requirements.txt" | tr -d ' ')
     log_success "Saved ${core_pkg_count} packages to ${REQUIREMENTS_DIR}/core/requirements.txt"
     
@@ -141,7 +141,7 @@ if [ ${#BENCHMARKS[@]} -gt 0 ]; then
 for benchmark in "${BENCHMARKS[@]}"; do
     log_info "Creating '${benchmark}' environment..."
     
-    SETUP_SCRIPT="${PROJECT_ROOT}/src/exgentic/benchmarks/${benchmark}/setup.sh"
+    SETUP_SCRIPT="${PROJECT_ROOT}/src/framework/benchmarks/${benchmark}/setup.sh"
     
     if [ ! -f "${SETUP_SCRIPT}" ]; then
         log_warning "Setup script not found: ${SETUP_SCRIPT}, skipping..."
@@ -179,7 +179,7 @@ for benchmark in "${BENCHMARKS[@]}"; do
     if [ "${SETUP_OK}" = true ]; then
         log_info "Generating requirements.txt for ${benchmark} environment..."
         mkdir -p "${REQUIREMENTS_DIR}/${benchmark}"
-        uv pip freeze | grep -v "^-e " | grep -v " @ file://" | grep -v "github.ibm.com" | grep -v " @ git+https://" | grep -v " @ git+ssh://" > "${REQUIREMENTS_DIR}/${benchmark}/requirements.txt"
+        uv pip freeze | grep -v "^-e " | grep -v " @ file://" | grep -v " @ git+https://" | grep -v " @ git+ssh://" > "${REQUIREMENTS_DIR}/${benchmark}/requirements.txt"
         bench_pkg_count=$(wc -l < "${REQUIREMENTS_DIR}/${benchmark}/requirements.txt" | tr -d ' ')
         log_success "Saved ${bench_pkg_count} packages to ${REQUIREMENTS_DIR}/${benchmark}/requirements.txt"
     else
@@ -276,7 +276,7 @@ fi
 echo ""
 echo "Note: Some benchmarks may require additional prerequisites:"
 echo "  - appworld, swebench: Git LFS"
-echo "  - browsecompplus: Java 21+, SSH access to IBM GitHub"
+echo "  - browsecompplus: Java 21+, SSH access to a hosted Git server"
 echo ""
 echo "Usage examples:"
 echo "  ./misc/security/setup_environments.sh                    # Create all environments"

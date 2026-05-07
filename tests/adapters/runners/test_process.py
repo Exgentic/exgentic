@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Process-specific tests that verify actual process isolation."""
 
@@ -9,7 +9,7 @@ import gc
 import os
 
 import pytest
-from exgentic.adapters.runners import with_runner
+from framework.adapters.runners import with_runner
 
 from .conftest import Calculator
 

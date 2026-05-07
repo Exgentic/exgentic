@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """End-to-end evaluate flow through every runner.
 
@@ -25,8 +25,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from exgentic import evaluate, execute
-from exgentic.core.types import RunConfig
+from framework import evaluate, execute
+from framework.core.types import RunConfig
 
 _RUNNERS = ["direct", "thread", "process", "service"]
 
@@ -62,7 +62,7 @@ def _docker_tmpdir():
     if platform.system() != "Darwin":
         yield None
         return
-    d = Path(tempfile.mkdtemp(prefix=".exgentic_test_", dir=Path.home()))
+    d = Path(tempfile.mkdtemp(prefix=".framework_test_", dir=Path.home()))
     yield d
     shutil.rmtree(d, ignore_errors=True)
 
@@ -131,7 +131,7 @@ def test_result_files_written(run_tmp, runner):
 
 def test_execute_then_aggregate(run_tmp, runner):
     """Verify execute-only + aggregate-only works through each runner."""
-    from exgentic import aggregate
+    from framework import aggregate
 
     config = _run_config(run_tmp, runner, num_tasks=1)
 

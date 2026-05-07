@@ -9,7 +9,7 @@ export HF_TOKEN=hf_...
 ```
 
 ```bash
-exgentic evaluate \
+framework evaluate \
   --benchmark gsm8k \
   --agent tool_calling \
   --model huggingface/together/meta-llama/Llama-3.1-70B-Instruct
@@ -23,12 +23,12 @@ HuggingFace Jobs run containerized workloads on HF infrastructure (requires Pro/
 
 ```bash
 hf jobs run astral-sh/uv:python3.12-bookworm sh -c "
-  uvx exgentic evaluate \
+  uvx framework evaluate \
     --benchmark gsm8k \
     --agent tool_calling \
     --model huggingface/together/meta-llama/Llama-3.1-70B-Instruct \
     --output-dir /tmp/outputs &&
-  uvx exgentic batch publish --repo-id your-org/eval-results /tmp/outputs
+  uvx framework batch publish --repo-id your-org/eval-results /tmp/outputs
 " --env HF_TOKEN=hf_...
 ```
 

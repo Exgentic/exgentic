@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 
-from exgentic.interfaces.dashboard.views.formatting import (
+from framework.interfaces.dashboard.views.formatting import (
     _format_error_message,
     _format_payload,
     _format_value,

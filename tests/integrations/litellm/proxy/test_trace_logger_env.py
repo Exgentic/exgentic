@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
 import json
 
-from exgentic.core.context import Context, Role
-from exgentic.integrations.litellm.trace_logger import (
+from framework.core.context import Context, Role
+from framework.integrations.litellm.trace_logger import (
     FILE_ENV,
     TraceLogger,
 )
@@ -77,7 +77,7 @@ def test_trace_logger_uses_kwargs_context_for_log_path(tmp_path, monkeypatch) ->
 def test_trace_logger_resolves_alias_to_backend_model(tmp_path, monkeypatch) -> None:
     """Trace should log the actual backend model, not the proxy alias.
 
-    Reproduces https://github.com/Exgentic/exgentic/issues/52
+    Reproduces a known issue (URL withheld for double-blind review).
     """
     log_path = tmp_path / "trace.jsonl"
     monkeypatch.setenv(FILE_ENV, str(log_path))
@@ -107,7 +107,7 @@ def test_trace_logger_get_context_falls_back_to_try_get_context(monkeypatch) -> 
         session_id="sess_fallback",
         role=Role.AGENT,
     )
-    monkeypatch.setattr("exgentic.core.context.try_get_context", lambda: fallback)
+    monkeypatch.setattr("framework.core.context.try_get_context", lambda: fallback)
 
     logger = TraceLogger()
     assert logger.get_context({}) == fallback

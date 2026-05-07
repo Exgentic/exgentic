@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Tests for LiteLLM health check error handling."""
 
@@ -9,8 +9,8 @@ import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from exgentic.core.types.model_settings import ModelSettings, RetryStrategy
-from exgentic.integrations.litellm.health import (
+from framework.core.types.model_settings import ModelSettings, RetryStrategy
+from framework.integrations.litellm.health import (
     _HEALTH_MAX_RETRY_DELAY,
     _HEALTH_MIN_RETRIES,
     _HEALTH_MIN_RETRY_DELAY,
@@ -37,7 +37,7 @@ def test_health_check_extracts_message_attribute_from_exception(caplog):
     """Test that health check extracts error details from exception.message attribute."""
     caplog.set_level(logging.ERROR)
 
-    with patch("exgentic.utils.sync.run_sync") as mock_run_sync:
+    with patch("framework.utils.sync.run_sync") as mock_run_sync:
         exc = MockLiteLLMError("API key authentication failed")
         mock_run_sync.side_effect = exc
 
@@ -56,7 +56,7 @@ def test_health_check_falls_back_to_str_when_no_message_attribute(caplog):
     """Test that health check falls back to str(exc) when .message is not available."""
     caplog.set_level(logging.ERROR)
 
-    with patch("exgentic.utils.sync.run_sync") as mock_run_sync:
+    with patch("framework.utils.sync.run_sync") as mock_run_sync:
         exc = ValueError("Standard error message")
         mock_run_sync.side_effect = exc
 
@@ -80,7 +80,7 @@ def test_health_check_uses_repr_as_last_resort(caplog):
         def __str__(self) -> str:
             return ""
 
-    with patch("exgentic.utils.sync.run_sync") as mock_run_sync:
+    with patch("framework.utils.sync.run_sync") as mock_run_sync:
         exc = EmptyError("hidden")
         mock_run_sync.side_effect = exc
 

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """End-to-end tests — run a full session lifecycle through every transport.
 
@@ -16,8 +16,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from exgentic.adapters.runners import with_runner
-from exgentic.testing import (
+from framework.adapters.runners import with_runner
+from framework.testing import (
     BadAction,
     DockerSession,
     EmptyArgs,
@@ -46,7 +46,7 @@ def runner_name(request):
 @pytest.fixture
 def session_proxy(runner_name, tmp_path, monkeypatch):
     """Create a TestSession wrapped in the specified runner."""
-    monkeypatch.setenv("EXGENTIC_OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setenv("FRAMEWORK_OUTPUT_DIR", str(tmp_path))
     proxy = with_runner(
         TestSession,
         runner=runner_name,
@@ -209,7 +209,7 @@ class TestStatefulConsistency:
 
 # ── Docker transport (skipped when Docker unavailable) ───────────────
 #
-# Uses DockerSession from exgentic.testing — a minimal session-like
+# Uses DockerSession from framework.testing — a minimal session-like
 # object that is part of the installed package and therefore importable
 # inside the Docker container.
 
@@ -228,13 +228,13 @@ class TestDockerSessionE2E:
         # /var/folders/ which is NOT shared, so volume mounts silently fail.
         # Use a temp dir under $HOME to ensure Docker can mount it.
         if platform.system() == "Darwin":
-            out = Path(tempfile.mkdtemp(prefix=".exgentic_test_", dir=Path.home()))
+            out = Path(tempfile.mkdtemp(prefix=".framework_test_", dir=Path.home()))
         else:
-            out = Path(tempfile.mkdtemp(prefix="exgentic_test_"))
+            out = Path(tempfile.mkdtemp(prefix="framework_test_"))
         import os
 
-        old_output_dir = os.environ.get("EXGENTIC_OUTPUT_DIR")
-        os.environ["EXGENTIC_OUTPUT_DIR"] = str(out)
+        old_output_dir = os.environ.get("FRAMEWORK_OUTPUT_DIR")
+        os.environ["FRAMEWORK_OUTPUT_DIR"] = str(out)
         proxy = with_runner(
             DockerSession,
             runner="docker",
@@ -250,9 +250,9 @@ class TestDockerSessionE2E:
         except Exception:
             pass
         if old_output_dir is None:
-            os.environ.pop("EXGENTIC_OUTPUT_DIR", None)
+            os.environ.pop("FRAMEWORK_OUTPUT_DIR", None)
         else:
-            os.environ["EXGENTIC_OUTPUT_DIR"] = old_output_dir
+            os.environ["FRAMEWORK_OUTPUT_DIR"] = old_output_dir
         shutil.rmtree(out, ignore_errors=True)
 
     def test_start(self, docker_session):

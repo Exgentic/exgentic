@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Ordering invariant for the parallel scan in RunStatus.from_session_configs."""
 
@@ -7,9 +7,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from exgentic.core.types import RunConfig
-from exgentic.core.types.run import RunStatus
-from exgentic.core.types.session import SessionExecutionStatus
+from framework.core.types import RunConfig
+from framework.core.types.run import RunStatus
+from framework.core.types.session import SessionExecutionStatus
 
 
 def test_from_session_configs_preserves_input_order(tmp_path: Path):

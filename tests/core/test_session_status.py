@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Tests for SessionStatus._extract_result_status."""
 
@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from exgentic.core.types.session import SessionOutcomeStatus, SessionStatus
+from framework.core.types.session import SessionOutcomeStatus, SessionStatus
 
 
 def _write(path: Path, data: dict) -> Path:

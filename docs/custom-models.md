@@ -1,6 +1,6 @@
 # Custom Models
 
-Exgentic routes all LLM calls through [LiteLLM](https://docs.litellm.ai/), which means any provider or deployment LiteLLM supports works out of the box — no code changes required. You pick the model, supply credentials, and optionally tune sampling parameters.
+Framework routes all LLM calls through [LiteLLM](https://docs.litellm.ai/), which means any provider or deployment LiteLLM supports works out of the box — no code changes required. You pick the model, supply credentials, and optionally tune sampling parameters.
 
 **Related docs:**
 [docs/](./README.md) · [CLI Reference](./cli-reference.md) · [Python API](./python-api.md) · [Adding Agents](./adding-agents.md) · [Observability Quick Start](./observability/quickstart.md)
@@ -32,7 +32,7 @@ For every other provider the prefix is required. See the provider examples below
 ### OpenAI
 
 ```bash
-exgentic evaluate --benchmark gsm8k --agent tool_calling \
+framework evaluate --benchmark gsm8k --agent tool_calling \
   --model gpt-4o
 ```
 
@@ -45,7 +45,7 @@ export OPENAI_API_KEY=sk-...
 ### Anthropic
 
 ```bash
-exgentic evaluate --benchmark gsm8k --agent tool_calling \
+framework evaluate --benchmark gsm8k --agent tool_calling \
   --model claude-3-5-sonnet-20241022
 ```
 
@@ -58,7 +58,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 ### Azure OpenAI
 
 ```bash
-exgentic evaluate --benchmark gsm8k --agent tool_calling \
+framework evaluate --benchmark gsm8k --agent tool_calling \
   --model azure/<your-deployment-name>
 ```
 
@@ -73,7 +73,7 @@ export AZURE_API_VERSION=2024-02-01   # or whichever version your deployment use
 ### AWS Bedrock
 
 ```bash
-exgentic evaluate --benchmark gsm8k --agent tool_calling \
+framework evaluate --benchmark gsm8k --agent tool_calling \
   --model bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0
 ```
 
@@ -88,7 +88,7 @@ export AWS_REGION_NAME=us-east-1
 ### Google Vertex AI
 
 ```bash
-exgentic evaluate --benchmark gsm8k --agent tool_calling \
+framework evaluate --benchmark gsm8k --agent tool_calling \
   --model vertex_ai/gemini-1.5-pro
 ```
 
@@ -102,7 +102,7 @@ export VERTEXAI_LOCATION=us-central1
 ### Ollama (local)
 
 ```bash
-exgentic evaluate --benchmark gsm8k --agent tool_calling \
+framework evaluate --benchmark gsm8k --agent tool_calling \
   --model ollama/llama3
 ```
 
@@ -115,7 +115,7 @@ export OLLAMA_API_BASE=http://localhost:11434   # default; only needed if differ
 ### Any OpenAI-compatible endpoint
 
 ```bash
-exgentic evaluate --benchmark gsm8k --agent tool_calling \
+framework evaluate --benchmark gsm8k --agent tool_calling \
   --model openai/<model-name>
 ```
 
@@ -133,7 +133,7 @@ This works with vLLM, LM Studio, LocalAI, Together AI, Fireworks, Anyscale, and 
 If you run a [LiteLLM proxy server](https://docs.litellm.ai/docs/proxy/quick_start) in front of your models:
 
 ```bash
-exgentic evaluate --benchmark gsm8k --agent tool_calling \
+framework evaluate --benchmark gsm8k --agent tool_calling \
   --model openai/<model-alias-on-proxy>
 ```
 
@@ -161,7 +161,7 @@ Use `--set agent.model.*` to control sampling. These map to `ModelSettings` and 
 Example — lower temperature and capped output:
 
 ```bash
-exgentic evaluate --benchmark tau2 --agent tool_calling \
+framework evaluate --benchmark tau2 --agent tool_calling \
   --model gpt-4o \
   --set benchmark.user_simulator_model="gpt-4o" \
   --set agent.model.temperature=0.2 \
@@ -173,8 +173,8 @@ exgentic evaluate --benchmark tau2 --agent tool_calling \
 ## Python API
 
 ```python
-from exgentic import evaluate
-from exgentic.core.types import ModelSettings
+from framework import evaluate
+from framework.core.types import ModelSettings
 
 results = evaluate(
     benchmark="tau2",
@@ -199,12 +199,12 @@ results = evaluate(
 
 Some OpenAI-compatible gateways require auth to ride in a custom HTTP header (e.g. `X-Backend-Auth: <token>`) instead of the standard `Authorization: Bearer <token>`. Setting `OPENAI_API_BASE` alone isn't enough in that case — LiteLLM also needs to know to send the custom header.
 
-For these backends, every Exgentic agent and benchmark accepts a `litellm_params_extra` dict that is forwarded to LiteLLM verbatim. It accepts any key LiteLLM's per-model `litellm_params` block accepts: `api_base`, `api_key`, `extra_headers`, an alias-vs-actual `model` split, etc.
+For these backends, every Framework agent and benchmark accepts a `litellm_params_extra` dict that is forwarded to LiteLLM verbatim. It accepts any key LiteLLM's per-model `litellm_params` block accepts: `api_base`, `api_key`, `extra_headers`, an alias-vs-actual `model` split, etc.
 
 ### CLI
 
 ```bash
-exgentic evaluate --benchmark gsm8k --agent tool_calling \
+framework evaluate --benchmark gsm8k --agent tool_calling \
   --model openai/my-model \
   --set agent.litellm_params_extra='{"api_base":"https://gateway.example/v1","api_key":"$BACKEND_KEY","extra_headers":{"X-Backend-Auth":"$BACKEND_KEY"}}'
 ```
@@ -221,7 +221,7 @@ For benchmarks that drive their own LLM (e.g. Tau2's user simulator, BrowseComp'
 ### Python API
 
 ```python
-from exgentic import evaluate
+from framework import evaluate
 
 extras = {
     "api_base": "https://gateway.example/v1",
@@ -256,7 +256,7 @@ agent_kwargs={
 
 ### Where this is wired
 
-The same `litellm_params_extra` dict reaches every LiteLLM call site Exgentic owns:
+The same `litellm_params_extra` dict reaches every LiteLLM call site Framework owns:
 
 - The LiteLLM proxy started by CLI agents (Codex, Gemini, Claude Code).
 - The direct `litellm.acompletion` calls in `LiteLLMToolCallingAgentInstance` and the model-accessibility health check.
@@ -268,7 +268,7 @@ So the same config works everywhere — pick the agent and benchmark you want, s
 
 ### Custom-model pricing (cost tracking for non-standard backends)
 
-Exgentic's cost tracking calls `litellm.cost_per_token(model=...)`, which looks the model up in LiteLLM's built-in pricing database. For non-standard backends (your own gateway, an internal deployment, RITS, etc.) the model isn't in that database, so the lookup raises `ValueError("No pricing info found for model '...'")` and your run fails when it tries to record cost.
+Framework's cost tracking calls `litellm.cost_per_token(model=...)`, which looks the model up in LiteLLM's built-in pricing database. For non-standard backends (your own gateway, an internal deployment, RITS, etc.) the model isn't in that database, so the lookup raises `ValueError("No pricing info found for model '...'")` and your run fails when it tries to record cost.
 
 LiteLLM's native fix is `litellm.register_model()` — register your model once, before constructing the agent, and the lookup succeeds from then on:
 
@@ -307,7 +307,7 @@ Cost will report as `$0` — your explicit choice, not a silent fallback. The fr
 
 Reference: [LiteLLM custom pricing docs](https://docs.litellm.ai/docs/proxy/custom_pricing).
 
-> **CLI users**: cost registration currently only works through the Python API (the CLI subprocess has no place to slip in a `register_model` call). If you're driving from the CLI against a non-standard backend, either run via `exgentic.evaluate(...)` from a script that does the registration first, or accept the cost-tracking failure for now. A follow-up will add CLI support if there's demand.
+> **CLI users**: cost registration currently only works through the Python API (the CLI subprocess has no place to slip in a `register_model` call). If you're driving from the CLI against a non-standard backend, either run via `framework.evaluate(...)` from a script that does the registration first, or accept the cost-tracking failure for now. A follow-up will add CLI support if there's demand.
 
 ---
 
@@ -316,7 +316,7 @@ Reference: [LiteLLM custom pricing docs](https://docs.litellm.ai/docs/proxy/cust
 For models that support reasoning effort (OpenAI o1, o3, etc.):
 
 ```bash
-exgentic evaluate --benchmark swebench --agent tool_calling \
+framework evaluate --benchmark swebench --agent tool_calling \
   --model o3 \
   --set agent.model.reasoning_effort=high \
   --set agent.model.max_tokens=32768
@@ -328,7 +328,7 @@ Note: temperature is typically fixed at 1 for reasoning models and will be ignor
 
 ## Cost tracking
 
-Exgentic records token counts and estimated cost for every LiteLLM completion automatically. Results appear in:
+Framework records token counts and estimated cost for every LiteLLM completion automatically. Results appear in:
 
 - `outputs/<run_id>/results.json` — aggregate cost across all sessions
 - `outputs/<run_id>/sessions/<session_id>/results.json` — per-session cost
@@ -342,13 +342,13 @@ Cost estimates are calculated using LiteLLM's built-in pricing database. For pro
 LiteLLM-level response caching is enabled by default. To disable it for a run:
 
 ```bash
-export EXGENTIC_LITELLM_CACHING=false
+export FRAMEWORK_LITELLM_CACHING=false
 ```
 
 The cache directory defaults to `.litellm_cache` in the working directory. To move it:
 
 ```bash
-export EXGENTIC_LITELLM_CACHE_DIR=/path/to/cache
+export FRAMEWORK_LITELLM_CACHE_DIR=/path/to/cache
 ```
 
 ---

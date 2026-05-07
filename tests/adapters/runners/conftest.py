@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Shared fixtures for runner/transport tests.
 
@@ -11,8 +11,8 @@ against the exact same behavioural contract.
 from __future__ import annotations
 
 import pytest
-from exgentic.adapters.runners import with_runner
-from exgentic.testing.calculator import Calculator, CalculatorError
+from framework.adapters.runners import with_runner
+from framework.testing.calculator import Calculator, CalculatorError
 
 # Re-export so existing test imports keep working.
 __all__ = ["Calculator", "CalculatorError"]

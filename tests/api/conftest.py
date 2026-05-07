@@ -1,32 +1,32 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
 from typing import Iterator
 
 import pytest
-from exgentic.interfaces import registry
-from exgentic.interfaces.registry import RegistryEntry
+from framework.interfaces import registry
+from framework.interfaces.registry import RegistryEntry
 
 
 @pytest.fixture(autouse=True)
 def register_test_components() -> Iterator[None]:
-    from exgentic.environment.instance import get_manager
+    from framework.environment.instance import get_manager
 
     original_benchmarks = dict(registry.BENCHMARKS)
     original_agents = dict(registry.AGENTS)
     registry.BENCHMARKS["test_benchmark"] = RegistryEntry(
         slug_name="test_benchmark",
         display_name="Test Benchmark",
-        module="exgentic.testing.benchmark",
+        module="framework.testing.benchmark",
         attr="TestBenchmark",
         kind="benchmark",
     )
     registry.AGENTS["test_agent"] = RegistryEntry(
         slug_name="test_agent",
         display_name="Test Agent",
-        module="exgentic.testing.agent",
+        module="framework.testing.agent",
         attr="TestAgent",
         kind="agent",
     )

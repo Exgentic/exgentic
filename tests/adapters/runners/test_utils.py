@@ -1,14 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
-"""Tests for :mod:`exgentic.adapters.runners._utils`."""
+"""Tests for :mod:`framework.adapters.runners._utils`."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from unittest.mock import patch
 
-from exgentic.adapters.runners._utils import find_project_root
+from framework.adapters.runners._utils import find_project_root
 
 
 def test_find_project_root_returns_repo_root():
@@ -17,8 +17,8 @@ def test_find_project_root_returns_repo_root():
     assert (root / "pyproject.toml").exists()
 
 
-def test_find_project_root_falls_back_to_dot_exgentic(tmp_path: Path):
-    """When no pyproject.toml is found, fall back to ~/.exgentic/."""
+def test_find_project_root_falls_back_to_dot_framework(tmp_path: Path):
+    """When no pyproject.toml is found, fall back to ~/.framework/."""
     fake_home = tmp_path / "home"
     fake_home.mkdir()
 
@@ -29,17 +29,17 @@ def test_find_project_root_falls_back_to_dot_exgentic(tmp_path: Path):
 
     with (
         patch(
-            "exgentic.adapters.runners._utils.Path.__file__",
+            "framework.adapters.runners._utils.Path.__file__",
             create=True,
         ),
         patch(
-            "exgentic.adapters.runners._utils.Path.home",
+            "framework.adapters.runners._utils.Path.home",
             return_value=fake_home,
         ),
     ):
         # Patch __file__ at the module level so Path(__file__) resolves
         # to a location without pyproject.toml in any ancestor.
-        import exgentic.adapters.runners._utils as mod
+        import framework.adapters.runners._utils as mod
 
         original_file = mod.__file__
         try:
@@ -48,7 +48,7 @@ def test_find_project_root_falls_back_to_dot_exgentic(tmp_path: Path):
         finally:
             mod.__file__ = original_file
 
-    expected = fake_home / ".exgentic"
+    expected = fake_home / ".framework"
     assert result == expected
     assert expected.is_dir()
 
@@ -63,10 +63,10 @@ def test_find_project_root_fallback_is_idempotent(tmp_path: Path):
     fake_file.touch()
 
     with patch(
-        "exgentic.adapters.runners._utils.Path.home",
+        "framework.adapters.runners._utils.Path.home",
         return_value=fake_home,
     ):
-        import exgentic.adapters.runners._utils as mod
+        import framework.adapters.runners._utils as mod
 
         original_file = mod.__file__
         try:
@@ -77,4 +77,4 @@ def test_find_project_root_fallback_is_idempotent(tmp_path: Path):
             mod.__file__ = original_file
 
     assert result1 == result2
-    assert result1 == fake_home / ".exgentic"
+    assert result1 == fake_home / ".framework"

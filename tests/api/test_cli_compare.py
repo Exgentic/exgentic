@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ import re
 from pathlib import Path
 
 from click.testing import CliRunner
-from exgentic.core.types import SessionResults
-from exgentic.core.types.session import SessionOutcomeStatus
-from exgentic.interfaces.cli.main import cli
+from framework.core.types import SessionResults
+from framework.core.types.session import SessionOutcomeStatus
+from framework.interfaces.cli.main import cli
 
 
 def create_mock_results(
@@ -480,7 +480,7 @@ def test_compare_missing_results(tmp_path):
 
     Verifies:
     - Appropriate error message is displayed
-    - Suggests the correct 'exgentic evaluate' command to run
+    - Suggests the correct 'framework evaluate' command to run
     - Exits with non-zero code
     """
     runner = CliRunner()
@@ -517,8 +517,8 @@ def test_compare_missing_results(tmp_path):
 
     assert result.exit_code != 0
     assert "No results found" in result.output
-    # Verify suggests the correct 'exgentic evaluate' command to run
-    assert "exgentic evaluate" in result.output or "evaluate" in result.output.lower()
+    # Verify suggests the correct 'framework evaluate' command to run
+    assert "framework evaluate" in result.output or "evaluate" in result.output.lower()
 
 
 def test_compare_mismatched_tasks(tmp_path):

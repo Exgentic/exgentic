@@ -3,10 +3,10 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
-name = "exgentic"
+name = "framework"
 dynamic = ["version"]
-description = "Exgentic - General agent evaluation"
-authors = [{name = "Exgentic Team"}]
+description = "Framework - General agent evaluation"
+authors = [{name = "Framework Team"}]
 license = {text = "MIT"}
 readme = "README.md"
 requires-python = ">=3.11"
@@ -33,7 +33,7 @@ dependencies = [
 ]
 
 [project.scripts]
-exgentic = "exgentic.interfaces.cli.main:main"
+framework = "framework.interfaces.cli.main:main"
 
 [project.optional-dependencies]
 analysis = [
@@ -54,17 +54,17 @@ tag-pattern = "^v(?P<version>.*)$"
 fallback-version = "0.0.0"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "src/exgentic/_version.py"
+version-file = "src/framework/_version.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/exgentic"]
+packages = ["src/framework"]
 include = [
-    "src/exgentic/benchmarks/**/requirements.txt",
-    "src/exgentic/benchmarks/**/setup.sh",
-    "src/exgentic/benchmarks/**/system-deps.txt",
-    "src/exgentic/agents/**/requirements.txt",
-    "src/exgentic/agents/**/setup.sh",
-    "src/exgentic/agents/**/system-deps.txt",
+    "src/framework/benchmarks/**/requirements.txt",
+    "src/framework/benchmarks/**/setup.sh",
+    "src/framework/benchmarks/**/system-deps.txt",
+    "src/framework/agents/**/requirements.txt",
+    "src/framework/agents/**/setup.sh",
+    "src/framework/agents/**/system-deps.txt",
 ]
 
 [tool.hatch.build.targets.sdist]

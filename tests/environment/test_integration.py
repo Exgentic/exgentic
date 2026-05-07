@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Integration tests: verify environment state is clean after operations.
 
@@ -14,7 +14,7 @@ import json
 import sys
 from pathlib import Path
 
-from exgentic.environment import EnvironmentManager, EnvType
+from framework.environment import EnvironmentManager, EnvType
 
 _pkg_counter = 0
 
@@ -148,12 +148,12 @@ def test_venv_and_local_coexist(tmp_path: Path) -> None:
 
 
 def test_runner_venv_in_manager_space() -> None:
-    """VenvRunner venvs should be under ~/.exgentic/{kind}/{slug}/venv/."""
-    manager_prefix = str(Path.home() / ".exgentic")
+    """VenvRunner venvs should be under ~/.framework/{kind}/{slug}/venv/."""
+    manager_prefix = str(Path.home() / ".framework")
 
     # Build the path the same way RunnerMixin does.
     for kind in ("benchmarks", "agents"):
-        venv_dir = str(Path.home() / ".exgentic" / kind / "test-slug" / "venv")
-        assert venv_dir.startswith(manager_prefix), "venv_dir should be under ~/.exgentic/"
+        venv_dir = str(Path.home() / ".framework" / kind / "test-slug" / "venv")
+        assert venv_dir.startswith(manager_prefix), "venv_dir should be under ~/.framework/"
         assert kind in venv_dir, f"venv_dir should contain {kind}"
         assert venv_dir.endswith("/venv"), "venv_dir should end with /venv"

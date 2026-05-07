@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Tests that ``litellm_params_extra`` is forwarded to ``litellm.acompletion``."""
 
@@ -9,7 +9,7 @@ import logging
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from exgentic.integrations.litellm.health import (
+from framework.integrations.litellm.health import (
     acheck_model_accessible,
     check_model_accessible_sync,
 )

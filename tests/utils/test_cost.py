@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 import os
 import sys
@@ -8,7 +8,7 @@ import pytest
 
 # Make package importable
 sys.path.insert(0, os.path.abspath("src"))
-from exgentic.utils.cost import TokensCost, litellm_tokens_cost  # noqa: E402
+from framework.utils.cost import TokensCost, litellm_tokens_cost  # noqa: E402
 
 # All models mentioned across examples and scripts
 EXAMPLE_MODELS = [

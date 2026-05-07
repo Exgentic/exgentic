@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Tests for Claude Code CLI configuration writing.
 
@@ -10,7 +10,7 @@ when running inside containers with --user flags.
 
 from __future__ import annotations
 
-from exgentic.agents.cli.claude.cli import ClaudeCodeCLI, ExecutionBackend
+from framework.agents.cli.claude.cli import ClaudeCodeCLI, ExecutionBackend
 
 
 def test_settings_config_creates_required_subdirs(tmp_path):

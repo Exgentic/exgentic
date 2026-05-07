@@ -1,10 +1,10 @@
-# Exgentic Documentation
+# Framework Documentation
 
-Welcome to the Exgentic docs. Use the table below to find what you need.
+Welcome to the Framework docs. Use the table below to find what you need.
 
 ---
 
-## Using Exgentic
+## Using Framework
 
 | Document | Description |
 |----------|-------------|
@@ -17,7 +17,7 @@ Welcome to the Exgentic docs. Use the table below to find what you need.
 | [Output Format](./output-format.md) | Schema for `results.json`, `trajectory.jsonl`, session results, and cost reports |
 | [Observers](./observers.md) | Hook into the evaluation lifecycle for custom logging, monitoring, and early stopping |
 
-## Extending Exgentic
+## Extending Framework
 
 | Document | Description |
 |----------|-------------|
@@ -30,7 +30,7 @@ Welcome to the Exgentic docs. Use the table below to find what you need.
 | Document | Description |
 |----------|-------------|
 | [Quick Start](./observability/quickstart.md) | Set up OpenTelemetry tracing with Jaeger in five minutes |
-| [Semantic Conventions](./observability/semantic-conventions.md) | Full reference of every span and attribute Exgentic emits |
+| [Semantic Conventions](./observability/semantic-conventions.md) | Full reference of every span and attribute Framework emits |
 
 ## Maintainers
 

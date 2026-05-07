@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 import logging
 import sys
@@ -7,7 +7,7 @@ import sys
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger(__name__)
 
-library_name = "exgentic"
+library_name = "framework"
 
 
 def check_imports(file_path):

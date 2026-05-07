@@ -1,17 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 ## CLI usage:
-# exgentic evaluate --benchmark gsm8k --agent codex_cli --num-tasks 3 \
+# framework evaluate --benchmark gsm8k --agent codex_cli --num-tasks 3 \
 #   --model gpt-4o
 ## Python API usage:
-# from exgentic import RunConfig, evaluate
+# from framework import RunConfig, evaluate
 # evaluate(RunConfig(benchmark="gsm8k", agent="codex_cli", num_tasks=3,
 #   model="gpt-4o"))
 ## Direct class usage (this script):
 # GSM8kBenchmark + CodexAgent
 
-from exgentic import CodexAgent, GSM8kBenchmark, evaluate
+from framework import CodexAgent, GSM8kBenchmark, evaluate
 
 
 def main() -> None:

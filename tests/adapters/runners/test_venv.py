@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Venv runner tests (skipped when uv is unavailable)."""
 
@@ -13,8 +13,8 @@ import sys
 import time
 
 import pytest
-from exgentic.adapters.runners import with_runner
-from exgentic.adapters.runners.venv import VenvRunner
+from framework.adapters.runners import with_runner
+from framework.adapters.runners.venv import VenvRunner
 
 from .conftest import Calculator
 
@@ -33,7 +33,7 @@ def venv_calc():
         Calculator,
         runner="venv",
         env_name="tests/calculator",
-        module_path="exgentic.testing.calculator",
+        module_path="framework.testing.calculator",
         value=10,
     )
     yield proxy

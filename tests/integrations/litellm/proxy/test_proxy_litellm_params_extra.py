@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
 import json
 
-from exgentic.integrations.litellm import LitellmProxy
+from framework.integrations.litellm import LitellmProxy
 
 
 class _DummyProc:
@@ -23,7 +23,7 @@ class _DummyProc:
 
 
 def _patch_subprocess(monkeypatch) -> None:
-    import exgentic.integrations.litellm.proxy as proxy_mod
+    import framework.integrations.litellm.proxy as proxy_mod
 
     monkeypatch.setattr(proxy_mod.subprocess, "Popen", lambda *_a, **_k: _DummyProc())
     monkeypatch.setattr(proxy_mod, "_is_port_open", lambda *_a, **_k: True)

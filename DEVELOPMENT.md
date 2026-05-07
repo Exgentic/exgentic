@@ -1,12 +1,12 @@
 # Development Guide
 
-This guide covers setting up exgentic for local development, editing, and debugging.
+This guide covers setting up framework for local development, editing, and debugging.
 
 ## Setup
 
 ```bash
-git clone https://github.com/Exgentic/exgentic.git
-cd exgentic
+# Clone the repository (URL withheld for double-blind review)
+cd framework
 uv sync
 ```
 
@@ -17,36 +17,36 @@ Benchmarks and agents declare their dependencies through two mechanisms:
 - **`requirements.txt`** — pip packages installed automatically via `uv pip install`
 - **`setup.sh`** — shell script for non-pip setup (apt packages, git clones, data downloads)
 
-Both are auto-discovered next to the benchmark/agent module directory. The `exgentic install` command runs both:
+Both are auto-discovered next to the benchmark/agent module directory. The `framework install` command runs both:
 
 ```bash
 # Benchmarks
-uv run exgentic install --benchmark tau2
-uv run exgentic install --benchmark appworld
-uv run exgentic install --benchmark gsm8k
-uv run exgentic install --benchmark hotpotqa
-uv run exgentic install --benchmark swebench
-uv run exgentic install --benchmark browsecompplus
+uv run framework install --benchmark tau2
+uv run framework install --benchmark appworld
+uv run framework install --benchmark gsm8k
+uv run framework install --benchmark hotpotqa
+uv run framework install --benchmark swebench
+uv run framework install --benchmark browsecompplus
 
 # Agents
-uv run exgentic install --agent litellm_tool_calling
-uv run exgentic install --agent smolagents
-uv run exgentic install --agent openai
-uv run exgentic install --agent claude
-uv run exgentic install --agent codex
-uv run exgentic install --agent gemini
+uv run framework install --agent litellm_tool_calling
+uv run framework install --agent smolagents
+uv run framework install --agent openai
+uv run framework install --agent claude
+uv run framework install --agent codex
+uv run framework install --agent gemini
 ```
 
-> **Note:** `exgentic setup` still works but is deprecated. Use `install`/`uninstall` instead.
+> **Note:** `framework setup` still works but is deprecated. Use `install`/`uninstall` instead.
 
 ### Isolated Runners (venv / docker)
 
-By default, benchmarks run with the `venv` runner, which creates an isolated `uv` virtual environment per benchmark under `.exgentic/<slug>/venv/`. This means **no local setup is needed** — dependencies are installed automatically in the venv on first run.
+By default, benchmarks run with the `venv` runner, which creates an isolated `uv` virtual environment per benchmark under `.framework/<slug>/venv/`. This means **no local setup is needed** — dependencies are installed automatically in the venv on first run.
 
 You can also use the `docker` runner for full container isolation:
 
 ```bash
-uv run exgentic evaluate --benchmark tau2 --agent tool_calling --subset retail --num-tasks 2 \
+uv run framework evaluate --benchmark tau2 --agent tool_calling --subset retail --num-tasks 2 \
   --model gpt-4o \
   --set benchmark.runner=docker \
   --set benchmark.user_simulator_model="gpt-4o"
@@ -55,10 +55,10 @@ uv run exgentic evaluate --benchmark tau2 --agent tool_calling --subset retail -
 Both isolated runners follow the same pattern:
 
 1. Install `requirements.txt` and run `setup.sh` in the isolated environment
-2. Start `exgentic serve --cls <module:Class> --kwargs <json>` inside the venv/container
+2. Start `framework serve --cls <module:Class> --kwargs <json>` inside the venv/container
 3. Communicate over HTTP via the runner transport layer
 
-Setup scripts can check the `EXGENTIC_DOCKER_BUILD` environment variable to distinguish a Docker build from a local setup (e.g., to skip interactive prompts or large downloads that are handled differently in containers).
+Setup scripts can check the `FRAMEWORK_DOCKER_BUILD` environment variable to distinguish a Docker build from a local setup (e.g., to skip interactive prompts or large downloads that are handled differently in containers).
 
 ## API Credentials
 
@@ -68,15 +68,15 @@ export OPENAI_API_KEY=...
 export ANTHROPIC_API_KEY=...
 ```
 
-Or create a `.env` file in the project root — Exgentic loads it automatically.
+Or create a `.env` file in the project root — Framework loads it automatically.
 
 ## Running Evaluations
 
 ```bash
-uv run exgentic list benchmarks
-uv run exgentic list agents
+uv run framework list benchmarks
+uv run framework list agents
 
-uv run exgentic evaluate --benchmark tau2 --agent tool_calling --subset retail --num-tasks 2 \
+uv run framework evaluate --benchmark tau2 --agent tool_calling --subset retail --num-tasks 2 \
   --model gpt-4o \
   --set benchmark.user_simulator_model="gpt-4o"
 ```
@@ -114,7 +114,7 @@ uv sync --extra otel
 
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
-export EXGENTIC_OTEL_ENABLED=true
+export FRAMEWORK_OTEL_ENABLED=true
 ```
 
 See [`OTEL_SEMANTIC_CONVENTIONS.md`](./OTEL_SEMANTIC_CONVENTIONS.md) for details.

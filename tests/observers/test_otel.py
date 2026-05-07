@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Comprehensive tests for OTEL tracing: observer, SessionSpanManager, TraceLogger, context propagation."""
 
@@ -14,7 +14,7 @@ from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
 import pytest
-from exgentic.core.context import (
+from framework.core.context import (
     Context,
     OtelContext,
     RuntimeConfig,
@@ -149,7 +149,7 @@ def tracer(exporter):
 @pytest.fixture()
 def span_manager(session_root, tracer):
     """SessionSpanManager backed by in-memory tracer."""
-    from exgentic.observers.handlers.otel import SessionSpanManager
+    from framework.observers.handlers.otel import SessionSpanManager
 
     return SessionSpanManager("sess-001", session_root, tracer=tracer)
 
@@ -158,11 +158,11 @@ def span_manager(session_root, tracer):
 def observer(ctx):
     """OtelTracingObserver with registry lookups stubbed."""
     with (
-        patch("exgentic.observers.handlers.otel.get_benchmark_entries", return_value={}),
-        patch("exgentic.observers.handlers.otel.get_agent_entries", return_value={}),
-        patch("exgentic.observers.handlers.otel.get_settings", return_value=MagicMock(otel_record_content=False)),
+        patch("framework.observers.handlers.otel.get_benchmark_entries", return_value={}),
+        patch("framework.observers.handlers.otel.get_agent_entries", return_value={}),
+        patch("framework.observers.handlers.otel.get_settings", return_value=MagicMock(otel_record_content=False)),
     ):
-        from exgentic.observers.handlers.otel import OtelTracingObserver
+        from framework.observers.handlers.otel import OtelTracingObserver
 
         obs = OtelTracingObserver()
         yield obs
@@ -170,7 +170,7 @@ def observer(ctx):
 
 def _create_observer_with_tracer(ctx, tmp_path, tracer):
     """Helper: create observer that uses a specific tracer."""
-    from exgentic.observers.handlers.otel import OtelTracingObserver
+    from framework.observers.handlers.otel import OtelTracingObserver
 
     obs = OtelTracingObserver()
     return obs
@@ -178,7 +178,7 @@ def _create_observer_with_tracer(ctx, tmp_path, tracer):
 
 def _trigger_session_lifecycle(observer, tracer, ctx, tmp_path, *, record_content=False):
     """Helper: run full session lifecycle and return the observer."""
-    from exgentic.observers.handlers.otel import SessionSpanManager
+    from framework.observers.handlers.otel import SessionSpanManager
 
     session = MockSession()
     session_root = tmp_path / "test-run" / "sessions" / session.session_id
@@ -187,11 +187,11 @@ def _trigger_session_lifecycle(observer, tracer, ctx, tmp_path, *, record_conten
     settings = MagicMock(otel_record_content=record_content)
 
     with (
-        patch("exgentic.observers.handlers.otel.get_benchmark_entries", return_value={}),
-        patch("exgentic.observers.handlers.otel.get_agent_entries", return_value={}),
-        patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
+        patch("framework.observers.handlers.otel.get_benchmark_entries", return_value={}),
+        patch("framework.observers.handlers.otel.get_agent_entries", return_value={}),
+        patch("framework.observers.handlers.otel.get_settings", return_value=settings),
         patch(
-            "exgentic.observers.handlers.otel.to_otel_attribute_value",
+            "framework.observers.handlers.otel.to_otel_attribute_value",
             side_effect=lambda v: str(v) if v is not None else None,
         ),
     ):
@@ -231,8 +231,8 @@ class TestSpanHierarchy:
 
         # End session to flush spans
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_session_success(session, MockScore(), MockAgent())
 
@@ -250,8 +250,8 @@ class TestSpanHierarchy:
             _create_observer_with_tracer(ctx, tmp_path, t), t, ctx, tmp_path
         )
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_session_success(session, MockScore(), MockAgent())
 
@@ -269,8 +269,8 @@ class TestSpanHierarchy:
             _create_observer_with_tracer(ctx, tmp_path, t), t, ctx, tmp_path
         )
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_session_success(session, MockScore(), MockAgent())
 
@@ -290,8 +290,8 @@ class TestSpanHierarchy:
             _create_observer_with_tracer(ctx, tmp_path, t), t, ctx, tmp_path
         )
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_session_success(session, MockScore(), MockAgent())
 
@@ -324,8 +324,8 @@ class TestSpanHierarchy:
         mock_action.to_action_list.return_value[0].id = "act-1"
 
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_react_success(session, mock_action)
             obs.on_step_success(session, MockObservation())
@@ -361,11 +361,11 @@ class TestHeritableAttributes:
     def test_heritable_attributes_propagate_to_children(self, span_manager):
         """Heritable attributes auto-propagate to new child spans."""
         span_manager.start_span("root")
-        span_manager.set_heritable_attribute("exgentic.run.id", "run-123")
+        span_manager.set_heritable_attribute("framework.run.id", "run-123")
 
         child = span_manager.start_span("child")
         # Child should inherit the attribute
-        assert child.attributes.get("exgentic.run.id") == "run-123"
+        assert child.attributes.get("framework.run.id") == "run-123"
 
         span_manager.end_current_span()
         span_manager.end_current_span()
@@ -375,16 +375,16 @@ class TestHeritableAttributes:
         span_manager.start_span("root")
         span_manager.set_heritable_attributes(
             **{
-                "exgentic.run.id": "run-123",
+                "framework.run.id": "run-123",
                 "gen_ai.conversation.id": "sess-001",
-                "exgentic.agent.slug": "my-agent",
+                "framework.agent.slug": "my-agent",
             }
         )
 
         child = span_manager.start_span("child")
-        assert child.attributes.get("exgentic.run.id") == "run-123"
+        assert child.attributes.get("framework.run.id") == "run-123"
         assert child.attributes.get("gen_ai.conversation.id") == "sess-001"
-        assert child.attributes.get("exgentic.agent.slug") == "my-agent"
+        assert child.attributes.get("framework.agent.slug") == "my-agent"
 
         span_manager.end_current_span()
         span_manager.end_current_span()
@@ -392,11 +392,11 @@ class TestHeritableAttributes:
     def test_heritable_attributes_propagate_to_grandchild(self, span_manager):
         """Heritable attrs propagate to grandchildren too."""
         span_manager.start_span("root")
-        span_manager.set_heritable_attribute("exgentic.run.id", "run-123")
+        span_manager.set_heritable_attribute("framework.run.id", "run-123")
 
         span_manager.start_span("child")
         grandchild = span_manager.start_span("grandchild")
-        assert grandchild.attributes.get("exgentic.run.id") == "run-123"
+        assert grandchild.attributes.get("framework.run.id") == "run-123"
 
         span_manager.end_current_span()
         span_manager.end_current_span()
@@ -423,15 +423,15 @@ class TestContentFiltering:
 
         settings = MagicMock(otel_record_content=False)
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_session_success(session, MockScore(), MockAgent())
 
         spans = exporter.get_finished_spans()
         session_spans = [s for s in spans if "session" in s.name]
         for s in session_spans:
-            assert "exgentic.session.task" not in (
+            assert "framework.session.task" not in (
                 s.attributes or {}
             ), "Task content should not be recorded when otel_record_content=False"
 
@@ -447,15 +447,15 @@ class TestContentFiltering:
 
         settings = MagicMock(otel_record_content=True)
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_session_success(session, MockScore(), MockAgent())
 
         spans = exporter.get_finished_spans()
         session_spans = [s for s in spans if "session" in s.name]
         assert any(
-            "exgentic.session.task" in (s.attributes or {}) for s in session_spans
+            "framework.session.task" in (s.attributes or {}) for s in session_spans
         ), "Task content should be recorded when otel_record_content=True"
 
     def test_tool_result_not_recorded_when_disabled(self, ctx, tmp_path):
@@ -470,8 +470,8 @@ class TestContentFiltering:
 
         settings = MagicMock(otel_record_content=False)
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_session_success(session, MockScore(), MockAgent())
 
@@ -505,8 +505,8 @@ class TestSessionErrorHandling:
         session_mock.get_cost.return_value = {}
 
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_session_error(session_mock, error)
 
@@ -532,8 +532,8 @@ class TestSessionErrorHandling:
         session_mock.get_cost.return_value = {}
 
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_session_error(session_mock, RuntimeError("fail"))
 
@@ -568,8 +568,8 @@ class TestSessionErrorHandling:
         mock_action.to_action_list.return_value[0].id = "a1"
 
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_react_success(session, mock_action)
             # Now stack has 2: session + execute_tool
@@ -737,7 +737,7 @@ class TestTraceLoggerParentContext:
 
     def test_get_parent_context_creates_nonrecording_span(self, tmp_path):
         """_get_parent_context must return context with NonRecordingSpan containing correct ids."""
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
         from opentelemetry import trace as trace_api
 
         otel = OtelContext(trace_id="a" * 32, span_id="b" * 16)
@@ -765,13 +765,13 @@ class TestTraceLoggerParentContext:
 
     def test_write_otel_early_return_when_tracer_none(self):
         """_write_otel exits early when tracer is None."""
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
 
         logger = TraceLogger()
         assert logger._tracer is None
 
         with patch(
-            "exgentic.integrations.litellm.trace_logger.get_settings",
+            "framework.integrations.litellm.trace_logger.get_settings",
             return_value=MagicMock(otel_enabled=True, otel_record_content=False),
         ):
             logger._write_otel(
@@ -784,13 +784,13 @@ class TestTraceLoggerParentContext:
 
     def test_write_otel_skips_when_disabled(self):
         """_write_otel returns immediately when _otel_enabled() is False."""
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
 
         logger = TraceLogger()
         logger._tracer = MagicMock()  # Would fail if called
 
         with patch(
-            "exgentic.integrations.litellm.trace_logger.get_settings",
+            "framework.integrations.litellm.trace_logger.get_settings",
             return_value=MagicMock(otel_enabled=False, otel_record_content=False),
         ):
             logger._write_otel(
@@ -820,8 +820,8 @@ class TestSessionSuccessAttributes:
         obs, session, settings = _trigger_session_lifecycle(obs, t, ctx, tmp_path)
 
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_session_success(session, MockScore(), MockAgent())
 
@@ -829,9 +829,9 @@ class TestSessionSuccessAttributes:
         session_spans = [s for s in spans if "session" in s.name]
         assert len(session_spans) >= 1
         attrs = dict(session_spans[0].attributes)
-        assert attrs.get("exgentic.score.success") is True
-        assert attrs.get("exgentic.score") == 0.95
-        assert attrs.get("exgentic.score.is_finished") is True
+        assert attrs.get("framework.score.success") is True
+        assert attrs.get("framework.score") == 0.95
+        assert attrs.get("framework.score.is_finished") is True
 
     def test_score_extras_flattened_onto_session_span(self, exporter, ctx, tmp_path):
         """session_metrics and session_metadata are flattened onto the session span."""
@@ -855,8 +855,8 @@ class TestSessionSuccessAttributes:
             }
 
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_session_success(session, RichScore(), MockAgent())
 
@@ -865,11 +865,11 @@ class TestSessionSuccessAttributes:
         attrs = dict(session_spans[0].attributes)
 
         # Primitive metric values pass through directly.
-        assert attrs.get("exgentic.score.metrics.reward") == 0.75
-        assert attrs.get("exgentic.score.metrics.db_check_db_match") is True
+        assert attrs.get("framework.score.metrics.reward") == 0.75
+        assert attrs.get("framework.score.metrics.db_check_db_match") is True
 
         # Nested metadata is JSON-serialized so nothing is dropped.
-        reward_info_raw = attrs.get("exgentic.score.metadata.reward_info")
+        reward_info_raw = attrs.get("framework.score.metadata.reward_info")
         assert reward_info_raw is not None, "rich score metadata must be emitted"
         parsed = json.loads(reward_info_raw)
         assert parsed["reward"] == 0.75
@@ -886,19 +886,19 @@ class TestSessionSuccessAttributes:
         obs, session, settings = _trigger_session_lifecycle(obs, t, ctx, tmp_path)
 
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_session_success(session, MockScore(), MockAgent())
 
         spans = exporter.get_finished_spans()
         session_spans = [s for s in spans if "session" in s.name]
         attrs = dict(session_spans[0].attributes)
-        assert not any(k.startswith("exgentic.score.metrics.") for k in attrs)
-        assert not any(k.startswith("exgentic.score.metadata.") for k in attrs)
+        assert not any(k.startswith("framework.score.metrics.") for k in attrs)
+        assert not any(k.startswith("framework.score.metadata.") for k in attrs)
 
     def test_step_counter_set(self, exporter, ctx, tmp_path):
-        """exgentic.session.steps reflects the number of steps."""
+        """framework.session.steps reflects the number of steps."""
         provider = TracerProvider()
         provider.add_span_processor(SimpleSpanProcessor(exporter))
         t = provider.get_tracer("test")
@@ -907,16 +907,16 @@ class TestSessionSuccessAttributes:
         obs, session, settings = _trigger_session_lifecycle(obs, t, ctx, tmp_path)
 
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_session_success(session, MockScore(), MockAgent())
 
         spans = exporter.get_finished_spans()
         session_spans = [s for s in spans if "session" in s.name]
         attrs = dict(session_spans[0].attributes)
-        assert "exgentic.session.steps" in attrs
-        assert attrs["exgentic.session.steps"] >= 1
+        assert "framework.session.steps" in attrs
+        assert attrs["framework.session.steps"] >= 1
 
     def test_cleanup_after_success(self, exporter, ctx, tmp_path):
         """on_session_success cleans up _span_managers, counters, agents, actions."""
@@ -928,8 +928,8 @@ class TestSessionSuccessAttributes:
         obs, session, settings = _trigger_session_lifecycle(obs, t, ctx, tmp_path)
 
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_session_success(session, MockScore(), MockAgent())
 
@@ -961,8 +961,8 @@ class TestConcurrentSessions:
             (tmp_path / "test-run" / "sessions" / sid).mkdir(parents=True, exist_ok=True)
 
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=MagicMock(otel_record_content=False)),
-            patch("exgentic.observers.handlers.otel.to_otel_attribute_value", return_value=None),
+            patch("framework.observers.handlers.otel.get_settings", return_value=MagicMock(otel_record_content=False)),
+            patch("framework.observers.handlers.otel.to_otel_attribute_value", return_value=None),
         ):
             observer.on_session_creation(session1)
             observer.on_session_creation(session2)
@@ -973,7 +973,7 @@ class TestConcurrentSessions:
 
     def test_different_trace_ids_per_session(self, ctx, tmp_path):
         """Each session generates a unique trace_id."""
-        from exgentic.observers.handlers.otel import SessionSpanManager
+        from framework.observers.handlers.otel import SessionSpanManager
 
         provider = TracerProvider()
         t = provider.get_tracer("test")
@@ -1007,40 +1007,40 @@ class TestToOtelAttributeValue:
     """to_otel_attribute_value converts arbitrary Python values to OTEL-safe types."""
 
     def test_none_returns_none(self):
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         assert to_otel_attribute_value(None) is None
 
     def test_string_passthrough(self):
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         assert to_otel_attribute_value("hello") == "hello"
 
     def test_bool_passthrough(self):
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         assert to_otel_attribute_value(True) is True
         assert to_otel_attribute_value(False) is False
 
     def test_int_passthrough(self):
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         assert to_otel_attribute_value(42) == 42
 
     def test_float_passthrough(self):
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         assert to_otel_attribute_value(3.14) == 3.14
 
     def test_decimal_to_float(self):
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         result = to_otel_attribute_value(Decimal("1.5"))
         assert isinstance(result, float)
         assert result == 1.5
 
     def test_datetime_to_iso(self):
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         dt = datetime(2026, 1, 1, 12, 0, 0)
         result = to_otel_attribute_value(dt)
@@ -1048,7 +1048,7 @@ class TestToOtelAttributeValue:
         assert "2026" in result
 
     def test_date_to_iso(self):
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         d = date(2026, 3, 15)
         result = to_otel_attribute_value(d)
@@ -1056,14 +1056,14 @@ class TestToOtelAttributeValue:
         assert "2026-03-15" in result
 
     def test_path_to_string(self):
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         result = to_otel_attribute_value(Path("/tmp/test"))
         assert isinstance(result, str)
         assert "tmp" in result
 
     def test_bytes_to_base64(self):
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         result = to_otel_attribute_value(b"hello")
         assert isinstance(result, str)
@@ -1071,19 +1071,19 @@ class TestToOtelAttributeValue:
         assert result == "aGVsbG8="
 
     def test_homogeneous_int_list(self):
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         result = to_otel_attribute_value([1, 2, 3])
         assert result == [1, 2, 3]
 
     def test_homogeneous_string_list(self):
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         result = to_otel_attribute_value(["a", "b"])
         assert result == ["a", "b"]
 
     def test_mixed_int_float_list_upcasts(self):
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         result = to_otel_attribute_value([1, 2.5])
         assert result == [1.0, 2.5]
@@ -1091,7 +1091,7 @@ class TestToOtelAttributeValue:
     def test_dict_to_json_string(self):
         import json
 
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         result = to_otel_attribute_value({"key": "val"})
         assert isinstance(result, str)
@@ -1101,7 +1101,7 @@ class TestToOtelAttributeValue:
     def test_nested_dict_to_json(self):
         import json
 
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         result = to_otel_attribute_value({"a": {"b": 1}})
         assert isinstance(result, str)
@@ -1109,7 +1109,7 @@ class TestToOtelAttributeValue:
         assert parsed["a"]["b"] == 1
 
     def test_list_with_none_falls_to_json(self):
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         result = to_otel_attribute_value([1, None, 3])
         assert isinstance(result, str)  # JSON fallback
@@ -1192,8 +1192,8 @@ class TestLitellmCallbackRegistration:
 
     def test_adds_single_trace_logger(self):
         import litellm
-        from exgentic.integrations.litellm.config import _configure_callbacks
-        from exgentic.integrations.litellm.trace_logger import SyncTraceLogger
+        from framework.integrations.litellm.config import _configure_callbacks
+        from framework.integrations.litellm.trace_logger import SyncTraceLogger
 
         litellm.callbacks = []
         _configure_callbacks()
@@ -1204,8 +1204,8 @@ class TestLitellmCallbackRegistration:
 
     def test_idempotent(self):
         import litellm
-        from exgentic.integrations.litellm.config import _configure_callbacks
-        from exgentic.integrations.litellm.trace_logger import SyncTraceLogger
+        from framework.integrations.litellm.config import _configure_callbacks
+        from framework.integrations.litellm.trace_logger import SyncTraceLogger
 
         litellm.callbacks = []
         _configure_callbacks()
@@ -1227,32 +1227,32 @@ class TestOnRunStart:
         run_config.subset = None
 
         with (
-            patch("exgentic.observers.handlers.otel.get_benchmark_entries", return_value={}),
-            patch("exgentic.observers.handlers.otel.get_agent_entries", return_value={}),
+            patch("framework.observers.handlers.otel.get_benchmark_entries", return_value={}),
+            patch("framework.observers.handlers.otel.get_agent_entries", return_value={}),
         ):
             observer.on_run_start(run_config)
 
-        assert observer._run_attributes["exgentic.benchmark.subset"] == ""
+        assert observer._run_attributes["framework.benchmark.subset"] == ""
 
     def test_subset_preserved(self, observer, ctx):
         run_config = MockRunConfig()
         run_config.subset = "my_subset"
 
         with (
-            patch("exgentic.observers.handlers.otel.get_benchmark_entries", return_value={}),
-            patch("exgentic.observers.handlers.otel.get_agent_entries", return_value={}),
+            patch("framework.observers.handlers.otel.get_benchmark_entries", return_value={}),
+            patch("framework.observers.handlers.otel.get_agent_entries", return_value={}),
         ):
             observer.on_run_start(run_config)
 
-        assert observer._run_attributes["exgentic.benchmark.subset"] == "my_subset"
+        assert observer._run_attributes["framework.benchmark.subset"] == "my_subset"
 
     def test_model_set_as_heritable(self, observer, ctx):
         run_config = MockRunConfig()
         run_config.model = "gpt-4o"
 
         with (
-            patch("exgentic.observers.handlers.otel.get_benchmark_entries", return_value={}),
-            patch("exgentic.observers.handlers.otel.get_agent_entries", return_value={}),
+            patch("framework.observers.handlers.otel.get_benchmark_entries", return_value={}),
+            patch("framework.observers.handlers.otel.get_agent_entries", return_value={}),
         ):
             observer.on_run_start(run_config)
 
@@ -1280,7 +1280,7 @@ class TestCrossBoundaryContextPropagation:
 
     def test_env_var_path_preserves_trace_linkage(self, tmp_path):
         """Simulate process/venv/docker: parent span → env vars → child TraceLogger → LLM span shares trace_id."""
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
         from opentelemetry import trace as trace_api
 
         # -- Parent side: create session span, get otel context --
@@ -1294,7 +1294,7 @@ class TestCrossBoundaryContextPropagation:
         parent_trace_id = format(session_ctx.trace_id, "032x")
         parent_span_id = format(session_ctx.span_id, "016x")
 
-        # -- Simulate env var transport (what inject_exgentic_env does) --
+        # -- Simulate env var transport (what inject_framework_env does) --
         otel = OtelContext(trace_id=parent_trace_id, span_id=parent_span_id)
         ctx = Context(
             run_id="run-1",
@@ -1357,7 +1357,7 @@ class TestCrossBoundaryContextPropagation:
 
     def test_smolagents_context_object_path(self, tmp_path):
         """Simulate smolagents: whole Context object in metadata['context']."""
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
 
         otel = OtelContext(trace_id="ee" * 16, span_id="ff" * 8)
         ctx = Context(
@@ -1378,7 +1378,7 @@ class TestCrossBoundaryContextPropagation:
 
     def test_contextvar_path_for_thread_runner(self, tmp_path):
         """Simulate thread runner: ContextVar propagation via copy_context()."""
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
 
         otel = OtelContext(trace_id="11" * 16, span_id="22" * 8)
         ctx = Context(
@@ -1406,7 +1406,7 @@ class TestCrossBoundaryContextPropagation:
 
     def test_service_runner_fallback_path(self, tmp_path):
         """Simulate service runner: _SUBPROCESS_CONTEXT fallback for uvicorn threads."""
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
 
         otel = OtelContext(trace_id="33" * 16, span_id="44" * 8)
         ctx = Context(
@@ -1430,15 +1430,15 @@ class TestCrossBoundaryContextPropagation:
         finally:
             set_context_fallback(None)
 
-    def test_inject_exgentic_env_includes_otel_vars(self, tmp_path, monkeypatch):
-        """inject_exgentic_env(role=...) writes a per-service runtime.json.
+    def test_inject_framework_env_includes_otel_vars(self, tmp_path, monkeypatch):
+        """inject_framework_env(role=...) writes a per-service runtime.json.
 
         OTEL vars are persisted in runtime.json on disk; the child reads them
         via init_context() using the runtime file path.
         """
-        from exgentic.core.context import Role
+        from framework.core.context import Role
 
-        monkeypatch.delenv("EXGENTIC_RUNTIME_FILE", raising=False)
+        monkeypatch.delenv("FRAMEWORK_RUNTIME_FILE", raising=False)
         otel = OtelContext(trace_id="aa" * 16, span_id="bb" * 8)
         ctx = Context(
             run_id="run-1",
@@ -1449,15 +1449,15 @@ class TestCrossBoundaryContextPropagation:
         )
         set_context(ctx)
 
-        from exgentic.adapters.runners._utils import inject_exgentic_env
+        from framework.adapters.runners._utils import inject_framework_env
 
         env: dict[str, str] = {}
-        inject_exgentic_env(env, role=Role.AGENT)
+        inject_framework_env(env, role=Role.AGENT)
 
         expected_file = str(tmp_path / "run-1" / "sessions" / "sess-1" / "agent" / "runtime.json")
         assert (
-            env.get("EXGENTIC_RUNTIME_FILE") == expected_file
-        ), "inject_exgentic_env must set EXGENTIC_RUNTIME_FILE for the given role"
+            env.get("FRAMEWORK_RUNTIME_FILE") == expected_file
+        ), "inject_framework_env must set FRAMEWORK_RUNTIME_FILE for the given role"
 
     def test_full_chain_session_to_llm_span(self, tmp_path):
         """Full chain: SessionSpanManager → update_tracing_context → env vars → child TraceLogger → LLM span.
@@ -1468,7 +1468,7 @@ class TestCrossBoundaryContextPropagation:
         3. Runner sends context to child via env vars
         4. Child's TraceLogger creates LLM span linked to session
         """
-        from exgentic.observers.handlers.otel import SessionSpanManager
+        from framework.observers.handlers.otel import SessionSpanManager
 
         # Step 1: Parent creates session span
         parent_provider = TracerProvider()
@@ -1492,7 +1492,7 @@ class TestCrossBoundaryContextPropagation:
         parent_trace_id = updated_ctx.otel_context.trace_id
         parent_span_id = updated_ctx.otel_context.span_id
 
-        # Step 3: Serialize via RuntimeConfig (what inject_exgentic_env does)
+        # Step 3: Serialize via RuntimeConfig (what inject_framework_env does)
         config = RuntimeConfig(
             run_id=updated_ctx.run_id,
             output_dir=updated_ctx.output_dir,
@@ -1511,7 +1511,7 @@ class TestCrossBoundaryContextPropagation:
 
         # Step 5: Child's TraceLogger creates LLM span
 
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
 
         logger = TraceLogger()
         logger._otel_logger = MagicMock()
@@ -1552,8 +1552,8 @@ class TestCallbackRegistrationCrossBoundary:
     def test_configure_callbacks_registers_custom_logger_subclasses(self):
         """A single CustomLogger must be in litellm.callbacks, not success_callback."""
         import litellm
-        from exgentic.integrations.litellm.config import _configure_callbacks
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.config import _configure_callbacks
+        from framework.integrations.litellm.trace_logger import TraceLogger
 
         # Simulate fresh child process (no callbacks)
         litellm.callbacks = []
@@ -1569,7 +1569,7 @@ class TestCallbackRegistrationCrossBoundary:
 
     def test_trace_logger_is_custom_logger_subclass(self):
         """TraceLogger must be a CustomLogger subclass for litellm to call log_success_event."""
-        from exgentic.integrations.litellm.trace_logger import (
+        from framework.integrations.litellm.trace_logger import (
             AsyncTraceLogger,
             SyncTraceLogger,
             TraceLogger,
@@ -1582,7 +1582,7 @@ class TestCallbackRegistrationCrossBoundary:
 
     def test_trace_logger_has_log_success_event(self):
         """TraceLogger must implement log_success_event (called by litellm for CustomLogger)."""
-        from exgentic.integrations.litellm.trace_logger import SyncTraceLogger
+        from framework.integrations.litellm.trace_logger import SyncTraceLogger
 
         logger = SyncTraceLogger()
         assert hasattr(logger, "log_success_event")
@@ -1636,7 +1636,7 @@ class TestDependencyCrossing:
 
     def test_trace_logger_is_custom_logger(self):
         """TraceLogger must subclass CustomLogger so litellm invokes it."""
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
         from litellm.integrations.custom_logger import CustomLogger
 
         assert issubclass(TraceLogger, CustomLogger)
@@ -1644,33 +1644,33 @@ class TestDependencyCrossing:
     # -- settings propagation: otel_enabled is included in get_env() --
 
     def test_settings_get_env_includes_otel_enabled(self):
-        """get_env() must export EXGENTIC_OTEL_ENABLED so child processes inherit it."""
-        from exgentic.utils.settings import ExgenticSettings
+        """get_env() must export FRAMEWORK_OTEL_ENABLED so child processes inherit it."""
+        from framework.utils.settings import FrameworkSettings
 
-        settings = ExgenticSettings(otel_enabled=True)
+        settings = FrameworkSettings(otel_enabled=True)
         env = settings.get_env()
-        assert "EXGENTIC_OTEL_ENABLED" in env
-        assert env["EXGENTIC_OTEL_ENABLED"] == "true"
+        assert "FRAMEWORK_OTEL_ENABLED" in env
+        assert env["FRAMEWORK_OTEL_ENABLED"] == "true"
 
     def test_settings_get_env_includes_otel_record_content(self):
-        """get_env() must export EXGENTIC_OTEL_RECORD_CONTENT."""
-        from exgentic.utils.settings import ExgenticSettings
+        """get_env() must export FRAMEWORK_OTEL_RECORD_CONTENT."""
+        from framework.utils.settings import FrameworkSettings
 
-        settings = ExgenticSettings(otel_record_content=True)
+        settings = FrameworkSettings(otel_record_content=True)
         env = settings.get_env()
-        assert "EXGENTIC_OTEL_RECORD_CONTENT" in env
-        assert env["EXGENTIC_OTEL_RECORD_CONTENT"] == "true"
+        assert "FRAMEWORK_OTEL_RECORD_CONTENT" in env
+        assert env["FRAMEWORK_OTEL_RECORD_CONTENT"] == "true"
 
-    # -- inject_exgentic_env propagates OTEL context vars --
+    # -- inject_framework_env propagates OTEL context vars --
 
-    def test_inject_exgentic_env_includes_otel_context(self, tmp_path, monkeypatch):
-        """inject_exgentic_env(role=...) writes a per-service runtime.json.
+    def test_inject_framework_env_includes_otel_context(self, tmp_path, monkeypatch):
+        """inject_framework_env(role=...) writes a per-service runtime.json.
 
         OTEL context is propagated via runtime.json on disk; the child reads
         it through init_context() using the runtime file path.
         """
-        monkeypatch.delenv("EXGENTIC_RUNTIME_FILE", raising=False)
-        from exgentic.core.context import Context, OtelContext, Role, set_context
+        monkeypatch.delenv("FRAMEWORK_RUNTIME_FILE", raising=False)
+        from framework.core.context import Context, OtelContext, Role, set_context
 
         ctx = Context(
             session_id="s1",
@@ -1682,16 +1682,16 @@ class TestDependencyCrossing:
         set_context(ctx)
 
         env: dict[str, str] = {}
-        from exgentic.adapters.runners._utils import inject_exgentic_env
+        from framework.adapters.runners._utils import inject_framework_env
 
-        inject_exgentic_env(env, role=Role.BENCHMARK)
+        inject_framework_env(env, role=Role.BENCHMARK)
         expected = str(tmp_path / "r1" / "sessions" / "s1" / "benchmark" / "runtime.json")
-        assert env.get("EXGENTIC_RUNTIME_FILE") == expected
+        assert env.get("FRAMEWORK_RUNTIME_FILE") == expected
 
-    def test_inject_exgentic_env_propagates_settings(self, tmp_path, monkeypatch):
-        """inject_exgentic_env(role=...) sets EXGENTIC_RUNTIME_FILE; settings are in runtime.json."""
-        monkeypatch.delenv("EXGENTIC_RUNTIME_FILE", raising=False)
-        from exgentic.core.context import Context, Role, set_context
+    def test_inject_framework_env_propagates_settings(self, tmp_path, monkeypatch):
+        """inject_framework_env(role=...) sets FRAMEWORK_RUNTIME_FILE; settings are in runtime.json."""
+        monkeypatch.delenv("FRAMEWORK_RUNTIME_FILE", raising=False)
+        from framework.core.context import Context, Role, set_context
 
         ctx = Context(
             session_id="s",
@@ -1702,11 +1702,11 @@ class TestDependencyCrossing:
         set_context(ctx)
 
         env: dict[str, str] = {}
-        from exgentic.adapters.runners._utils import inject_exgentic_env
+        from framework.adapters.runners._utils import inject_framework_env
 
-        inject_exgentic_env(env, role=Role.AGENT)
+        inject_framework_env(env, role=Role.AGENT)
         expected = str(tmp_path / "r" / "sessions" / "s" / "agent" / "runtime.json")
-        assert env.get("EXGENTIC_RUNTIME_FILE") == expected
+        assert env.get("FRAMEWORK_RUNTIME_FILE") == expected
 
     # -- init_tracing_from_env produces a working tracer --
 
@@ -1714,7 +1714,7 @@ class TestDependencyCrossing:
         """init_tracing_from_env must return a real Tracer, not None."""
         # Set endpoint so it doesn't fail on missing env
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
-        from exgentic.utils.otel import init_tracing_from_env
+        from framework.utils.otel import init_tracing_from_env
 
         tracer = init_tracing_from_env()
         assert tracer is not None
@@ -1729,14 +1729,14 @@ class TestDependencyCrossing:
         """When OTEL is enabled and context is available, _init_otel must produce a tracer."""
         import tempfile
 
-        monkeypatch.setenv("EXGENTIC_OTEL_ENABLED", "true")
+        monkeypatch.setenv("FRAMEWORK_OTEL_ENABLED", "true")
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
-        from exgentic.utils import settings as _sm
+        from framework.utils import settings as _sm
 
         _sm._settings = None
 
-        from exgentic.core.context import Context, OtelContext, set_context
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.core.context import Context, OtelContext, set_context
+        from framework.integrations.litellm.trace_logger import TraceLogger
 
         with tempfile.TemporaryDirectory() as tmpdir:
             ctx = Context(
@@ -1757,7 +1757,7 @@ class TestDependencyCrossing:
 
     def test_otel_context_survives_env_roundtrip(self):
         """OtelContext must survive RuntimeConfig roundtrip without data loss."""
-        from exgentic.core.context import Context, OtelContext, RuntimeConfig
+        from framework.core.context import Context, OtelContext, RuntimeConfig
 
         original = Context(
             session_id="sess",
@@ -1781,7 +1781,7 @@ class TestDependencyCrossing:
 
     def test_parent_span_reconstructed_from_otel_context(self):
         """TraceLogger must reconstruct a NonRecordingSpan from propagated OtelContext."""
-        from exgentic.core.context import Context, OtelContext
+        from framework.core.context import Context, OtelContext
 
         trace_id = format(12345678901234567890, "032x")
         span_id = format(9876543210, "016x")
@@ -1794,7 +1794,7 @@ class TestDependencyCrossing:
         )
         from unittest.mock import MagicMock
 
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
 
         logger = TraceLogger()
         logger._otel_logger = MagicMock()  # normally set by _init_otel
@@ -1820,7 +1820,7 @@ class TestPerRunnerOtelContract:
         """Verify that contextvars.copy_context() actually preserves our OTEL context."""
         import contextvars
 
-        from exgentic.core.context import _CONTEXT, Context, OtelContext, set_context
+        from framework.core.context import _CONTEXT, Context, OtelContext, set_context
 
         ctx = Context(
             session_id="s",
@@ -1835,19 +1835,19 @@ class TestPerRunnerOtelContract:
         assert child_ctx.otel_context is not None
         assert child_ctx.otel_context.trace_id == "thread-trace"
 
-    # -- inject_exgentic_env: behavioral test --
+    # -- inject_framework_env: behavioral test --
 
-    def test_inject_exgentic_env_writes_runtime_file(self, tmp_path, monkeypatch):
-        """inject_exgentic_env(role=...) writes a runtime.json and sets EXGENTIC_RUNTIME_FILE."""
-        from exgentic.adapters.runners._utils import inject_exgentic_env
-        from exgentic.core.context import Role, run_scope, session_scope
+    def test_inject_framework_env_writes_runtime_file(self, tmp_path, monkeypatch):
+        """inject_framework_env(role=...) writes a runtime.json and sets FRAMEWORK_RUNTIME_FILE."""
+        from framework.adapters.runners._utils import inject_framework_env
+        from framework.core.context import Role, run_scope, session_scope
 
         with run_scope(run_id="test-run", output_dir=str(tmp_path)):
             with session_scope("test-session"):
                 env: dict[str, str] = {}
-                inject_exgentic_env(env, role=Role.AGENT)
-                assert "EXGENTIC_RUNTIME_FILE" in env
-                runtime_path = env["EXGENTIC_RUNTIME_FILE"]
+                inject_framework_env(env, role=Role.AGENT)
+                assert "FRAMEWORK_RUNTIME_FILE" in env
+                runtime_path = env["FRAMEWORK_RUNTIME_FILE"]
                 assert Path(runtime_path).exists(), "runtime.json must be written to disk"
                 import json
 
@@ -1856,14 +1856,14 @@ class TestPerRunnerOtelContract:
                 assert data["run_id"] == "test-run"
                 assert data["session_id"] == "test-session"
 
-    def test_inject_exgentic_env_inherits_parent_runtime(self, monkeypatch):
-        """inject_exgentic_env(role=None) copies parent's EXGENTIC_RUNTIME_FILE."""
-        from exgentic.adapters.runners._utils import inject_exgentic_env
+    def test_inject_framework_env_inherits_parent_runtime(self, monkeypatch):
+        """inject_framework_env(role=None) copies parent's FRAMEWORK_RUNTIME_FILE."""
+        from framework.adapters.runners._utils import inject_framework_env
 
-        monkeypatch.setenv("EXGENTIC_RUNTIME_FILE", "/parent/runtime.json")
+        monkeypatch.setenv("FRAMEWORK_RUNTIME_FILE", "/parent/runtime.json")
         env: dict[str, str] = {}
-        inject_exgentic_env(env, role=None)
-        assert env.get("EXGENTIC_RUNTIME_FILE") == "/parent/runtime.json"
+        inject_framework_env(env, role=None)
+        assert env.get("FRAMEWORK_RUNTIME_FILE") == "/parent/runtime.json"
 
     # -- init_context: restores OTEL context --
 
@@ -1879,9 +1879,9 @@ class TestPerRunnerOtelContract:
             "otel_span_id": "restored-span",
         }
         (tmp_path / "runtime.json").write_text(json.dumps(runtime))
-        monkeypatch.setenv("EXGENTIC_RUNTIME_FILE", str(tmp_path / "runtime.json"))
+        monkeypatch.setenv("FRAMEWORK_RUNTIME_FILE", str(tmp_path / "runtime.json"))
 
-        from exgentic.core.context import init_context
+        from framework.core.context import init_context
 
         ctx = init_context()
         assert ctx.otel_context is not None
@@ -1915,7 +1915,7 @@ def _full_lifecycle_spans(
     Creates a TracerProvider + InMemorySpanExporter, runs on_run_start through
     on_session_success, and returns the finished spans for assertion.
     """
-    from exgentic.observers.handlers.otel import OtelTracingObserver, SessionSpanManager
+    from framework.observers.handlers.otel import OtelTracingObserver, SessionSpanManager
 
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
@@ -1935,14 +1935,14 @@ def _full_lifecycle_spans(
         original_init(self, session_id, session_root_path, tracer=tracer)
 
     with (
-        patch("exgentic.observers.handlers.otel.get_benchmark_entries", return_value={}),
-        patch("exgentic.observers.handlers.otel.get_agent_entries", return_value={}),
-        patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
+        patch("framework.observers.handlers.otel.get_benchmark_entries", return_value={}),
+        patch("framework.observers.handlers.otel.get_agent_entries", return_value={}),
+        patch("framework.observers.handlers.otel.get_settings", return_value=settings),
         patch(
-            "exgentic.observers.handlers.otel.to_otel_attribute_value",
+            "framework.observers.handlers.otel.to_otel_attribute_value",
             side_effect=lambda v: str(v) if v is not None else None,
         ),
-        patch("exgentic.observers.handlers.otel.flush_traces"),
+        patch("framework.observers.handlers.otel.flush_traces"),
         patch.object(SessionSpanManager, "__init__", patched_init),
     ):
         obs.on_run_start(run_config)
@@ -1979,7 +1979,7 @@ def _invoke_write_otel(
     otel_span_id="0000000000000001",
 ):
     """Invoke TraceLogger._write_otel with a real tracer+exporter, return finished spans."""
-    from exgentic.integrations.litellm.trace_logger import TraceLogger
+    from framework.integrations.litellm.trace_logger import TraceLogger
 
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
@@ -2013,7 +2013,7 @@ def _invoke_write_otel(
 
     settings = MagicMock(otel_enabled=True, otel_record_content=record_content)
     with (
-        patch("exgentic.integrations.litellm.trace_logger.get_settings", return_value=settings),
+        patch("framework.integrations.litellm.trace_logger.get_settings", return_value=settings),
         patch.object(logger, "get_context", return_value=mock_ctx),
     ):
         logger._write_otel(kwargs, response_obj, status)
@@ -2055,23 +2055,23 @@ class TestSessionSpanSemanticConventions:
         rc = MockRunConfig()
         rc.benchmark = "tau2"
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, run_config=rc)
-        assert session_span.attributes["exgentic.benchmark.slug_name"] == "tau2"
+        assert session_span.attributes["framework.benchmark.slug_name"] == "tau2"
 
     def test_session_span_benchmark_subset(self, ctx, tmp_path):
         rc = MockRunConfig()
         rc.subset = "retail"
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, run_config=rc)
-        assert session_span.attributes["exgentic.benchmark.subset"] == "retail"
+        assert session_span.attributes["framework.benchmark.subset"] == "retail"
 
     def test_session_span_agent_slug(self, ctx, tmp_path):
         rc = MockRunConfig()
         rc.agent = "tool_calling"
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, run_config=rc)
-        assert session_span.attributes["exgentic.agent.slug"] == "tool_calling"
+        assert session_span.attributes["framework.agent.slug"] == "tool_calling"
 
     def test_session_span_run_id(self, ctx, tmp_path):
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
-        assert "exgentic.run.id" in session_span.attributes
+        assert "framework.run.id" in session_span.attributes
 
     def test_session_span_conversation_id(self, ctx, tmp_path):
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
@@ -2079,7 +2079,7 @@ class TestSessionSpanSemanticConventions:
 
     def test_session_span_session_id(self, ctx, tmp_path):
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
-        assert session_span.attributes["exgentic.session.id"] == "sess-001"
+        assert session_span.attributes["framework.session.id"] == "sess-001"
 
     def test_session_span_request_model(self, ctx, tmp_path):
         rc = MockRunConfig()
@@ -2105,15 +2105,15 @@ class TestSessionSpanSemanticConventions:
 
     def test_session_span_task_id(self, ctx, tmp_path):
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
-        assert session_span.attributes["exgentic.session.task_id"] == "task-001"
+        assert session_span.attributes["framework.session.task_id"] == "task-001"
 
     def test_session_span_action_attributes(self, ctx, tmp_path):
         """Each action in session.actions produces name/description/is_message/is_finish attributes."""
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
-        assert session_span.attributes["exgentic.session.action.test_action.name"] == "test_action"
-        assert session_span.attributes["exgentic.session.action.test_action.description"] == "A test action"
-        assert session_span.attributes["exgentic.session.action.test_action.is_message"] is False
-        assert session_span.attributes["exgentic.session.action.test_action.is_finish"] is False
+        assert session_span.attributes["framework.session.action.test_action.name"] == "test_action"
+        assert session_span.attributes["framework.session.action.test_action.description"] == "A test action"
+        assert session_span.attributes["framework.session.action.test_action.is_message"] is False
+        assert session_span.attributes["framework.session.action.test_action.is_finish"] is False
 
     def test_session_span_tools_list_comprehensive(self, ctx, tmp_path):
         """Session span emits a comprehensive JSON tools list from Session.actions."""
@@ -2134,7 +2134,7 @@ class TestSessionSpanSemanticConventions:
             actions: ClassVar = [ActA(), ActB()]
 
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, session=SessionWithActions())
-        tools = json.loads(session_span.attributes["exgentic.session.tools"])
+        tools = json.loads(session_span.attributes["framework.session.tools"])
         assert isinstance(tools, list)
         assert [t["name"] for t in tools] == ["search", "submit"]
         expected = {
@@ -2146,64 +2146,64 @@ class TestSessionSpanSemanticConventions:
                 assert tool[field] == value
 
     def test_session_span_context_attributes(self, ctx, tmp_path):
-        """exgentic.context.{key} emitted for each context key."""
+        """framework.context.{key} emitted for each context key."""
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
-        assert session_span.attributes["exgentic.context.key"] == "value"
+        assert session_span.attributes["framework.context.key"] == "value"
 
     def test_session_span_agent_id(self, ctx, tmp_path):
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
-        assert session_span.attributes["exgentic.session.agent.id"] == "agent-001"
+        assert session_span.attributes["framework.session.agent.id"] == "agent-001"
 
     def test_session_span_agent_path(self, ctx, tmp_path):
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
-        assert session_span.attributes["exgentic.session.agent.path"] == "/tmp/agent"
+        assert session_span.attributes["framework.session.agent.path"] == "/tmp/agent"
 
     def test_session_span_score_success(self, ctx, tmp_path):
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
-        assert session_span.attributes["exgentic.score.success"] is True
+        assert session_span.attributes["framework.score.success"] is True
 
     def test_session_span_score_value(self, ctx, tmp_path):
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
-        assert session_span.attributes["exgentic.score"] == 0.95
+        assert session_span.attributes["framework.score"] == 0.95
 
     def test_session_span_score_is_finished(self, ctx, tmp_path):
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
-        assert session_span.attributes["exgentic.score.is_finished"] is True
+        assert session_span.attributes["framework.score.is_finished"] is True
 
     def test_session_span_steps(self, ctx, tmp_path):
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
-        assert isinstance(session_span.attributes["exgentic.session.steps"], int)
-        assert session_span.attributes["exgentic.session.steps"] >= 1
+        assert isinstance(session_span.attributes["framework.session.steps"], int)
+        assert session_span.attributes["framework.session.steps"] >= 1
 
     def test_session_span_agent_cost_json(self, ctx, tmp_path):
-        """exgentic.agent.agent_cost is a parseable JSON string."""
+        """framework.agent.agent_cost is a parseable JSON string."""
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path)
-        cost_str = session_span.attributes["exgentic.agent.agent_cost"]
+        cost_str = session_span.attributes["framework.agent.agent_cost"]
         parsed = json.loads(cost_str)
         assert isinstance(parsed, dict)
         assert parsed["total"] == 0.5
 
     def test_session_span_session_cost_json(self, ctx, tmp_path):
-        """exgentic.session.cost is a parseable JSON string."""
+        """framework.session.cost is a parseable JSON string."""
 
         class CostSession(MockSession):
             def get_cost(self):
                 return {"total": 1.0}
 
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, session=CostSession())
-        cost_str = session_span.attributes["exgentic.session.cost"]
+        cost_str = session_span.attributes["framework.session.cost"]
         parsed = json.loads(cost_str)
         assert isinstance(parsed, dict)
 
     def test_session_span_task_filtered_when_disabled(self, ctx, tmp_path):
-        """exgentic.session.task absent when record_content=False."""
+        """framework.session.task absent when record_content=False."""
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, record_content=False)
-        assert "exgentic.session.task" not in session_span.attributes
+        assert "framework.session.task" not in session_span.attributes
 
     def test_session_span_task_present_when_enabled(self, ctx, tmp_path):
-        """exgentic.session.task present when record_content=True."""
+        """framework.session.task present when record_content=True."""
         session_span, _, _ = _full_lifecycle_spans(ctx, tmp_path, record_content=True)
-        assert session_span.attributes["exgentic.session.task"] == "Test task"
+        assert session_span.attributes["framework.session.task"] == "Test task"
 
 
 # ===================================================================
@@ -2709,7 +2709,7 @@ class TestLLMInferenceContentFiltering:
 
 
 class TestLLMInferenceRunIdTagging:
-    """Regression: chat spans must carry ``exgentic.run.id``.
+    """Regression: chat spans must carry ``framework.run.id``.
 
     ``PerSessionFileExporter`` filters by run_id, so without the tag
     spans are silently dropped from per-session files.
@@ -2744,11 +2744,11 @@ class TestLLMInferenceRunIdTagging:
         """End-to-end: chat span lands in per-session otel_spans.jsonl with content.
 
         Routing through ``PerSessionFileExporter`` proves both that
-        ``exgentic.run.id`` is tagged on the span and that
+        ``framework.run.id`` is tagged on the span and that
         ``gen_ai.input.messages`` / ``gen_ai.output.messages`` survive export.
         """
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
-        from exgentic.utils.otel import PerSessionFileExporter
+        from framework.integrations.litellm.trace_logger import TraceLogger
+        from framework.utils.otel import PerSessionFileExporter
 
         kwargs, response_obj, mock_ctx, settings = llm_trace_setup
         run_root = tmp_path / "run-xyz"
@@ -2761,7 +2761,7 @@ class TestLLMInferenceRunIdTagging:
         tl._otel_logger = MagicMock()
 
         with (
-            patch("exgentic.integrations.litellm.trace_logger.get_settings", return_value=settings),
+            patch("framework.integrations.litellm.trace_logger.get_settings", return_value=settings),
             patch.object(tl, "get_context", return_value=mock_ctx),
         ):
             tl._write_otel(kwargs, response_obj, "success")
@@ -2780,7 +2780,7 @@ class TestLLMInferenceRunIdTagging:
         subprocesses), ``_init_otel`` must construct the exporter with the
         correct ``(run_root, run_id)`` signature.
         """
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
         from opentelemetry import trace as trace_api
         from opentelemetry.util._once import Once
 
@@ -2796,7 +2796,7 @@ class TestLLMInferenceRunIdTagging:
 
         tl = TraceLogger()
         with (
-            patch("exgentic.integrations.litellm.trace_logger.get_settings", return_value=settings),
+            patch("framework.integrations.litellm.trace_logger.get_settings", return_value=settings),
             patch.object(tl, "get_context", return_value=mock_ctx),
         ):
             # Must not raise TypeError from PerSessionFileExporter arity mismatch.
@@ -2819,7 +2819,7 @@ class TestTraceLoggerSilentFailure:
         """Exception in start_span logs warning but doesn't propagate."""
         import logging
 
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
 
         tl = TraceLogger()
         tl._tracer = MagicMock()
@@ -2834,11 +2834,11 @@ class TestTraceLoggerSilentFailure:
 
         with (
             patch(
-                "exgentic.integrations.litellm.trace_logger.get_settings",
+                "framework.integrations.litellm.trace_logger.get_settings",
                 return_value=MagicMock(otel_enabled=True, otel_record_content=False),
             ),
             patch.object(tl, "get_context", return_value=mock_ctx),
-            caplog.at_level(logging.WARNING, logger="exgentic.integrations.litellm.trace_logger"),
+            caplog.at_level(logging.WARNING, logger="framework.integrations.litellm.trace_logger"),
         ):
             tl._write_otel(
                 {"model": "m", "messages": [], "optional_params": {}, "litellm_params": {}},
@@ -2851,7 +2851,7 @@ class TestTraceLoggerSilentFailure:
         """Exception in get_context logs warning but doesn't propagate."""
         import logging
 
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
 
         tl = TraceLogger()
         tl._tracer = MagicMock()
@@ -2859,11 +2859,11 @@ class TestTraceLoggerSilentFailure:
 
         with (
             patch(
-                "exgentic.integrations.litellm.trace_logger.get_settings",
+                "framework.integrations.litellm.trace_logger.get_settings",
                 return_value=MagicMock(otel_enabled=True, otel_record_content=False),
             ),
             patch.object(tl, "get_context", side_effect=RuntimeError("context broken")),
-            caplog.at_level(logging.WARNING, logger="exgentic.integrations.litellm.trace_logger"),
+            caplog.at_level(logging.WARNING, logger="framework.integrations.litellm.trace_logger"),
         ):
             tl._write_otel(
                 {"model": "m", "messages": [], "optional_params": {}, "litellm_params": {}},
@@ -2874,13 +2874,13 @@ class TestTraceLoggerSilentFailure:
 
     def test_write_otel_noop_when_init_otel_fails_to_set_tracer(self):
         """If _init_otel fails (context missing), subsequent _write_otel calls silently skip."""
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
 
         logger = TraceLogger()
         # _tracer is None and _init_otel won't set it because context is None
         with (
             patch(
-                "exgentic.integrations.litellm.trace_logger.get_settings",
+                "framework.integrations.litellm.trace_logger.get_settings",
                 return_value=MagicMock(otel_enabled=True, otel_record_content=False),
             ),
             patch.object(logger, "get_context", return_value=None),
@@ -2903,7 +2903,7 @@ class TestTraceLoggerSilentFailure:
 
     def test_init_otel_skips_when_session_id_none(self):
         """_init_otel returns without setting tracer if context.session_id is None."""
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
 
         logger = TraceLogger()
         mock_ctx = MagicMock()
@@ -2916,7 +2916,7 @@ class TestTraceLoggerSilentFailure:
 
     def test_init_otel_skips_when_otel_context_none(self):
         """_init_otel returns without setting tracer if context.otel_context is None."""
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
 
         logger = TraceLogger()
         mock_ctx = MagicMock()
@@ -2929,7 +2929,7 @@ class TestTraceLoggerSilentFailure:
 
     def test_init_otel_skips_when_get_context_returns_none(self):
         """_init_otel returns without setting tracer if get_context returns None entirely."""
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
 
         logger = TraceLogger()
         with patch.object(logger, "get_context", return_value=None):
@@ -2938,7 +2938,7 @@ class TestTraceLoggerSilentFailure:
 
     def test_log_success_event_calls_write_otel(self):
         """log_success_event must invoke _write_otel — if this path is broken, no LLM spans."""
-        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from framework.integrations.litellm.trace_logger import TraceLogger
 
         logger = TraceLogger()
         with patch.object(logger, "_write_otel") as mock_write, patch.object(logger, "_write_row"):
@@ -2959,7 +2959,7 @@ class TestTraceLoggerSilentFailure:
         This means the failure mode is silent: spans are created but lost to an unreachable exporter.
         """
         # Reset the global tracer provider to simulate a fresh subprocess
-        from exgentic.utils.otel import init_tracing_from_env
+        from framework.utils.otel import init_tracing_from_env
         from opentelemetry import trace as trace_api
 
         trace_api._TRACER_PROVIDER = None
@@ -2984,27 +2984,27 @@ class TestTraceLoggerSilentFailure:
 class TestPrepareSubprocessEnvAllowlist:
     """Verify prepare_subprocess_env forwards only allowlisted env vars.
 
-    Exgentic settings (``EXGENTIC_*``) travel via runtime.json — not env
+    Framework settings (``FRAMEWORK_*``) travel via runtime.json — not env
     vars — so the allowlist only needs to cover model-provider
     credentials and OTEL configuration.
     """
 
     def test_otel_endpoint_forwarded(self, monkeypatch):
-        from exgentic.adapters.runners._utils import prepare_subprocess_env
+        from framework.adapters.runners._utils import prepare_subprocess_env
 
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
         env = prepare_subprocess_env()
         assert env.get("OTEL_EXPORTER_OTLP_ENDPOINT") == "http://localhost:4318"
 
     def test_otel_service_name_forwarded(self, monkeypatch):
-        from exgentic.adapters.runners._utils import prepare_subprocess_env
+        from framework.adapters.runners._utils import prepare_subprocess_env
 
-        monkeypatch.setenv("OTEL_SERVICE_NAME", "exgentic")
+        monkeypatch.setenv("OTEL_SERVICE_NAME", "framework")
         env = prepare_subprocess_env()
-        assert env.get("OTEL_SERVICE_NAME") == "exgentic"
+        assert env.get("OTEL_SERVICE_NAME") == "framework"
 
     def test_otel_traces_endpoint_forwarded(self, monkeypatch):
-        from exgentic.adapters.runners._utils import prepare_subprocess_env
+        from framework.adapters.runners._utils import prepare_subprocess_env
 
         monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://localhost:4318/v1/traces")
         env = prepare_subprocess_env()
@@ -3012,7 +3012,7 @@ class TestPrepareSubprocessEnvAllowlist:
 
     def test_provider_api_keys_forwarded(self, monkeypatch):
         """Suffix-match catches providers without explicit prefix entries."""
-        from exgentic.adapters.runners._utils import prepare_subprocess_env
+        from framework.adapters.runners._utils import prepare_subprocess_env
 
         monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
         monkeypatch.setenv("FIREWORKS_API_KEY", "fw-key")
@@ -3022,18 +3022,18 @@ class TestPrepareSubprocessEnvAllowlist:
         assert env.get("FIREWORKS_API_KEY") == "fw-key"
         assert env.get("ANTHROPIC_BASE_URL") == "https://example.com"
 
-    def test_exgentic_vars_not_forwarded(self, monkeypatch):
-        """EXGENTIC_* settings travel via runtime.json, not env vars."""
-        from exgentic.adapters.runners._utils import prepare_subprocess_env
+    def test_framework_vars_not_forwarded(self, monkeypatch):
+        """FRAMEWORK_* settings travel via runtime.json, not env vars."""
+        from framework.adapters.runners._utils import prepare_subprocess_env
 
-        monkeypatch.setenv("EXGENTIC_OTEL_ENABLED", "true")
-        monkeypatch.setenv("EXGENTIC_CACHE_DIR", "/tmp/cache")
+        monkeypatch.setenv("FRAMEWORK_OTEL_ENABLED", "true")
+        monkeypatch.setenv("FRAMEWORK_CACHE_DIR", "/tmp/cache")
         env = prepare_subprocess_env()
-        assert "EXGENTIC_OTEL_ENABLED" not in env
-        assert "EXGENTIC_CACHE_DIR" not in env
+        assert "FRAMEWORK_OTEL_ENABLED" not in env
+        assert "FRAMEWORK_CACHE_DIR" not in env
 
     def test_system_vars_not_forwarded(self):
-        from exgentic.adapters.runners._utils import prepare_subprocess_env
+        from framework.adapters.runners._utils import prepare_subprocess_env
 
         env = prepare_subprocess_env()
         assert "PATH" not in env
@@ -3042,7 +3042,7 @@ class TestPrepareSubprocessEnvAllowlist:
         assert "SHELL" not in env
 
     def test_vscode_prefix_blocked(self, monkeypatch):
-        from exgentic.adapters.runners._utils import prepare_subprocess_env
+        from framework.adapters.runners._utils import prepare_subprocess_env
 
         monkeypatch.setenv("VSCODE_PID", "12345")
         env = prepare_subprocess_env()
@@ -3059,13 +3059,13 @@ class TestHeritableAttributeCompleteness:
 
     DOCUMENTED_HERITABLE: ClassVar = {
         "gen_ai.conversation.id",
-        "exgentic.session.id",
+        "framework.session.id",
         "gen_ai.request.model",
-        "exgentic.run.id",
-        "exgentic.benchmark.slug_name",
-        "exgentic.benchmark.subset",
-        "exgentic.benchmark.agent.name",
-        "exgentic.agent.slug",
+        "framework.run.id",
+        "framework.benchmark.slug_name",
+        "framework.benchmark.subset",
+        "framework.benchmark.agent.name",
+        "framework.agent.slug",
     }
 
     def test_all_heritable_attributes_on_child_span(self, ctx, tmp_path):
@@ -3083,10 +3083,10 @@ class TestHeritableAttributeCompleteness:
         _, tool_spans, _ = _full_lifecycle_spans(ctx, tmp_path)
         child = tool_spans[0]
         non_heritable = [
-            "exgentic.session.task_id",
-            "exgentic.score.success",
-            "exgentic.score",
-            "exgentic.session.steps",
+            "framework.session.task_id",
+            "framework.score.success",
+            "framework.score",
+            "framework.session.steps",
         ]
         for attr in non_heritable:
             assert attr not in child.attributes, f"Non-heritable {attr} should not be on child span"
@@ -3101,7 +3101,7 @@ class TestFileSpanExporter:
     """Direct tests for FileSpanExporter."""
 
     def test_export_writes_jsonl(self, tmp_path):
-        from exgentic.utils.otel import FileSpanExporter
+        from framework.utils.otel import FileSpanExporter
 
         path = tmp_path / "spans.jsonl"
         exporter = FileSpanExporter(path)
@@ -3114,7 +3114,7 @@ class TestFileSpanExporter:
         assert path.read_text() == '{"name": "test"}\n'
 
     def test_export_appends(self, tmp_path):
-        from exgentic.utils.otel import FileSpanExporter
+        from framework.utils.otel import FileSpanExporter
 
         path = tmp_path / "spans.jsonl"
         exporter = FileSpanExporter(path)
@@ -3130,14 +3130,14 @@ class TestFileSpanExporter:
         assert len(lines) == 2
 
     def test_export_creates_parent_dirs(self, tmp_path):
-        from exgentic.utils.otel import FileSpanExporter
+        from framework.utils.otel import FileSpanExporter
 
         path = tmp_path / "deep" / "nested" / "spans.jsonl"
         FileSpanExporter(path)
         assert path.parent.exists()
 
     def test_export_returns_failure_on_write_error(self, tmp_path):
-        from exgentic.utils.otel import FileSpanExporter
+        from framework.utils.otel import FileSpanExporter
 
         path = tmp_path / "spans.jsonl"
         exporter = FileSpanExporter(path)
@@ -3153,14 +3153,14 @@ class TestPerSessionFileExporter:
     """Direct tests for PerSessionFileExporter."""
 
     def test_routes_by_session_id(self, tmp_path):
-        from exgentic.utils.otel import PerSessionFileExporter
+        from framework.utils.otel import PerSessionFileExporter
 
         exporter = PerSessionFileExporter(tmp_path, run_id="run-1")
 
         span = MagicMock()
         span.attributes = {
-            "exgentic.run.id": "run-1",
-            "exgentic.session.id": "sess-abc",
+            "framework.run.id": "run-1",
+            "framework.session.id": "sess-abc",
         }
         span.to_json.return_value = '{"name": "test"}'
 
@@ -3172,12 +3172,12 @@ class TestPerSessionFileExporter:
         assert '{"name": "test"}' in expected.read_text()
 
     def test_skips_spans_without_session_id(self, tmp_path):
-        from exgentic.utils.otel import PerSessionFileExporter
+        from framework.utils.otel import PerSessionFileExporter
 
         exporter = PerSessionFileExporter(tmp_path, run_id="run-1")
 
         span = MagicMock()
-        span.attributes = {"exgentic.run.id": "run-1"}  # no session id
+        span.attributes = {"framework.run.id": "run-1"}  # no session id
         span.to_json.return_value = '{"name": "orphan"}'
 
         result = exporter.export([span])
@@ -3186,14 +3186,14 @@ class TestPerSessionFileExporter:
         assert not (tmp_path / "sessions").exists()
 
     def test_returns_failure_on_write_error(self, tmp_path):
-        from exgentic.utils.otel import PerSessionFileExporter
+        from framework.utils.otel import PerSessionFileExporter
 
         exporter = PerSessionFileExporter(tmp_path, run_id="run-1")
 
         span = MagicMock()
         span.attributes = {
-            "exgentic.run.id": "run-1",
-            "exgentic.session.id": "sess-1",
+            "framework.run.id": "run-1",
+            "framework.session.id": "sess-1",
         }
         span.to_json.side_effect = RuntimeError("boom")
 
@@ -3201,7 +3201,7 @@ class TestPerSessionFileExporter:
         assert result == SpanExportResult.FAILURE
 
     # ------------------------------------------------------------------
-    # Regression: batch-mode write amplification (Exgentic/exgentic#185)
+    # Regression: batch-mode write amplification (Framework/framework#185)
     # ------------------------------------------------------------------
 
     def test_drops_foreign_run_spans(self, tmp_path):
@@ -3213,14 +3213,14 @@ class TestPerSessionFileExporter:
         would be written once per config -- N-way write amplification plus
         cross-run trace leakage.
         """
-        from exgentic.utils.otel import PerSessionFileExporter
+        from framework.utils.otel import PerSessionFileExporter
 
         exporter = PerSessionFileExporter(tmp_path, run_id="run-A")
 
         foreign = MagicMock()
         foreign.attributes = {
-            "exgentic.run.id": "run-B",
-            "exgentic.session.id": "sess-1",
+            "framework.run.id": "run-B",
+            "framework.session.id": "sess-1",
         }
         foreign.to_json.return_value = '{"name": "from-B"}'
 
@@ -3230,13 +3230,13 @@ class TestPerSessionFileExporter:
         assert not (tmp_path / "sessions").exists()
 
     def test_drops_spans_with_no_run_id(self, tmp_path):
-        """Spans missing ``exgentic.run.id`` don't belong to any run, drop them."""
-        from exgentic.utils.otel import PerSessionFileExporter
+        """Spans missing ``framework.run.id`` don't belong to any run, drop them."""
+        from framework.utils.otel import PerSessionFileExporter
 
         exporter = PerSessionFileExporter(tmp_path, run_id="run-A")
 
         untagged = MagicMock()
-        untagged.attributes = {"exgentic.session.id": "sess-1"}
+        untagged.attributes = {"framework.session.id": "sess-1"}
         untagged.to_json.return_value = '{"name": "untagged"}'
 
         exporter.export([untagged])
@@ -3257,7 +3257,7 @@ class TestPerSessionFileExporter:
         per span). On the unfiltered implementation this test fails because
         ``run-A``'s tree ends up holding ``run-B``'s span and vice versa.
         """
-        from exgentic.utils.otel import PerSessionFileExporter
+        from framework.utils.otel import PerSessionFileExporter
 
         root_a = tmp_path / "run-A"
         root_b = tmp_path / "run-B"
@@ -3266,15 +3266,15 @@ class TestPerSessionFileExporter:
 
         span_a = MagicMock()
         span_a.attributes = {
-            "exgentic.run.id": "run-A",
-            "exgentic.session.id": "sess-A1",
+            "framework.run.id": "run-A",
+            "framework.session.id": "sess-A1",
         }
         span_a.to_json.return_value = '{"name": "from-A"}'
 
         span_b = MagicMock()
         span_b.attributes = {
-            "exgentic.run.id": "run-B",
-            "exgentic.session.id": "sess-B1",
+            "framework.run.id": "run-B",
+            "framework.session.id": "sess-B1",
         }
         span_b.to_json.return_value = '{"name": "from-B"}'
 
@@ -3307,20 +3307,20 @@ class TestAttributeConversionEdgeCases:
 
     def test_bool_int_list_rejected(self):
         """Lists mixing bool and int are not homogeneous (bool is subclass of int)."""
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         result = to_otel_attribute_value([True, 1, False])
         # Should fall back to JSON since bool+int can't be homogeneous
         assert isinstance(result, str)
 
     def test_decimal_in_list(self):
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         result = to_otel_attribute_value([Decimal("1.5"), Decimal("2.5")])
         assert result == [1.5, 2.5]
 
     def test_pydantic_model_dump(self):
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         obj = MagicMock()
         obj.model_dump.return_value = {"field": "value"}
@@ -3332,7 +3332,7 @@ class TestAttributeConversionEdgeCases:
 
     def test_object_with_dict_attr(self):
         """Objects with __dict__ but no model_dump/dict go through JSON with _json_default fallback."""
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         class Obj:
             def __init__(self):
@@ -3344,7 +3344,7 @@ class TestAttributeConversionEdgeCases:
         assert isinstance(result, str)
 
     def test_prefer_json_false_skips_json_for_sequences(self):
-        from exgentic.utils.otel import to_otel_attribute_value
+        from framework.utils.otel import to_otel_attribute_value
 
         # Mixed list that can't be homogeneous — with prefer_json=False should return str()
         result = to_otel_attribute_value([{"nested": True}], prefer_json=False)
@@ -3399,10 +3399,10 @@ class TestSortSessionSpans:
 
         # Create observer and sort
         with (
-            patch("exgentic.observers.handlers.otel.get_benchmark_entries", return_value={}),
-            patch("exgentic.observers.handlers.otel.get_agent_entries", return_value={}),
+            patch("framework.observers.handlers.otel.get_benchmark_entries", return_value={}),
+            patch("framework.observers.handlers.otel.get_agent_entries", return_value={}),
         ):
-            from exgentic.observers.handlers.otel import OtelTracingObserver
+            from framework.observers.handlers.otel import OtelTracingObserver
 
             obs = OtelTracingObserver()
 
@@ -3423,10 +3423,10 @@ class TestSortSessionSpans:
         spans_file.write_text("not valid json\n")
 
         with (
-            patch("exgentic.observers.handlers.otel.get_benchmark_entries", return_value={}),
-            patch("exgentic.observers.handlers.otel.get_agent_entries", return_value={}),
+            patch("framework.observers.handlers.otel.get_benchmark_entries", return_value={}),
+            patch("framework.observers.handlers.otel.get_agent_entries", return_value={}),
         ):
-            from exgentic.observers.handlers.otel import OtelTracingObserver
+            from framework.observers.handlers.otel import OtelTracingObserver
 
             obs = OtelTracingObserver()
 
@@ -3592,8 +3592,8 @@ class TestContentRecordingRobustness:
 
         settings_on = MagicMock(otel_record_content=True)
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings_on),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings_on),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_react_success(session, mock_action)
             obs.on_step_success(session, MockObservation())
@@ -3633,8 +3633,8 @@ class TestContentRecordingRobustness:
 
         settings_on = MagicMock(otel_record_content=True)
         with (
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings_on),
-            patch("exgentic.observers.handlers.otel.flush_traces"),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings_on),
+            patch("framework.observers.handlers.otel.flush_traces"),
         ):
             obs.on_react_success(session, mock_action)
             obs.on_step_success(session, MockObservation())
@@ -3651,7 +3651,7 @@ class TestContentRecordingRobustness:
 
     def test_task_not_recorded_when_session_has_no_task_attr(self, ctx, tmp_path):
         """on_session_creation must not fail when session has no task attribute."""
-        from exgentic.observers.handlers.otel import OtelTracingObserver, SessionSpanManager
+        from framework.observers.handlers.otel import OtelTracingObserver, SessionSpanManager
 
         exporter = InMemorySpanExporter()
         provider = TracerProvider()
@@ -3677,12 +3677,12 @@ class TestContentRecordingRobustness:
         session_root.mkdir(parents=True, exist_ok=True)
 
         with (
-            patch("exgentic.observers.handlers.otel.get_benchmark_entries", return_value={}),
-            patch("exgentic.observers.handlers.otel.get_agent_entries", return_value={}),
-            patch("exgentic.observers.handlers.otel.get_settings", return_value=settings_on),
+            patch("framework.observers.handlers.otel.get_benchmark_entries", return_value={}),
+            patch("framework.observers.handlers.otel.get_agent_entries", return_value={}),
+            patch("framework.observers.handlers.otel.get_settings", return_value=settings_on),
             patch.object(SessionSpanManager, "__init__", patched_init),
             patch(
-                "exgentic.observers.handlers.otel.to_otel_attribute_value",
+                "framework.observers.handlers.otel.to_otel_attribute_value",
                 side_effect=lambda v: str(v) if v is not None else None,
             ),
         ):
@@ -3696,11 +3696,11 @@ class TestContentRecordingRobustness:
         # Verify span was created without task attribute
         spans = exporter.get_finished_spans()
         for s in spans:
-            assert "exgentic.session.task" not in (s.attributes or {})
+            assert "framework.session.task" not in (s.attributes or {})
 
     def test_serialize_to_json_dict(self):
         """_serialize_to_json handles plain dicts."""
-        from exgentic.observers.handlers.otel import _serialize_to_json
+        from framework.observers.handlers.otel import _serialize_to_json
 
         result = _serialize_to_json({"key": "value", "num": 42})
         parsed = json.loads(result)
@@ -3708,7 +3708,7 @@ class TestContentRecordingRobustness:
 
     def test_serialize_to_json_pydantic(self):
         """_serialize_to_json handles Pydantic models."""
-        from exgentic.observers.handlers.otel import _serialize_to_json
+        from framework.observers.handlers.otel import _serialize_to_json
         from pydantic import BaseModel
 
         class MyModel(BaseModel):

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Integration test for proxy subprocess config validation and trace detail.
 
@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 import requests
-from exgentic.integrations.litellm import LitellmProxy
+from framework.integrations.litellm import LitellmProxy
 
 
 @pytest.mark.skipif(
@@ -47,7 +47,7 @@ def test_proxy_subprocess_writes_trace_end_to_end(tmp_path, fake_openai_server) 
         {
             "OPENAI_API_BASE": backend_base,
             "OPENAI_API_KEY": "test-key",  # pragma: allowlist secret
-            "EXGENTIC_LLM_LOG_FILE": str(trace_path),
+            "FRAMEWORK_LLM_LOG_FILE": str(trace_path),
         }
     )
 
@@ -67,8 +67,8 @@ def test_proxy_subprocess_writes_trace_end_to_end(tmp_path, fake_openai_server) 
         assert "success_callback" in config_data["litellm_settings"]
 
         expected_callbacks = {
-            "exgentic.integrations.litellm.trace_logger.trace_logger",
-            "exgentic.integrations.litellm.trace_logger.async_trace_logger",
+            "framework.integrations.litellm.trace_logger.trace_logger",
+            "framework.integrations.litellm.trace_logger.async_trace_logger",
         }
         actual_callbacks = set(config_data["litellm_settings"]["success_callback"])
         assert actual_callbacks == expected_callbacks

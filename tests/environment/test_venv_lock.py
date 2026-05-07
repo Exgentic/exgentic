@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Regression tests for concurrent install races in VenvBackend / EnvironmentManager."""
 
@@ -9,7 +9,7 @@ import subprocess
 import threading
 from pathlib import Path
 
-from exgentic.environment.venv import VenvBackend
+from framework.environment.venv import VenvBackend
 
 # ---------------------------------------------------------------------------
 # Regression tests for the install-time races that caused the
@@ -52,10 +52,10 @@ def test_atomic_publish_no_torn_state(tmp_path: Path, monkeypatch):
         observe()
         deps_installed["v"] = True
 
-    monkeypatch.setattr("exgentic.environment.venv.subprocess.run", fake_subprocess_run)
-    monkeypatch.setattr("exgentic.environment.venv.require_uv", lambda: "/fake/uv")
-    monkeypatch.setattr("exgentic.environment.venv.install_project", fake_install_project)
-    monkeypatch.setattr("exgentic.environment.venv.get_exgentic_version", lambda: "0.0.0")
+    monkeypatch.setattr("framework.environment.venv.subprocess.run", fake_subprocess_run)
+    monkeypatch.setattr("framework.environment.venv.require_uv", lambda: "/fake/uv")
+    monkeypatch.setattr("framework.environment.venv.install_project", fake_install_project)
+    monkeypatch.setattr("framework.environment.venv.get_framework_version", lambda: "0.0.0")
 
     VenvBackend().install(env_dir, project_root=tmp_path)
 
@@ -66,8 +66,8 @@ def test_atomic_publish_no_torn_state(tmp_path: Path, monkeypatch):
 
 def test_concurrent_installs_rebuild_exactly_once(tmp_path: Path, monkeypatch):
     """Two threads racing into EnvironmentManager.install() trigger one backend build, not two."""
-    from exgentic.environment import EnvType
-    from exgentic.environment.manager import EnvironmentManager
+    from framework.environment import EnvType
+    from framework.environment.manager import EnvironmentManager
 
     mgr = EnvironmentManager(base_dir=tmp_path)
     call_count = {"n": 0}
@@ -84,11 +84,11 @@ def test_concurrent_installs_rebuild_exactly_once(tmp_path: Path, monkeypatch):
             allow_first_to_finish.wait(timeout=5)
         (env_dir / "venv" / "bin").mkdir(parents=True, exist_ok=True)
         (env_dir / "venv" / "bin" / "python").touch()
-        return {"exgentic_version": "0.0.0"}
+        return {"framework_version": "0.0.0"}
 
     monkeypatch.setattr(VenvBackend, "install", slow_install)
-    monkeypatch.setattr("exgentic.environment.manager._now_iso", lambda: "2026-01-01T00:00:00Z")
-    monkeypatch.setattr("exgentic.environment.helpers.get_exgentic_version", lambda: "0.0.0")
+    monkeypatch.setattr("framework.environment.manager._now_iso", lambda: "2026-01-01T00:00:00Z")
+    monkeypatch.setattr("framework.environment.helpers.get_framework_version", lambda: "0.0.0")
 
     errors: list[BaseException | None] = [None, None]
 

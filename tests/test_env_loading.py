@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
@@ -15,15 +15,15 @@ def test_dotenv_loads_settings_and_env_vars() -> None:
     with TemporaryDirectory() as tmpdir:
         env_path = Path(tmpdir) / ".env"
         env_path.write_text(
-            "EXGENTIC_LOG_LEVEL=DEBUG\nWATSONX_API_KEY=abc123\n"  # pragma: allowlist secret
+            "FRAMEWORK_LOG_LEVEL=DEBUG\nWATSONX_API_KEY=abc123\n"  # pragma: allowlist secret
         )
 
-        with patch.dict(os.environ, {"EXGENTIC_DOTENV_PATH": str(env_path)}, clear=False):
-            os.environ.pop("EXGENTIC_LOG_LEVEL", None)
+        with patch.dict(os.environ, {"FRAMEWORK_DOTENV_PATH": str(env_path)}, clear=False):
+            os.environ.pop("FRAMEWORK_LOG_LEVEL", None)
             os.environ.pop("WATSONX_API_KEY", None)
 
-            sys.modules.pop("exgentic.utils.settings", None)
-            settings_module = importlib.import_module("exgentic.utils.settings")
+            sys.modules.pop("framework.utils.settings", None)
+            settings_module = importlib.import_module("framework.utils.settings")
 
             settings_module.get_settings.cache_clear()
             settings = settings_module.get_settings()

@@ -9,10 +9,10 @@ Observers let you hook into the evaluation lifecycle to add custom logging, moni
 
 ## Observer interface
 
-All observers extend `exgentic.core.orchestrator.observer.Observer`. Every method has a default no-op implementation, so you only override what you need.
+All observers extend `framework.core.orchestrator.observer.Observer`. Every method has a default no-op implementation, so you only override what you need.
 
 ```python
-from exgentic.core.orchestrator.observer import Observer
+from framework.core.orchestrator.observer import Observer
 
 class Observer:
     # Run-level callbacks
@@ -61,7 +61,7 @@ class Observer:
 Pass observers to `evaluate()`, `execute()`, or `aggregate()`:
 
 ```python
-from exgentic import evaluate
+from framework import evaluate
 
 results = evaluate(
     benchmark="tau2",
@@ -84,7 +84,7 @@ observers=[LoggingObserver(), MetricsObserver(), AlertObserver()]
 ### Print session results as they complete
 
 ```python
-from exgentic.core.orchestrator.observer import Observer
+from framework.core.orchestrator.observer import Observer
 
 class PrintObserver(Observer):
     def on_session_success(self, session, score, agent):
@@ -98,7 +98,7 @@ class PrintObserver(Observer):
 ### Track costs in real time
 
 ```python
-from exgentic.core.orchestrator.observer import Observer
+from framework.core.orchestrator.observer import Observer
 
 class CostTracker(Observer):
     def __init__(self):
@@ -114,7 +114,7 @@ class CostTracker(Observer):
 ```python
 import json
 from pathlib import Path
-from exgentic.core.orchestrator.observer import Observer
+from framework.core.orchestrator.observer import Observer
 
 class JsonlLogger(Observer):
     def __init__(self, path: str):
@@ -135,7 +135,7 @@ class JsonlLogger(Observer):
 
 ```python
 import requests
-from exgentic.core.orchestrator.observer import Observer
+from framework.core.orchestrator.observer import Observer
 
 class SlackAlerter(Observer):
     def __init__(self, webhook_url: str):
@@ -154,7 +154,7 @@ class SlackAlerter(Observer):
 Controllers extend observers with the ability to raise errors that stop the run. Use them to implement early stopping — e.g. abort if too many consecutive failures occur.
 
 ```python
-from exgentic.core.orchestrator.observer import Observer
+from framework.core.orchestrator.observer import Observer
 
 class EarlyStopController(Observer):
     def __init__(self, max_failures: int = 3):
@@ -182,14 +182,14 @@ results = evaluate(
 
 ## Built-in observers
 
-Exgentic uses these observers internally. They run automatically — you do not need to register them.
+Framework uses these observers internally. They run automatically — you do not need to register them.
 
 | Observer | What it does |
 |----------|-------------|
 | `ResultsObserver` | Writes `trajectory.jsonl` and `results.json` for every session; computes `RunResults` |
 | `LoggerObserver` | Logs run progress to the console |
 | `FileLoggerObserver` | Writes `run.log` and per-session logs |
-| `OtelTracingObserver` | Emits OpenTelemetry spans (active when `EXGENTIC_OTEL_ENABLED=true`) |
+| `OtelTracingObserver` | Emits OpenTelemetry spans (active when `FRAMEWORK_OTEL_ENABLED=true`) |
 | `DashboardEventsObserver` | Streams events to the live dashboard |
 | `WarningsObserver` | Captures and writes `warnings.log` |
 | `RecapObserver` | Prints a summary table at the end of a run |
@@ -202,7 +202,7 @@ Observers may be called from multiple threads when `max_workers > 1`. If your ob
 
 ```python
 import threading
-from exgentic.core.orchestrator.observer import Observer
+from framework.core.orchestrator.observer import Observer
 
 class ThreadSafeCounter(Observer):
     def __init__(self):

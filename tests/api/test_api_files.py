@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
 import json
 
-from exgentic import execute
-from exgentic.core.types import RunConfig
+from framework import execute
+from framework.core.types import RunConfig
 
 
 def test_session_files_written(tmp_path):

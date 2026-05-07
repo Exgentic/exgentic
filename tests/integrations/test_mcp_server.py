@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 import logging
 import time
@@ -7,8 +7,8 @@ from datetime import timedelta
 
 import httpx
 import pytest
-from exgentic.adapters.agents import mcp_server as mcp_srv
-from exgentic.utils.sync import run_sync
+from framework.adapters.agents import mcp_server as mcp_srv
+from framework.utils.sync import run_sync
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError

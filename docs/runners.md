@@ -24,7 +24,7 @@ A runner controls how benchmark and agent code is executed — what process, wha
 ### CLI
 
 ```bash
-exgentic evaluate --benchmark tau2 --agent tool_calling \
+framework evaluate --benchmark tau2 --agent tool_calling \
   --set benchmark.runner=venv
 ```
 
@@ -39,7 +39,7 @@ exgentic evaluate --benchmark tau2 --agent tool_calling \
 ### Python API
 
 ```python
-from exgentic import evaluate
+from framework import evaluate
 
 evaluate(
     benchmark="tau2",
@@ -95,7 +95,7 @@ When a venv runner starts, it:
 To trigger a fresh install (e.g. after updating `requirements.txt`):
 
 ```bash
-exgentic install --benchmark tau2 --force
+framework install --benchmark tau2 --force
 ```
 
 ### Configuration
@@ -148,7 +148,7 @@ On macOS you can use Podman as a drop-in replacement for Docker. See the [Podman
 Some benchmarks (e.g. SWE-bench) need to launch Docker containers themselves. Enable socket passthrough:
 
 ```bash
-exgentic evaluate --benchmark swebench --agent tool_calling \
+framework evaluate --benchmark swebench --agent tool_calling \
   --set benchmark.runner=docker \
   --set benchmark.docker_socket=true
 ```

@@ -1,17 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 ## CLI usage:
-# exgentic evaluate --benchmark appworld --agent tool_calling --subset test_normal --num-tasks 3 \
+# framework evaluate --benchmark appworld --agent tool_calling --subset test_normal --num-tasks 3 \
 #   --model gpt-4o
 ## Python API usage:
-# from exgentic import RunConfig, evaluate
+# from framework import RunConfig, evaluate
 # evaluate(RunConfig(benchmark="appworld", agent="tool_calling", subset="test_normal", num_tasks=3,
 #   model="gpt-4o"))
 ## Direct class usage (this script):
 # AppWorldBenchmark + LiteLLMToolCallingAgent
 
-from exgentic import AppWorldBenchmark, LiteLLMToolCallingAgent, evaluate
+from framework import AppWorldBenchmark, LiteLLMToolCallingAgent, evaluate
 
 
 def main() -> None:

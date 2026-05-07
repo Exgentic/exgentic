@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
-"""Tests for exgentic.environment.manager.
+"""Tests for framework.environment.manager.
 
 Tests are organized by the assumptions the rest of the repo makes about
 the manager's capabilities.  Every public method and every env type
@@ -22,8 +22,8 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
-from exgentic.environment import EnvironmentManager, EnvType
-from exgentic.environment.helpers import build_subprocess_env, find_package_file, require_uv
+from framework.environment import EnvironmentManager, EnvType
+from framework.environment.helpers import build_subprocess_env, find_package_file, require_uv
 
 _pkg_counter = 0
 
@@ -142,7 +142,7 @@ class TestVenvInstall:
         marker = json.loads((env_dir / ".installed").read_text())
         assert "venv" in marker
         assert "installed_at" in marker["venv"]
-        assert "exgentic_version" in marker["venv"]
+        assert "framework_version" in marker["venv"]
 
     def test_skips_if_already_installed(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
@@ -172,7 +172,7 @@ class TestVenvInstall:
         assert (venv_dir / "bin" / "python").exists()
         assert mgr.is_installed("mybench", env_type=EnvType.VENV)
 
-    def test_reinstalls_when_exgentic_version_stale(self, tmp_path: Path) -> None:
+    def test_reinstalls_when_framework_version_stale(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
         mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
@@ -183,7 +183,7 @@ class TestVenvInstall:
         # Fake a stale version in the marker.
         marker_path = mgr.env_path("mybench") / ".installed"
         marker = json.loads(marker_path.read_text())
-        marker["venv"]["exgentic_version"] = "0.0.0.fake"
+        marker["venv"]["framework_version"] = "0.0.0.fake"
         marker_path.write_text(json.dumps(marker))
 
         # is_installed should return False for stale versions.
@@ -196,13 +196,13 @@ class TestVenvInstall:
         assert mgr.is_installed("mybench", env_type=EnvType.VENV)
 
         # Marker should contain the current version after rebuild.
-        from exgentic.environment.helpers import get_exgentic_version
+        from framework.environment.helpers import get_framework_version
 
         marker = json.loads(marker_path.read_text())
-        assert marker["venv"]["exgentic_version"] == get_exgentic_version()
+        assert marker["venv"]["framework_version"] == get_framework_version()
 
-    def test_reinstalls_when_exgentic_version_missing(self, tmp_path: Path) -> None:
-        """Pre-existing environments without exgentic_version trigger rebuild."""
+    def test_reinstalls_when_framework_version_missing(self, tmp_path: Path) -> None:
+        """Pre-existing environments without framework_version trigger rebuild."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=False)
         mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
@@ -213,7 +213,7 @@ class TestVenvInstall:
         # Remove the version field to simulate a pre-existing marker.
         marker_path = mgr.env_path("mybench") / ".installed"
         marker = json.loads(marker_path.read_text())
-        del marker["venv"]["exgentic_version"]
+        del marker["venv"]["framework_version"]
         marker_path.write_text(json.dumps(marker))
 
         assert not mgr.is_installed("mybench", env_type=EnvType.VENV)
@@ -231,7 +231,7 @@ class TestVenvInstall:
         mgr = EnvironmentManager(base_dir=tmp_path / "envs")
         marker_path = mgr.env_path("mybench") / ".installed"
         marker_path.parent.mkdir(parents=True, exist_ok=True)
-        marker_path.write_text(json.dumps({"venv": {"exgentic_version": "1.0.0"}}))
+        marker_path.write_text(json.dumps({"venv": {"framework_version": "1.0.0"}}))
         assert mgr.has_marker("mybench")
 
     def test_has_marker_true_when_version_stale(self, tmp_path: Path) -> None:
@@ -239,7 +239,7 @@ class TestVenvInstall:
         mgr = EnvironmentManager(base_dir=tmp_path / "envs")
         marker_path = mgr.env_path("mybench") / ".installed"
         marker_path.parent.mkdir(parents=True, exist_ok=True)
-        marker_path.write_text(json.dumps({"venv": {"exgentic_version": "0.0.0.fake"}}))
+        marker_path.write_text(json.dumps({"venv": {"framework_version": "0.0.0.fake"}}))
 
         assert not mgr.is_installed("mybench", env_type=EnvType.VENV)
         assert mgr.has_marker("mybench")
@@ -824,7 +824,7 @@ class TestPaths:
 
     def test_default_base_dir(self) -> None:
         mgr = EnvironmentManager()
-        assert mgr.base_dir == Path.home() / ".exgentic"
+        assert mgr.base_dir == Path.home() / ".framework"
 
 
 # ---------------------------------------------------------------------------
@@ -911,8 +911,8 @@ class TestFailureModes:
                 return None
             return original_which(name)
 
-        with mock.patch("exgentic.environment.helpers.shutil.which", side_effect=which_no_fake):
-            with mock.patch("exgentic.environment.helpers._dpkg_installed", return_value=False):
+        with mock.patch("framework.environment.helpers.shutil.which", side_effect=which_no_fake):
+            with mock.patch("framework.environment.helpers._dpkg_installed", return_value=False):
                 with pytest.raises(RuntimeError, match="nonexistent_tool_xyz"):
                     mgr.install("mybench", module_path=module_path)
 
@@ -1265,7 +1265,7 @@ class TestDockerProjectRoot:
         # Two builds: base image uses project_root as context, bench uses a temp dir.
         assert len(build_contexts) == 2
         assert build_contexts[0] == str(project)
-        assert "exgentic-bench-" in build_contexts[1]
+        assert "framework-bench-" in build_contexts[1]
 
     def test_docker_without_project_root_uses_tmp_dir(self, tmp_path: Path) -> None:
         module_path = _create_fake_package(tmp_path, with_requirements=True, with_setup=False)
@@ -1286,7 +1286,7 @@ class TestDockerProjectRoot:
             mgr.install("mybench", env_type=EnvType.DOCKER, module_path=module_path)
 
         assert len(build_contexts) == 1
-        assert "exgentic-docker-" in build_contexts[0]
+        assert "framework-docker-" in build_contexts[0]
 
     def test_docker_packages_in_dockerfile(self, tmp_path: Path) -> None:
         mgr = EnvironmentManager(base_dir=tmp_path / "envs")
@@ -1400,7 +1400,7 @@ class TestDockerProjectRoot:
         assert len(bench_builds) == 1
 
     def test_base_image_tag_has_prefix(self, tmp_path: Path) -> None:
-        """Base image tag must start with 'exgentic-base:'."""
+        """Base image tag must start with 'framework-base:'."""
         project = _create_fake_project(tmp_path)
         mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
@@ -1420,10 +1420,10 @@ class TestDockerProjectRoot:
             mgr.install("mybench", env_type=EnvType.DOCKER, project_root=project)
 
         assert len(base_tags) == 1
-        assert base_tags[0].startswith("exgentic-base:")
+        assert base_tags[0].startswith("framework-base:")
 
     def test_bench_image_from_base(self, tmp_path: Path) -> None:
-        """Bench Dockerfile must start with FROM exgentic-base:..."""
+        """Bench Dockerfile must start with FROM framework-base:..."""
         project = _create_fake_project(tmp_path)
         mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
@@ -1444,7 +1444,7 @@ class TestDockerProjectRoot:
             mgr.install("mybench", env_type=EnvType.DOCKER, project_root=project)
 
         assert len(bench_dockerfiles) == 1
-        assert bench_dockerfiles[0].startswith("FROM exgentic-base:")
+        assert bench_dockerfiles[0].startswith("FROM framework-base:")
 
     def test_base_image_tag_stored_in_marker(self, tmp_path: Path) -> None:
         """Marker must record base_image so uninstall can clean it up."""
@@ -1463,7 +1463,7 @@ class TestDockerProjectRoot:
 
         marker = json.loads((mgr.env_path("mybench") / ".installed").read_text())
         assert "base_image" in marker["docker"]
-        assert marker["docker"]["base_image"].startswith("exgentic-base:")
+        assert marker["docker"]["base_image"].startswith("framework-base:")
 
     def test_uninstall_attempts_base_image_removal(self, tmp_path: Path) -> None:
         """uninstall() attempts to remove the base image (rmi silently fails if still in use)."""
@@ -1476,7 +1476,7 @@ class TestDockerProjectRoot:
                     "docker": {
                         "installed_at": "2026-01-01T00:00:00Z",
                         "image": "mybench:abc123",
-                        "base_image": "exgentic-base:def456",
+                        "base_image": "framework-base:def456",
                     }
                 }
             )
@@ -1494,7 +1494,7 @@ class TestDockerProjectRoot:
             mgr.uninstall("mybench", env_type=EnvType.DOCKER)
 
         assert "mybench:abc123" in rmi_calls
-        assert "exgentic-base:def456" in rmi_calls
+        assert "framework-base:def456" in rmi_calls
 
     def test_base_image_reused_on_second_install(self, tmp_path: Path) -> None:
         """Base image is only built once; second bench reuses it."""
@@ -1530,7 +1530,7 @@ class TestDockerProjectRoot:
 
     def test_image_version_changes_base_tag(self, tmp_path: Path) -> None:
         """Bumping _IMAGE_VERSION produces a different base tag."""
-        from exgentic.environment.docker import DockerBackend
+        from framework.environment.docker import DockerBackend
 
         project = _create_fake_project(tmp_path)
 
@@ -1538,8 +1538,8 @@ class TestDockerProjectRoot:
         with mock.patch.object(DockerBackend, "_IMAGE_VERSION", "v99"):
             tag_v99 = DockerBackend._base_image_tag(project)
 
-        assert tag_v1.startswith("exgentic-base:")
-        assert tag_v99.startswith("exgentic-base:")
+        assert tag_v1.startswith("framework-base:")
+        assert tag_v99.startswith("framework-base:")
         assert tag_v1 != tag_v99
 
 
@@ -1653,10 +1653,10 @@ class TestDockerSocket:
 
 
 class TestDockerBuildEnv:
-    """EXGENTIC_DOCKER_BUILD=1 is set when running setup.sh during image builds."""
+    """FRAMEWORK_DOCKER_BUILD=1 is set when running setup.sh during image builds."""
 
-    def test_exgentic_docker_build_in_bench_setup_sh(self, tmp_path: Path) -> None:
-        """EXGENTIC_DOCKER_BUILD=1 is prepended to the setup.sh RUN in bench image."""
+    def test_framework_docker_build_in_bench_setup_sh(self, tmp_path: Path) -> None:
+        """FRAMEWORK_DOCKER_BUILD=1 is prepended to the setup.sh RUN in bench image."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=True)
         project = _create_fake_project(tmp_path)
         mgr = EnvironmentManager(base_dir=tmp_path / "envs")
@@ -1683,10 +1683,10 @@ class TestDockerBuildEnv:
             )
 
         assert len(bench_dockerfiles) == 1
-        assert "EXGENTIC_DOCKER_BUILD=1 bash /tmp/setup.sh" in bench_dockerfiles[0]
+        assert "FRAMEWORK_DOCKER_BUILD=1 bash /tmp/setup.sh" in bench_dockerfiles[0]
 
-    def test_exgentic_docker_build_in_single_image_setup_sh(self, tmp_path: Path) -> None:
-        """EXGENTIC_DOCKER_BUILD=1 is also present in the single-image (no project_root) path."""
+    def test_framework_docker_build_in_single_image_setup_sh(self, tmp_path: Path) -> None:
+        """FRAMEWORK_DOCKER_BUILD=1 is also present in the single-image (no project_root) path."""
         module_path = _create_fake_package(tmp_path, with_requirements=False, with_setup=True)
         mgr = EnvironmentManager(base_dir=tmp_path / "envs")
 
@@ -1707,7 +1707,7 @@ class TestDockerBuildEnv:
             mgr.install("mybench", env_type=EnvType.DOCKER, module_path=module_path)
 
         assert len(dockerfiles) == 1
-        assert "EXGENTIC_DOCKER_BUILD=1 bash /tmp/setup.sh" in dockerfiles[0]
+        assert "FRAMEWORK_DOCKER_BUILD=1 bash /tmp/setup.sh" in dockerfiles[0]
 
 
 # ---------------------------------------------------------------------------
@@ -1720,7 +1720,7 @@ class TestDockerBackendDockerfile:
 
     These tests mock subprocess.run to capture the Dockerfile instead of
     actually building.  They verify critical assumptions:
-    - exgentic is installed from source when a source dir is provided
+    - framework is installed from source when a source dir is provided
     - requirements.txt and setup.sh are included
     - docker socket installs Docker CLI
     - extra dependencies are installed
@@ -1728,7 +1728,7 @@ class TestDockerBackendDockerfile:
 
     def _capture_dockerfiles(self, tmp_path, **install_kwargs):
         """Run DockerBackend.install() with mocked docker, return list of Dockerfile contents."""
-        from exgentic.environment.docker import DockerBackend
+        from framework.environment.docker import DockerBackend
 
         dockerfiles: list[str] = []
 
@@ -1769,7 +1769,7 @@ class TestDockerBackendDockerfile:
         proj.mkdir()
         (proj / "pyproject.toml").write_text('[project]\nname = "fakepkg"\nversion = "0.1"\n')
         (proj / "README.md").write_text("# Fake\n")
-        src = proj / "src" / "exgentic"
+        src = proj / "src" / "framework"
         src.mkdir(parents=True)
         (src / "__init__.py").write_text("")
 
@@ -1783,14 +1783,14 @@ class TestDockerBackendDockerfile:
         assert len(dockerfiles) == 2, f"Expected 2 docker builds (base + bench), got {len(dockerfiles)}"
         base_df, bench_df = dockerfiles
 
-        # Base image installs exgentic from source.
+        # Base image installs framework from source.
         assert "COPY pyproject.toml" in base_df
         assert "COPY src/ src/" in base_df
         assert "uv pip install --no-cache ." in base_df
         assert "uv pip install --no-cache --no-deps ." in base_df
 
         # Bench image is layered on top.
-        assert "FROM exgentic-base:" in bench_df
+        assert "FROM framework-base:" in bench_df
 
     def test_pypi_install(self, tmp_path: Path) -> None:
         """When packages are given, RUN uv pip install."""
@@ -1798,10 +1798,10 @@ class TestDockerBackendDockerfile:
             tmp_path,
             name="benchmarks/test",
             module_path=None,
-            packages=["exgentic==1.2.3"],
+            packages=["framework==1.2.3"],
         )
 
-        assert "uv pip install --no-cache exgentic==1.2.3" in df
+        assert "uv pip install --no-cache framework==1.2.3" in df
         assert "COPY src/" not in df
 
     def test_requirements_included(self, tmp_path: Path) -> None:
@@ -1812,7 +1812,7 @@ class TestDockerBackendDockerfile:
             tmp_path,
             name="benchmarks/test",
             module_path=module_path,
-            packages=["exgentic==1.0"],
+            packages=["framework==1.0"],
         )
 
         assert "requirements.txt" in df
@@ -1826,11 +1826,11 @@ class TestDockerBackendDockerfile:
             tmp_path,
             name="benchmarks/test",
             module_path=module_path,
-            packages=["exgentic==1.0"],
+            packages=["framework==1.0"],
         )
 
         assert "setup.sh" in df
-        assert "EXGENTIC_DOCKER_BUILD=1 bash /tmp/setup.sh" in df
+        assert "FRAMEWORK_DOCKER_BUILD=1 bash /tmp/setup.sh" in df
 
     def test_docker_socket_installs_cli(self, tmp_path: Path) -> None:
         """docker_socket=True installs Docker CLI in the image."""
@@ -1855,8 +1855,8 @@ class TestDockerBackendDockerfile:
 
         assert "uv pip install --no-cache numpy pandas" in df
 
-    def test_no_exgentic_without_packages(self, tmp_path: Path) -> None:
-        """Without packages or project_root, no exgentic install lines."""
+    def test_no_framework_without_packages(self, tmp_path: Path) -> None:
+        """Without packages or project_root, no framework install lines."""
         df = self._capture_dockerfile(
             tmp_path,
             name="benchmarks/test",
@@ -1864,11 +1864,11 @@ class TestDockerBackendDockerfile:
         )
 
         assert "COPY src/" not in df
-        assert "exgentic" not in df.lower() or "exgentic-docker" in df.lower()
+        assert "framework" not in df.lower() or "framework-docker" in df.lower()
 
     def test_image_tag_deterministic(self, tmp_path: Path) -> None:
         """Same inputs produce the same image tag."""
-        from exgentic.environment.docker import DockerBackend
+        from framework.environment.docker import DockerBackend
 
         tag1 = DockerBackend._image_tag("benchmarks/test", None, docker_socket=True)
         tag2 = DockerBackend._image_tag("benchmarks/test", None, docker_socket=True)
@@ -1876,10 +1876,10 @@ class TestDockerBackendDockerfile:
 
     def test_image_tag_changes_with_packages(self, tmp_path: Path) -> None:
         """Different packages produce different tags."""
-        from exgentic.environment.docker import DockerBackend
+        from framework.environment.docker import DockerBackend
 
-        tag1 = DockerBackend._image_tag("benchmarks/test", None, packages=["exgentic==1.0"])
-        tag2 = DockerBackend._image_tag("benchmarks/test", None, packages=["exgentic==2.0"])
+        tag1 = DockerBackend._image_tag("benchmarks/test", None, packages=["framework==1.0"])
+        tag2 = DockerBackend._image_tag("benchmarks/test", None, packages=["framework==2.0"])
         assert tag1 != tag2
 
 

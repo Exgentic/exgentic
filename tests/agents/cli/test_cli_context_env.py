@@ -1,17 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
 import os
 
-from exgentic.agents.cli.base import (
+from framework.agents.cli.base import (
     BaseCLIConfig,
     BaseCLIWrapper,
     CLIResult,
     ExecutionBackend,
 )
-from exgentic.core.context import Context, Role, save_service_runtime, set_context
+from framework.core.context import Context, Role, save_service_runtime, set_context
 
 
 class _DummyRunner:
@@ -44,10 +44,10 @@ def test_cli_includes_context_env(tmp_path):
     set_context(ctx)
 
     # Write a per-service runtime.json for the agent role so the CLI
-    # wrapper inherits EXGENTIC_RUNTIME_FILE from its parent process.
+    # wrapper inherits FRAMEWORK_RUNTIME_FILE from its parent process.
     runtime_path = save_service_runtime(Role.AGENT)
-    old = os.environ.get("EXGENTIC_RUNTIME_FILE")
-    os.environ["EXGENTIC_RUNTIME_FILE"] = str(runtime_path)
+    old = os.environ.get("FRAMEWORK_RUNTIME_FILE")
+    os.environ["FRAMEWORK_RUNTIME_FILE"] = str(runtime_path)
     try:
         runner = _DummyRunner()
         cli = _DummyCLI(runner=ExecutionBackend.PROCESS)
@@ -62,9 +62,9 @@ def test_cli_includes_context_env(tmp_path):
             ),
         )
 
-        assert runner.env["EXGENTIC_RUNTIME_FILE"] == str(runtime_path)
+        assert runner.env["FRAMEWORK_RUNTIME_FILE"] == str(runtime_path)
     finally:
         if old is None:
-            os.environ.pop("EXGENTIC_RUNTIME_FILE", None)
+            os.environ.pop("FRAMEWORK_RUNTIME_FILE", None)
         else:
-            os.environ["EXGENTIC_RUNTIME_FILE"] = old
+            os.environ["FRAMEWORK_RUNTIME_FILE"] = old

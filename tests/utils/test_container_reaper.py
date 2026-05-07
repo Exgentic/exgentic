@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Unit tests for container_reaper: orphaned-container cleanup."""
 
@@ -14,12 +14,12 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from exgentic.adapters.runners.docker import DockerRunner
-from exgentic.agents.cli.command_runner import BaseCLIConfig
-from exgentic.agents.cli.command_runner import DockerRunner as CLIDockerRunner
-from exgentic.benchmarks.swebench import swebench_eval, swebench_evaluation
-from exgentic.utils import container_reaper
-from exgentic.utils.container_reaper import (
+from framework.adapters.runners.docker import DockerRunner
+from framework.agents.cli.command_runner import BaseCLIConfig
+from framework.agents.cli.command_runner import DockerRunner as CLIDockerRunner
+from framework.benchmarks.swebench import swebench_eval, swebench_evaluation
+from framework.utils import container_reaper
+from framework.utils.container_reaper import (
     LABEL_OWNER_PID,
     LABEL_OWNER_TOKEN,
     OWN_TOKEN,
@@ -93,7 +93,7 @@ def test_reap_orphaned_removes_only_dead_owners(rows: list[tuple[str, int, str]]
 def test_reap_orphaned_removes_dead_even_when_pid_recycled() -> None:
     """PID-reuse mitigation: a live PID with a token that isn't ours."""
     recycled_pid = 4242
-    runner = _fake_ps([("orphan-cid", recycled_pid, "some-dead-exgentic-token")])
+    runner = _fake_ps([("orphan-cid", recycled_pid, "some-dead-framework-token")])
 
     with (
         patch.object(container_reaper, "_docker_bin", return_value="/usr/bin/docker"),
@@ -256,9 +256,9 @@ def test_run_harness_wraps_docker_sdk_create(monkeypatch: pytest.MonkeyPatch, tm
 
 def test_docker_runner_tags_containers_with_owner_labels() -> None:
     runner = DockerRunner(
-        "exgentic.testing.calculator:Calculator",
+        "framework.testing.calculator:Calculator",
         env_name="tests/calculator",
-        module_path="exgentic.testing.calculator",
+        module_path="framework.testing.calculator",
         image="stub-image",
         port=12345,
     )
@@ -273,11 +273,11 @@ def test_docker_runner_tags_containers_with_owner_labels() -> None:
         raise RuntimeError("stop-after-docker-run")
 
     with (
-        patch("exgentic.adapters.runners.docker._docker", side_effect=_fake_docker),
-        patch("exgentic.adapters.runners.docker._wait_for_health", side_effect=_raise),
-        patch("exgentic.environment.instance.get_manager") as get_mgr,
+        patch("framework.adapters.runners.docker._docker", side_effect=_fake_docker),
+        patch("framework.adapters.runners.docker._wait_for_health", side_effect=_raise),
+        patch("framework.environment.instance.get_manager") as get_mgr,
     ):
-        get_mgr.return_value.base_dir = "/tmp/exgentic-cache"
+        get_mgr.return_value.base_dir = "/tmp/framework-cache"
         try:
             runner.start()
         except Exception:
@@ -312,11 +312,11 @@ def test_claude_code_docker_runner_tags_containers() -> None:
 
     with (
         patch(
-            "exgentic.agents.cli.command_runner._detect_container_runtime",
+            "framework.agents.cli.command_runner._detect_container_runtime",
             return_value=("docker", []),
         ),
         patch(
-            "exgentic.agents.cli.command_runner.subprocess.Popen",
+            "framework.agents.cli.command_runner.subprocess.Popen",
             side_effect=_fake_popen,
         ),
     ):
@@ -380,7 +380,7 @@ def test_swebench_session_injects_reaper_labels_into_minisweagent_config() -> No
 
         with (
             patch.object(swebench_eval, "Path", side_effect=_fake_path),
-            patch("exgentic.utils.logging.capture_stdio_to_session"),
+            patch("framework.utils.logging.capture_stdio_to_session"),
         ):
             swebench_eval.SWEBenchSession._setup_environment(stub)
 

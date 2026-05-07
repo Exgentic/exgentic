@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
 from click.testing import CliRunner
-from exgentic.core.types import RunConfig
-from exgentic.interfaces.cli.main import cli
+from framework.core.types import RunConfig
+from framework.interfaces.cli.main import cli
 
 
 def test_cli_execute_concurrent(tmp_path):

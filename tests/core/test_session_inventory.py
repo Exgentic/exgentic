@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-from exgentic.core.types.session_inventory import scan_sessions
+from framework.core.types.session_inventory import scan_sessions
 
 
 def _write_session(sessions_dir: Path, session_id: str, payload: dict | None) -> Path:

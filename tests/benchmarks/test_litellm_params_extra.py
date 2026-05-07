@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Verify benchmark evaluators thread litellm_params_extra to their LLM call sites."""
 
@@ -19,7 +19,7 @@ EXTRAS = {
 def test_browsecomp_evaluator_forwards_extras_to_litellm_completion():
     pytest.importorskip("scripts_evaluation")
     pytest.importorskip("search_agent")
-    from exgentic.benchmarks.browsecompplus.browsecomp_eval import BrowseCompEvaluatorOpenai
+    from framework.benchmarks.browsecompplus.browsecomp_eval import BrowseCompEvaluatorOpenai
 
     evaluator = BrowseCompEvaluatorOpenai(litellm_params_extra=EXTRAS)
 
@@ -31,7 +31,7 @@ def test_browsecomp_evaluator_forwards_extras_to_litellm_completion():
     fake_response_obj.usage.copy.return_value = MagicMock()
 
     with patch(
-        "exgentic.benchmarks.browsecompplus.browsecomp_eval.litellm.completion",
+        "framework.benchmarks.browsecompplus.browsecomp_eval.litellm.completion",
         return_value=fake_response_obj,
     ) as mock_completion:
         try:
@@ -53,7 +53,7 @@ def test_browsecomp_evaluator_forwards_extras_to_litellm_completion():
 
 def test_tau2_benchmark_session_kwargs_includes_user_simulator_extras():
     """TAU2Benchmark.user_simulator_litellm_params_extra is included in session kwargs."""
-    from exgentic.benchmarks.tau2.tau2_benchmark import TAU2Benchmark
+    from framework.benchmarks.tau2.tau2_benchmark import TAU2Benchmark
 
     bench = TAU2Benchmark(user_simulator_litellm_params_extra=EXTRAS)
     kwargs = bench._get_session_kwargs()
@@ -62,7 +62,7 @@ def test_tau2_benchmark_session_kwargs_includes_user_simulator_extras():
 
 
 def test_tau2_benchmark_default_extras_is_empty_dict():
-    from exgentic.benchmarks.tau2.tau2_benchmark import TAU2Benchmark
+    from framework.benchmarks.tau2.tau2_benchmark import TAU2Benchmark
 
     bench = TAU2Benchmark()
     assert bench.user_simulator_litellm_params_extra == {}

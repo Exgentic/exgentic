@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 import json
 
 import pytest
-from exgentic.interfaces.dashboard.views.data import (
+from framework.interfaces.dashboard.views.data import (
     _build_history_sessions,
     _build_overview_secondary_metrics,
     _build_session_rows,

@@ -1,19 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
-from exgentic.core.context import (
+from framework.core.context import (
     Context,
     Role,
     init_context,
     save_service_runtime,
     set_context,
 )
-from exgentic.integrations.litellm.trace_logger import TraceLogger
+from framework.integrations.litellm.trace_logger import TraceLogger
 
 
 def test_trace_logger_initializes_context_from_env(tmp_path: Path):
@@ -29,8 +29,8 @@ def test_trace_logger_initializes_context_from_env(tmp_path: Path):
     path = save_service_runtime(Role.BENCHMARK)
     assert path.exists()
 
-    old_val = os.environ.get("EXGENTIC_RUNTIME_FILE")
-    os.environ["EXGENTIC_RUNTIME_FILE"] = str(path)
+    old_val = os.environ.get("FRAMEWORK_RUNTIME_FILE")
+    os.environ["FRAMEWORK_RUNTIME_FILE"] = str(path)
     try:
         init_context()
         logger = TraceLogger()
@@ -38,6 +38,6 @@ def test_trace_logger_initializes_context_from_env(tmp_path: Path):
         assert "run-env" in log_path
     finally:
         if old_val is None:
-            os.environ.pop("EXGENTIC_RUNTIME_FILE", None)
+            os.environ.pop("FRAMEWORK_RUNTIME_FILE", None)
         else:
-            os.environ["EXGENTIC_RUNTIME_FILE"] = old_val
+            os.environ["FRAMEWORK_RUNTIME_FILE"] = old_val

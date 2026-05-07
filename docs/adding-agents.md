@@ -1,12 +1,12 @@
 # Adding Agents
 
-This document defines the agent design principles for Exgentic.
+This document defines the agent design principles for Framework.
 
 It is intentionally opinionated. An agent adapter should not just "work"; it should cleanly separate configuration from execution, isolate heavy dependencies, and adapt to any benchmark contract without requiring the benchmark to change.
 
 Use these existing adapters as reference points:
-- `src/exgentic/agents/litellm_tool_calling/litellm_tool_calling_agent.py` + `instance.py` (split pattern)
-- `src/exgentic/agents/cli/claude/agent.py` (light pattern, single file)
+- `src/framework/agents/litellm_tool_calling/litellm_tool_calling_agent.py` + `instance.py` (split pattern)
+- `src/framework/agents/cli/claude/agent.py` (light pattern, single file)
 
 **Related docs:**
 [docs/](./README.md) · [Adding Benchmarks](./adding-benchmarks.md) · [Custom Models](./custom-models.md) · [Runners](./runners.md) · [Replay Testing](./replay-testing.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
@@ -30,7 +30,7 @@ That means:
 
 ## Architecture
 
-Exgentic agents are split into two classes with distinct roles:
+Framework agents are split into two classes with distinct roles:
 
 ### Agent (config, host-side)
 
@@ -75,7 +75,7 @@ This is the same pattern that `Benchmark._get_session_class()` uses. It ensures 
 **Split into separate files** when your agent depends on heavy third-party libraries:
 
 ```
-src/exgentic/agents/my_agent/
+src/framework/agents/my_agent/
     __init__.py
     my_agent.py          # Agent subclass (light, no heavy imports)
     instance.py           # AgentInstance subclass (imports litellm, openai, etc.)
@@ -89,14 +89,14 @@ Examples: `litellm_tool_calling`, `smolagents`, `openai`
 **Keep everything in one file** when dependencies are light or already available in the base environment:
 
 ```
-src/exgentic/agents/my_agent/
+src/framework/agents/my_agent/
     __init__.py
     agent.py              # Both Agent and AgentInstance in one file
 ```
 
-Example: `cli/claude` (the instance class is in the same file because it only depends on stdlib and core Exgentic types)
+Example: `cli/claude` (the instance class is in the same file because it only depends on stdlib and core Framework types)
 
-The rule is simple: if importing the instance class would pull in packages that are not in the base `exgentic` install, split the files.
+The rule is simple: if importing the instance class would pull in packages that are not in the base `framework` install, split the files.
 
 ## Required Methods
 
@@ -167,7 +167,7 @@ def get_cost(self) -> CostReport:
 
 ## Registration
 
-Every agent must be registered in `src/exgentic/interfaces/registry.py` in the `AGENTS` dict.
+Every agent must be registered in `src/framework/interfaces/registry.py` in the `AGENTS` dict.
 
 ```python
 AGENTS: dict[str, RegistryEntry] = {
@@ -175,7 +175,7 @@ AGENTS: dict[str, RegistryEntry] = {
     "my_agent": RegistryEntry(
         slug_name="my_agent",
         display_name="My Agent",
-        module="exgentic.agents.my_agent.my_agent",
+        module="framework.agents.my_agent.my_agent",
         attr="MyAgent",
         kind="agent",
     ),
@@ -222,7 +222,7 @@ Both files are automatically found by the framework through `RunnerMixin.require
 ### Split pattern (heavy deps)
 
 ```
-src/exgentic/agents/my_agent/
+src/framework/agents/my_agent/
     __init__.py
     my_agent.py              # Agent subclass
     instance.py              # AgentInstance subclass
@@ -312,12 +312,12 @@ class MyAgentInstance(AgentInstance):
 ### Light pattern (no heavy deps)
 
 ```
-src/exgentic/agents/my_agent/
+src/framework/agents/my_agent/
     __init__.py
     agent.py                 # Both Agent and AgentInstance
 ```
 
-Keep both classes in a single file when the instance has no third-party imports beyond what exgentic already provides.
+Keep both classes in a single file when the instance has no third-party imports beyond what framework already provides.
 
 ## Validation Checklist
 

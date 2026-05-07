@@ -1,12 +1,12 @@
 # Adding Benchmarks
 
-This document defines the benchmark design principles for Exgentic.
+This document defines the benchmark design principles for Framework.
 
-It is intentionally opinionated. A benchmark adapter should not just "work"; it should preserve the benchmark's meaning while still fitting Exgentic's agent abstraction cleanly.
+It is intentionally opinionated. A benchmark adapter should not just "work"; it should preserve the benchmark's meaning while still fitting Framework's agent abstraction cleanly.
 
 Use these existing adapters as reference points:
-- `src/exgentic/benchmarks/tau2/tau2_benchmark.py`
-- `src/exgentic/benchmarks/bfcl/bfcl_benchmark.py`
+- `src/framework/benchmarks/tau2/tau2_benchmark.py`
+- `src/framework/benchmarks/bfcl/bfcl_benchmark.py`
 
 **Related docs:**
 [docs/](./README.md) · [Adding Agents](./adding-agents.md) · [Runners](./runners.md) · [Replay Testing](./replay-testing.md) · [Output Format](./output-format.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
@@ -23,7 +23,7 @@ That means the benchmark decides:
 - when a session is finished
 - how scoring works
 
-The agent should adapt to the benchmark contract through Exgentic's normal interfaces. The benchmark should not be shaped around one specific model protocol.
+The agent should adapt to the benchmark contract through Framework's normal interfaces. The benchmark should not be shaped around one specific model protocol.
 
 The default goal should be the thinnest possible benchmark wrapper.
 
@@ -34,7 +34,7 @@ That means:
 - avoid introducing runtime behavior that exists only to satisfy one agent or one model protocol
 
 The target is simple:
-- make the benchmark accessible to any Exgentic agent
+- make the benchmark accessible to any Framework agent
 - while adding the minimum adapter surface necessary
 - and without clashing with agent-specific assumptions
 
@@ -103,7 +103,7 @@ Name and describe them in terms of what they do, not in terms of a transport pro
 
 Prefer "actions" over protocol-specific terms like "tool calls" in benchmark-facing language, because not all agents consume or produce actions through the same protocol.
 
-If the source benchmark exposes functions, commands, or tools, translate those into Exgentic actions at the boundary.
+If the source benchmark exposes functions, commands, or tools, translate those into Framework actions at the boundary.
 
 ### 5. Use `finish` only as part of the benchmark contract
 
@@ -159,20 +159,20 @@ When adapting an external benchmark, prefer to reuse:
 - official checkers or scorers
 - official execution helpers
 
-Avoid copying large chunks of benchmark logic into Exgentic if the source repository already provides them.
+Avoid copying large chunks of benchmark logic into Framework if the source repository already provides them.
 
 But there is an important boundary:
 - external harnesses should be the source of truth for benchmark assets and scoring
-- they should not automatically own the Exgentic runtime contract
+- they should not automatically own the Framework runtime contract
 
-If the external harness assumes a model-specific interaction pattern, Exgentic should usually keep its own runtime and bridge to the harness at load/score time instead.
+If the external harness assumes a model-specific interaction pattern, Framework should usually keep its own runtime and bridge to the harness at load/score time instead.
 
 When choosing between two valid integrations, prefer the thinner one.
 
 Use the more complex approach only when the thinner one would:
 - distort benchmark meaning
 - hard-code one agent's assumptions
-- or force Exgentic to own logic that should stay with the source benchmark
+- or force Framework to own logic that should stay with the source benchmark
 
 ### 9. Be explicit about what is official and what is adapted
 
@@ -184,7 +184,7 @@ Do not imply full equivalence when the integration is intentionally more abstrac
 
 For each benchmark adapter, it should be easy to answer:
 - What comes directly from the source benchmark?
-- What is adapted by Exgentic?
+- What is adapted by Framework?
 - What is exact?
 - What is approximate?
 
@@ -206,7 +206,7 @@ If an exception happens, record it explicitly in session metadata.
 
 A benchmark adapter should not depend on modifying one particular agent implementation.
 
-Prefer to build benchmark logic around Exgentic's shared abstractions:
+Prefer to build benchmark logic around Framework's shared abstractions:
 - `task`
 - `context`
 - `actions`
@@ -242,18 +242,18 @@ Do not mix setup logic directly into the runtime path when it can be handled onc
 
 ### 13. The main benchmark file must not import external dependencies
 
-The main benchmark file (`<name>_benchmark.py`) defines the `Benchmark` subclass that Exgentic loads in the host process. This file **must be importable without any benchmark-specific dependencies installed**.
+The main benchmark file (`<name>_benchmark.py`) defines the `Benchmark` subclass that Framework loads in the host process. This file **must be importable without any benchmark-specific dependencies installed**.
 
 External dependencies (benchmark harnesses, datasets, ML libraries, etc.) belong in **separate files** that are only loaded inside the runner subprocess through `_get_evaluator_class()` and `_get_session_class()`.
 
 **Rule:** The benchmark class file may only import from:
 - Python standard library
 - `pydantic`
-- `exgentic` core modules
+- `framework` core modules
 
 All other imports must live in evaluator/session files that are accessed through the class getters.
 
-**Why:** Exgentic loads the benchmark class in the host process to read configuration (runner type, evaluator/session class names, kwargs). The actual benchmark execution happens inside an isolated runner (venv or Docker). If the main file imports heavy dependencies, the host process fails when those deps are only installed inside the runner environment.
+**Why:** Framework loads the benchmark class in the host process to read configuration (runner type, evaluator/session class names, kwargs). The actual benchmark execution happens inside an isolated runner (venv or Docker). If the main file imports heavy dependencies, the host process fails when those deps are only installed inside the runner environment.
 
 Bad:
 ```python
@@ -278,7 +278,7 @@ from some_harness import HarnessRunner  # ← only loaded in runner subprocess
 
 ## Required Structure
 
-For a benchmark package under `src/exgentic/benchmarks/<name>/`:
+For a benchmark package under `src/framework/benchmarks/<name>/`:
 
 - `<name>_benchmark.py` **(required)**
   - `Benchmark` subclass only
@@ -296,7 +296,7 @@ For a benchmark package under `src/exgentic/benchmarks/<name>/`:
   - action translation, scoring helpers, data parsing
 
 Then register it in:
-- `src/exgentic/interfaces/registry.py`
+- `src/framework/interfaces/registry.py`
 
 ## Validation Checklist
 
@@ -314,7 +314,7 @@ Before opening a PR for a new benchmark, validate all of the following.
 
 - the main benchmark file (`<name>_benchmark.py`) imports **no external dependencies**
 - `_get_evaluator_class()` and `_get_session_class()` load from separate files
-- `python -c "from exgentic.benchmarks.<name>.<name>_benchmark import <Class>"` works without deps installed
+- `python -c "from framework.benchmarks.<name>.<name>_benchmark import <Class>"` works without deps installed
 
 ### Functional validation
 
@@ -348,7 +348,7 @@ When in doubt, ask:
 3. Is this the thinnest adapter that still preserves the benchmark's meaning?
 4. Am I reusing the source benchmark where it helps, without letting it dictate the wrong runtime shape?
 5. Are the benchmark outputs honest about what was actually executed?
-6. Will this adapter still make sense for a very different kind of Exgentic agent?
+6. Will this adapter still make sense for a very different kind of Framework agent?
 
 If the answer to any of those is no, the adapter is probably too coupled or too misleading.
 

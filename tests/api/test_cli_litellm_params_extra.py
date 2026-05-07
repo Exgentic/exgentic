@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """End-to-end test that the CLI `--set ...litellm_params_extra=...` form works.
 
@@ -10,7 +10,7 @@ benchmark factory schema, and lands in the right kwargs dict.
 from __future__ import annotations
 
 import pytest
-from exgentic.interfaces.cli.options import (
+from framework.interfaces.cli.options import (
     _parse_set_list,
     _set_nested,
     _validate_set_keys_for_agent,

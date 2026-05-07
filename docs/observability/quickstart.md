@@ -2,13 +2,13 @@
 
 This guide gets you from zero to traces in five minutes.
 
-For a full reference of every attribute Exgentic emits, see [Semantic Conventions](./semantic-conventions.md).
+For a full reference of every attribute Framework emits, see [Semantic Conventions](./semantic-conventions.md).
 
 ---
 
 ## Prerequisites
 
-- `exgentic` installed with the `otel` extra (see below)
+- `framework` installed with the `otel` extra (see below)
 - Docker or Podman (optional — only needed for Jaeger UI)
 
 ---
@@ -23,12 +23,12 @@ uv sync --extra otel
 
 ## Local-only mode (no Jaeger needed)
 
-Set `EXGENTIC_OTEL_ENABLED=true` and run an evaluation. Each session automatically gets an `otel_spans.jsonl` file with all spans (session lifecycle, tool executions, and LLM calls) as compact JSON lines, sorted by start time:
+Set `FRAMEWORK_OTEL_ENABLED=true` and run an evaluation. Each session automatically gets an `otel_spans.jsonl` file with all spans (session lifecycle, tool executions, and LLM calls) as compact JSON lines, sorted by start time:
 
 ```bash
-export EXGENTIC_OTEL_ENABLED=true
+export FRAMEWORK_OTEL_ENABLED=true
 
-exgentic evaluate --benchmark gsm8k --agent tool_calling --task 1
+framework evaluate --benchmark gsm8k --agent tool_calling --task 1
 ```
 
 Spans are written to `outputs/<run_id>/sessions/<session_id>/otel_spans.jsonl`. Each line is a self-contained JSON span with trace_id, span_id, parent_id, attributes, timestamps, and status.
@@ -71,13 +71,13 @@ Default ports:
 ```bash
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 export OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf   # or 'grpc' for port 4317
-export EXGENTIC_OTEL_ENABLED=true
+export FRAMEWORK_OTEL_ENABLED=true
 ```
 
 To include task prompts, tool arguments, and LLM messages in traces (opt-in — may contain sensitive data):
 
 ```bash
-export EXGENTIC_OTEL_RECORD_CONTENT=true
+export FRAMEWORK_OTEL_RECORD_CONTENT=true
 ```
 
 ---
@@ -85,10 +85,10 @@ export EXGENTIC_OTEL_RECORD_CONTENT=true
 ## Step 4 — Set up and run an evaluation
 
 ```bash
-exgentic install --agent tool_calling
-exgentic install --benchmark tau2
+framework install --agent tool_calling
+framework install --benchmark tau2
 
-exgentic evaluate \
+framework evaluate \
   --benchmark tau2 \
   --agent tool_calling \
   --model gpt-4o \
@@ -101,7 +101,7 @@ exgentic evaluate \
 
 ## Step 5 — View traces
 
-Open [http://localhost:16686](http://localhost:16686), select the `exgentic` service, and click **Find Traces**.
+Open [http://localhost:16686](http://localhost:16686), select the `framework` service, and click **Find Traces**.
 
 ---
 
@@ -129,7 +129,7 @@ for line in sys.stdin:
 
 ```bash
 # All recent traces
-curl "http://localhost:16686/api/traces?service=exgentic&limit=100" | jq '.' > traces.json
+curl "http://localhost:16686/api/traces?service=framework&limit=100" | jq '.' > traces.json
 
 # A specific trace
 curl "http://localhost:16686/api/traces/<TRACE_ID>" | jq '.' > trace.json

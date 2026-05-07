@@ -1,17 +1,17 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 ## CLI usage:
-# exgentic evaluate --benchmark browsecompplus --agent tool_calling --subset main --num-tasks 3 \
+# framework evaluate --benchmark browsecompplus --agent tool_calling --subset main --num-tasks 3 \
 #   --model gpt-4o
 ## Python API usage:
-# from exgentic import RunConfig, evaluate
+# from framework import RunConfig, evaluate
 # evaluate(RunConfig(benchmark="browsecompplus", agent="tool_calling", subset="main", num_tasks=3,
 #   model="gpt-4o"))
 ## Direct class usage (this script):
 # BrowseCompPlusBenchmark + LiteLLMToolCallingAgent
 
-from exgentic import BrowseCompPlusBenchmark, LiteLLMToolCallingAgent, evaluate
+from framework import BrowseCompPlusBenchmark, LiteLLMToolCallingAgent, evaluate
 
 
 def main() -> None:

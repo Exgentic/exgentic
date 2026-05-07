@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Verify ``litellm_params_extra`` flow from agent constructors to LiteLLM call sites."""
 
@@ -18,15 +18,15 @@ EXTRAS = {
 
 @pytest.fixture(autouse=True)
 def _isolated_cache(monkeypatch, tmp_path):
-    cache_dir = tmp_path / "exgentic-cache"
+    cache_dir = tmp_path / "framework-cache"
     litellm_cache_dir = cache_dir / "litellm"
     litellm_cache_dir.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setenv("EXGENTIC_CACHE_DIR", str(cache_dir))
-    monkeypatch.setenv("EXGENTIC_LITELLM_CACHE_DIR", str(litellm_cache_dir))
+    monkeypatch.setenv("FRAMEWORK_CACHE_DIR", str(cache_dir))
+    monkeypatch.setenv("FRAMEWORK_LITELLM_CACHE_DIR", str(litellm_cache_dir))
 
 
 def test_litellm_tool_calling_forwards_extras_to_health_check():
-    from exgentic.agents.litellm_tool_calling import instance as mod
+    from framework.agents.litellm_tool_calling import instance as mod
 
     with patch.object(mod, "check_model_accessible_sync") as health:
         mod.LiteLLMToolCallingAgentInstance(
@@ -40,7 +40,7 @@ def test_litellm_tool_calling_forwards_extras_to_health_check():
 
 
 def test_litellm_tool_calling_completion_includes_extras():
-    from exgentic.agents.litellm_tool_calling import instance as mod
+    from framework.agents.litellm_tool_calling import instance as mod
 
     with patch.object(mod, "check_model_accessible_sync"):
         agent = mod.LiteLLMToolCallingAgentInstance(
@@ -64,7 +64,7 @@ def test_litellm_tool_calling_completion_includes_extras():
 
 
 def test_litellm_tool_calling_default_no_extras():
-    from exgentic.agents.litellm_tool_calling import instance as mod
+    from framework.agents.litellm_tool_calling import instance as mod
 
     with patch.object(mod, "check_model_accessible_sync") as health:
         mod.LiteLLMToolCallingAgentInstance(session_id="s1", model="openai/gpt-4o-mini")
@@ -74,7 +74,7 @@ def test_litellm_tool_calling_default_no_extras():
 
 def test_smolagents_forwards_extras_to_health_check_and_litellm_model():
     pytest.importorskip("smolagents")
-    from exgentic.agents.smolagents import base_instance as mod
+    from framework.agents.smolagents import base_instance as mod
 
     with patch.object(mod, "check_model_accessible_sync") as health:
         agent = mod.SmolagentBaseAgentInstance(
@@ -96,7 +96,7 @@ def test_smolagents_forwards_extras_to_health_check_and_litellm_model():
 
 def test_smolagents_default_no_extras():
     pytest.importorskip("smolagents")
-    from exgentic.agents.smolagents import base_instance as mod
+    from framework.agents.smolagents import base_instance as mod
 
     with patch.object(mod, "check_model_accessible_sync") as health:
         agent = mod.SmolagentBaseAgentInstance(session_id="s1", model_id="openai/gpt-4o-mini")
@@ -115,7 +115,7 @@ def test_openai_mcp_agent_forwards_extras_to_health_check():
     pytest.importorskip("agents")
     import asyncio
 
-    from exgentic.agents.openai import instance as mod
+    from framework.agents.openai import instance as mod
 
     async_health = MagicMock(return_value=None)
 
@@ -137,16 +137,16 @@ def test_openai_mcp_agent_forwards_extras_to_health_check():
 @pytest.mark.parametrize(
     "module_path,class_name",
     [
-        ("exgentic.agents.cli.codex.agent", "CodexAgentInstance"),
-        ("exgentic.agents.cli.gemini.agent", "GeminiAgentInstance"),
-        ("exgentic.agents.cli.claude.agent", "ClaudeCodeAgentInstance"),
+        ("framework.agents.cli.codex.agent", "CodexAgentInstance"),
+        ("framework.agents.cli.gemini.agent", "GeminiAgentInstance"),
+        ("framework.agents.cli.claude.agent", "ClaudeCodeAgentInstance"),
     ],
 )
 def test_cli_agent_subclasses_forward_extras_to_base(module_path, class_name):
     """Each CLI agent subclass must forward litellm_params_extra to its super().__init__()."""
     import importlib
 
-    from exgentic.agents.cli import base as base_mod
+    from framework.agents.cli import base as base_mod
 
     mod = importlib.import_module(module_path)
     agent_cls = getattr(mod, class_name)

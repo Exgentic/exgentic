@@ -85,7 +85,7 @@ The top-level aggregated results for the entire run.
   "skipped_session_ids": [],
   "skipped_session_reasons": {},
 
-  "exgentic_version": "0.3.0",
+  "framework_version": "0.3.0",
 
   "session_results": [ ... ]
 }
@@ -104,7 +104,7 @@ The top-level aggregated results for the entire run.
 | `model_name` | string \| null | Primary model used |
 | `model_names` | list[string] \| null | All models used (if multiple) |
 | `subset_name` | string \| null | Benchmark subset |
-| `exgentic_version` | string \| null | Exgentic version that produced these results |
+| `framework_version` | string \| null | Framework version that produced these results |
 
 #### Session counts
 
@@ -305,8 +305,8 @@ trajectory = [
 Or use the Python API to load and validate:
 
 ```python
-from exgentic import results
-from exgentic.batch import RunConfig
+from framework import results
+from framework.batch import RunConfig
 
 config = RunConfig(benchmark="tau2", agent="tool_calling", subset="retail")
 run_results = results(config)
@@ -321,5 +321,5 @@ See [Python API](./python-api.md) for the full API reference.
 
 - [Python API](./python-api.md) — `results()`, `status()`, `aggregate()` functions
 - [Batch Runs](./batch.md) — `batch extract` to export results to CSV
-- [CLI Reference](./cli-reference.md) — `exgentic results` command
+- [CLI Reference](./cli-reference.md) — `framework results` command
 - [docs/](./README.md) — documentation index

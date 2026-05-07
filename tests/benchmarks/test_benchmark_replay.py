@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Replay recorded sessions to verify the execution loop end-to-end.
 
@@ -27,10 +27,10 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from exgentic.agents.replay.replay_agent import ReplayAgent
-from exgentic.agents.replay.replay_benchmark import ReplayBenchmark
-from exgentic.interfaces.lib.api import evaluate
-from exgentic.interfaces.registry import AGENTS, BENCHMARKS, RegistryEntry
+from framework.agents.replay.replay_agent import ReplayAgent
+from framework.agents.replay.replay_benchmark import ReplayBenchmark
+from framework.interfaces.lib.api import evaluate
+from framework.interfaces.registry import AGENTS, BENCHMARKS, RegistryEntry
 
 RECORDINGS_DIR = Path(__file__).parent / "recordings"
 
@@ -50,14 +50,14 @@ def _register_replay_components():
     AGENTS["replay"] = RegistryEntry(
         slug_name="replay",
         display_name="Replay Agent",
-        module="exgentic.agents.replay.replay_agent",
+        module="framework.agents.replay.replay_agent",
         attr="ReplayAgent",
         kind="agent",
     )
     BENCHMARKS["replay"] = RegistryEntry(
         slug_name="replay",
         display_name="Replay Benchmark",
-        module="exgentic.agents.replay.replay_benchmark",
+        module="framework.agents.replay.replay_benchmark",
         attr="ReplayBenchmark",
         kind="benchmark",
     )
@@ -121,7 +121,7 @@ def test_benchmark_replay(benchmark_slug: str, recording_dir: Path, tmp_path: Pa
     # / Docker Desktop share that by default).  pytest's tmp_path lives under
     # /var/folders/ which is NOT shared.
     if runner == "docker" and platform.system() == "Darwin":
-        out = Path(tempfile.mkdtemp(prefix=".exgentic_test_", dir=Path.home()))
+        out = Path(tempfile.mkdtemp(prefix=".framework_test_", dir=Path.home()))
         request.addfinalizer(lambda: shutil.rmtree(out, ignore_errors=True))
     else:
         out = tmp_path

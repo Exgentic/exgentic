@@ -1,6 +1,6 @@
 # Using Podman instead of Docker (macOS)
 
-Use [Podman](https://podman.io/) as a drop-in replacement for Docker Desktop on macOS. After setup, all `docker` commands are routed through Podman — no changes needed in Exgentic.
+Use [Podman](https://podman.io/) as a drop-in replacement for Docker Desktop on macOS. After setup, all `docker` commands are routed through Podman — no changes needed in Framework.
 
 **Related docs:**
 [Runners](./runners.md) · [CLI Reference](./cli-reference.md) · [docs/](./README.md)
@@ -13,7 +13,7 @@ Use [Podman](https://podman.io/) as a drop-in replacement for Docker Desktop on 
 brew install podman docker
 ```
 
-`podman` is the container engine. `docker` is the CLI client that Exgentic invokes — installing it via Homebrew gives you the CLI without Docker Desktop.
+`podman` is the container engine. `docker` is the CLI client that Framework invokes — installing it via Homebrew gives you the CLI without Docker Desktop.
 
 ## 2. Set up Rosetta (Apple Silicon only)
 
@@ -46,7 +46,7 @@ Add this line to your `~/.zshrc` (or `~/.bashrc`) to make it permanent.
 docker info
 ```
 
-You should see `podman` in the output. If this works, you're done — Exgentic's `docker` runner will work as-is.
+You should see `podman` in the output. If this works, you're done — Framework's `docker` runner will work as-is.
 
 To confirm x86_64 emulation (Apple Silicon):
 

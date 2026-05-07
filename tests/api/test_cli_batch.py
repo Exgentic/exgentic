@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import csv
 import json
 
 from click.testing import CliRunner
-from exgentic.core.types import RunConfig
-from exgentic.interfaces.cli.main import cli
+from framework.core.types import RunConfig
+from framework.interfaces.cli.main import cli
 
 
 def _write_config(path, *, run_id: str) -> str:
@@ -137,7 +137,7 @@ def _write_session_results(run_root, session_id: str, payload: dict) -> None:
 
 
 def test_batch_status_cost_is_stale_during_live_run(tmp_path):
-    """Regression test for Exgentic/exgentic#190.
+    """Regression test for Framework/framework#190.
 
     `batch status` reads Score/Cost from run-level `{run_id}/results.json`,
     which is only written at end of run. During a live run, fresh session-level
@@ -188,7 +188,7 @@ def test_batch_status_cost_is_stale_during_live_run(tmp_path):
 
 
 def test_batch_status_cost_missing_when_run_level_absent(tmp_path):
-    """Regression test for Exgentic/exgentic#190.
+    """Regression test for Framework/framework#190.
 
     On the first live run (before any clean exit has ever written the
     run-level aggregate), `batch status` shows no Total Cost at all even

@@ -96,9 +96,9 @@ from pathlib import Path
 
 import pytest
 
-from exgentic.agents.replay.replay_agent import ReplayAgent
-from exgentic.agents.replay.replay_benchmark import ReplayBenchmark
-from exgentic.interfaces.lib.api import evaluate
+from framework.agents.replay.replay_agent import ReplayAgent
+from framework.agents.replay.replay_benchmark import ReplayBenchmark
+from framework.interfaces.lib.api import evaluate
 
 RECORDINGS = Path(__file__).parent / "recordings" / "my_benchmark"
 
@@ -162,21 +162,21 @@ Replay agent and benchmark are not in the default registry. Register them in a p
 
 ```python
 import pytest
-from exgentic.interfaces.registry import AGENTS, BENCHMARKS, RegistryEntry
+from framework.interfaces.registry import AGENTS, BENCHMARKS, RegistryEntry
 
 @pytest.fixture(autouse=True)
 def _register_replay_components():
     AGENTS["replay"] = RegistryEntry(
         slug_name="replay",
         display_name="Replay Agent",
-        module="exgentic.agents.replay.replay_agent",
+        module="framework.agents.replay.replay_agent",
         attr="ReplayAgent",
         kind="agent",
     )
     BENCHMARKS["replay"] = RegistryEntry(
         slug_name="replay",
         display_name="Replay Benchmark",
-        module="exgentic.agents.replay.replay_benchmark",
+        module="framework.agents.replay.replay_benchmark",
         attr="ReplayBenchmark",
         kind="benchmark",
     )

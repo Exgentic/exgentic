@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 #!/usr/bin/env python3
 """Ensure SPDX+copyright header exists at top of Python files."""
@@ -12,11 +12,11 @@ from pathlib import Path
 
 HEADER_LINES = [
     "# SPDX-License-Identifier: Apache-2.0",
-    "# Copyright (C) 2026, The Exgentic organization and its contributors.",
+    "# Copyright (C) 2026, Anonymous Authors.",
 ]
 HEADER_TEXT = "\n".join(HEADER_LINES) + "\n\n"
 
-COPYRIGHT_RE = re.compile(r"^# Copyright \(C\) (?P<year>\d{4}), The Exgentic organization and its contributors\.$")
+COPYRIGHT_RE = re.compile(r"^# Copyright \(C\) (?P<year>\d{4}), Anonymous Authors\.$")
 
 SKIP_DIRS = {
     ".git",

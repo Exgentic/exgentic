@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 import threading
 import time
 
-from exgentic.adapters.agents.coordinator import AgentCoordinator, CoordinatedAgent
-from exgentic.core.types import (
+from framework.adapters.agents.coordinator import AgentCoordinator, CoordinatedAgent
+from framework.core.types import (
     MultiObservation,
     ParallelAction,
     SingleAction,

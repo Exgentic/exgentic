@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Integration test: run_session() calls all observer lifecycle hooks in order."""
 
@@ -10,11 +10,11 @@ from typing import ClassVar
 from unittest.mock import MagicMock
 
 import pytest
-from exgentic.core.context import Context, set_context
-from exgentic.core.orchestrator.observer import Observer
-from exgentic.core.orchestrator.session import run_session
-from exgentic.core.orchestrator.tracker import Tracker
-from exgentic.core.types import Action, Observation
+from framework.core.context import Context, set_context
+from framework.core.orchestrator.observer import Observer
+from framework.core.orchestrator.session import run_session
+from framework.core.orchestrator.tracker import Tracker
+from framework.core.types import Action, Observation
 
 # ---------------------------------------------------------------------------
 # Recording observer — logs every hook call

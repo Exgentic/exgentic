@@ -1,22 +1,22 @@
 ---
 name: add-benchmark
-description: Use when adding or updating a benchmark adapter in the Exgentic repository. Follow the repository benchmark principles, keep the benchmark contract protocol-agnostic, prefer the thinnest possible wrapper that makes the benchmark accessible to any Exgentic agent, reuse external harness assets and scoring where possible, and validate the adapter with representative smoke tests before finishing.
+description: Use when adding or updating a benchmark adapter in the Framework repository. Follow the repository benchmark principles, keep the benchmark contract protocol-agnostic, prefer the thinnest possible wrapper that makes the benchmark accessible to any Framework agent, reuse external harness assets and scoring where possible, and validate the adapter with representative smoke tests before finishing.
 ---
 
 # Add Benchmark
 
-Use this skill when working on benchmark adapters in the Exgentic repository.
+Use this skill when working on benchmark adapters in the Framework repository.
 
 ## First read
 
 Start with:
 - `docs/adding-benchmarks.md`
-- `src/exgentic/core/benchmark.py`
-- `src/exgentic/interfaces/registry.py`
+- `src/framework/core/benchmark.py`
+- `src/framework/interfaces/registry.py`
 
 Then inspect the most relevant existing adapters:
-- `src/exgentic/benchmarks/tau2/tau2_benchmark.py`
-- `src/exgentic/benchmarks/bfcl/bfcl_benchmark.py`
+- `src/framework/benchmarks/tau2/tau2_benchmark.py`
+- `src/framework/benchmarks/bfcl/bfcl_benchmark.py`
 
 ## Workflow
 
@@ -27,10 +27,10 @@ Then inspect the most relevant existing adapters:
    Do not define the benchmark in terms of one provider's chat or tool-calling format.
 
 3. Prefer the thinnest possible wrapper.
-   Make the benchmark accessible to any Exgentic agent with the minimum translation surface necessary. Do not add extra abstraction, copied logic, or runtime machinery unless it is needed to preserve benchmark meaning.
+   Make the benchmark accessible to any Framework agent with the minimum translation surface necessary. Do not add extra abstraction, copied logic, or runtime machinery unless it is needed to preserve benchmark meaning.
 
 4. Decide the source-of-truth boundary.
-   Reuse external benchmark assets, setup, and scoring where possible, but do not let an external harness dictate the wrong runtime contract for Exgentic.
+   Reuse external benchmark assets, setup, and scoring where possible, but do not let an external harness dictate the wrong runtime contract for Framework.
 
 5. Implement runtime, setup, and registration separately.
    Prefer a benchmark module, a `setup.sh`, and a registry entry with clear responsibilities.

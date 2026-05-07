@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 #!/usr/bin/env python3
 """Enforce that all direct dependencies in pyproject.toml have upper version bounds.

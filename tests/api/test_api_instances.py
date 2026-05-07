@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
 import pytest
-from exgentic import execute
-from exgentic.core.types import RunConfig
+from framework import execute
+from framework.core.types import RunConfig
 
 from .fixtures.test_agent import TestAgent
 from .fixtures.test_benchmark import TestBenchmark

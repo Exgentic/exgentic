@@ -12,7 +12,7 @@ downloads/
 eggs/
 .eggs/
 lib/
-!src/exgentic/interfaces/lib/
+!src/framework/interfaces/lib/
 lib64/
 parts/
 sdist/
@@ -23,11 +23,11 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-src/exgentic/_version.py
+src/framework/_version.py
 
-# Exgentic local data (venvs, caches, installations)
-.exgentic/
-.exgentic_installations/
+# Framework local data (venvs, caches, installations)
+.framework/
+.framework_installations/
 
 # Virtual environments
 .env
@@ -99,9 +99,9 @@ outputs/
 .DS_Store
 Thumbs.db
 data/
-src/exgentic/benchmarks/appworld/data/
-src/exgentic/benchmarks/appworld/experiments/
-src/exgentic/benchmarks/tau2/installation/
+src/framework/benchmarks/appworld/data/
+src/framework/benchmarks/appworld/experiments/
+src/framework/benchmarks/tau2/installation/
 
 # Benchmark caches
 tau2_disk_cache/
@@ -116,5 +116,5 @@ t.*
 node_modules
 package-lock.json
 package.json
-src/exgentic/benchmarks/browsecompplus/assets
-exgentic_session_cache/
+src/framework/benchmarks/browsecompplus/assets
+framework_session_cache/

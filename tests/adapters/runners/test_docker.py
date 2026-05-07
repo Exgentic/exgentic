@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 """Docker runner tests (skipped when Docker is unavailable)."""
 
@@ -9,7 +9,7 @@ import shutil
 import subprocess
 
 import pytest
-from exgentic.adapters.runners import with_runner
+from framework.adapters.runners import with_runner
 
 from .conftest import Calculator
 
@@ -33,7 +33,7 @@ def docker_calc():
         Calculator,
         runner="docker",
         env_name="tests/calculator",
-        module_path="exgentic.testing.calculator",
+        module_path="framework.testing.calculator",
         value=10,
     )
     yield proxy

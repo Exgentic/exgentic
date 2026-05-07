@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
 import json
 
-from exgentic.integrations.litellm.trace_cost import load_trace_cost
+from framework.integrations.litellm.trace_cost import load_trace_cost
 
 
 def test_load_trace_cost_uses_explicit_cost_field(tmp_path, monkeypatch) -> None:
@@ -24,7 +24,7 @@ def test_load_trace_cost_uses_explicit_cost_field(tmp_path, monkeypatch) -> None
     def _should_not_be_called(**_kwargs):
         raise AssertionError("token fallback should not be used when cost is explicit")
 
-    import exgentic.integrations.litellm.trace_cost as trace_cost_mod
+    import framework.integrations.litellm.trace_cost as trace_cost_mod
 
     monkeypatch.setattr(trace_cost_mod, "litellm_tokens_cost", _should_not_be_called)
 
@@ -51,7 +51,7 @@ def test_load_trace_cost_falls_back_to_token_estimate(tmp_path, monkeypatch) -> 
         assert model_name == "openai/gpt-4o-mini"
         return _Cost(total_cost=(input_tokens + output_tokens) / 1000.0)
 
-    import exgentic.integrations.litellm.trace_cost as trace_cost_mod
+    import framework.integrations.litellm.trace_cost as trace_cost_mod
 
     monkeypatch.setattr(trace_cost_mod, "litellm_tokens_cost", _fake_token_cost)
 

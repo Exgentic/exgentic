@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-# Copyright (C) 2026, The Exgentic organization and its contributors.
+# Copyright (C) 2026, Anonymous Authors.
 
 from __future__ import annotations
 
-from exgentic.core.context import Context, Role, set_context
-from exgentic.integrations.litellm.cache.log import CacheLogger
+from framework.core.context import Context, Role, set_context
+from framework.integrations.litellm.cache.log import CacheLogger
 
 
 def test_cache_logger_uses_context_session_path(tmp_path) -> None:
