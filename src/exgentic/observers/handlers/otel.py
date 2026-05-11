@@ -186,6 +186,8 @@ class OtelTracingObserver(Observer):
         self._span_managers: dict[str, SessionSpanManager] = {}
         self._session_step_counters: dict[str, int] = {}
         self._session_agents: dict[str, Any] = {}
+        self._agent_slug_name: str | None = None
+        self._agent_display_name: str | None = None
 
     def _get_span_manager(self, session_id: str) -> SessionSpanManager:
         return self._span_managers[session_id]
@@ -216,6 +218,9 @@ class OtelTracingObserver(Observer):
         if model_name:
             self._run_attributes["gen_ai.request.model"] = model_name
 
+        self._agent_slug_name = agent_entry.slug_name if agent_entry else run_config.agent
+        self._agent_display_name = agent_entry.display_name if agent_entry else None
+
     # -- Session lifecycle ---------------------------------------------------
 
     def on_session_enter(self, session_id: str, task_id: str | None) -> None:
@@ -231,6 +236,11 @@ class OtelTracingObserver(Observer):
         span_manager.set_heritable_attributes(self._run_attributes)
         span_manager.set_heritable_attribute("gen_ai.conversation.id", session_id)
         span_manager.set_heritable_attribute("exgentic.session.id", session_id)
+        span_manager.set_attribute("gen_ai.operation.name", "invoke_agent")
+        if self._agent_slug_name:
+            span_manager.set_attribute("gen_ai.agent.id", self._agent_slug_name)
+        if self._agent_display_name:
+            span_manager.set_attribute("gen_ai.agent.name", self._agent_display_name)
         if task_id is not None:
             span_manager.set_attribute("exgentic.session.task_id", task_id)
 
@@ -288,10 +298,15 @@ class OtelTracingObserver(Observer):
         if agent_path is not None:
             span_manager.set_attribute("exgentic.session.agent.path", agent_path)
 
+        agent_doc = (agent.__class__.__doc__ or "").strip()
+        if agent_doc:
+            span_manager.set_attribute("gen_ai.agent.description", agent_doc)
+
         # Record initial observation as an execute_tool span
         span_manager.start_span("execute_tool initial_observation", kind=SpanKind.CLIENT)
         span_manager.current_span.set_attribute("gen_ai.operation.name", "execute_tool")
         span_manager.current_span.set_attribute("gen_ai.tool.name", "initial_observation")
+        span_manager.current_span.set_attribute("gen_ai.tool.type", "function")
         span_manager.current_span.set_attribute("gen_ai.tool.description", "Initial observation from benchmark")
         self._record_observation(session.session_id, observation)
         span_manager.end_current_span()
@@ -306,6 +321,7 @@ class OtelTracingObserver(Observer):
         span_manager.start_span(f"execute_tool {tool_name}", kind=SpanKind.CLIENT)
         span_manager.current_span.set_attribute("gen_ai.operation.name", "execute_tool")
         span_manager.current_span.set_attribute("gen_ai.tool.name", tool_name)
+        span_manager.current_span.set_attribute("gen_ai.tool.type", "function")
 
         if action_list:
             first = action_list[0]
@@ -359,6 +375,8 @@ class OtelTracingObserver(Observer):
         self._set_cost_attr(span_manager, "exgentic.agent.agent_cost", lambda: agent.get_cost())
         self._set_cost_attr(span_manager, "exgentic.session.cost", lambda: session.get_cost())
 
+        self._emit_evaluation_events(span_manager, score)
+
         self._finalize_session(session.session_id, span_manager)
 
     def on_session_error(self, session, error) -> None:
@@ -399,6 +417,30 @@ class OtelTracingObserver(Observer):
             span_manager.set_attribute(key, json.dumps(get_cost(), default=str))
         except Exception:
             logger.debug("Failed to serialize cost for %s", key, exc_info=True)
+
+    @staticmethod
+    def _emit_evaluation_events(span_manager: SessionSpanManager, score) -> None:
+        span = span_manager.current_span
+        if span is None:
+            return
+
+        primary: dict[str, AttributeValue] = {
+            "gen_ai.evaluation.name": "score",
+            "gen_ai.evaluation.score.value": float(score.score),
+            "gen_ai.evaluation.score.label": "success" if score.success else "failure",
+        }
+        span.add_event("gen_ai.evaluation.result", primary)
+
+        for key, value in score.session_metrics.items():
+            otel_value = to_otel_attribute_value(value)
+            if otel_value is None:
+                continue
+            attrs: dict[str, AttributeValue] = {"gen_ai.evaluation.name": key}
+            if isinstance(otel_value, (int, float)) and not isinstance(otel_value, bool):
+                attrs["gen_ai.evaluation.score.value"] = float(otel_value)
+            else:
+                attrs["gen_ai.evaluation.score.label"] = str(otel_value)
+            span.add_event("gen_ai.evaluation.result", attrs)
 
     def _finalize_session(self, session_id: str, span_manager: SessionSpanManager) -> None:
         span_manager.end_current_span()

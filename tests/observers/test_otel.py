@@ -3718,3 +3718,281 @@ class TestContentRecordingRobustness:
         result = _serialize_to_json(MyModel(name="test", count=5))
         parsed = json.loads(result)
         assert parsed == {"name": "test", "count": 5}
+
+
+# ===================================================================
+# New GenAI semconv-aligned attributes and events
+# ===================================================================
+
+
+def _lifecycle_with_agent_entry(ctx, tmp_path, *, agent_entry=None, agent=None, score=None):
+    """Run full observer lifecycle with a specific agent_entry mock."""
+    from exgentic.observers.handlers.otel import OtelTracingObserver, SessionSpanManager
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    t = provider.get_tracer("test")
+
+    session = MockSession()
+    rc = MockRunConfig()
+    score = score or MockScore()
+    agent = agent or MockAgent()
+    settings = MagicMock(otel_record_content=False)
+
+    agent_entries = {rc.agent: agent_entry} if agent_entry is not None else {}
+
+    obs = OtelTracingObserver()
+    original_init = SessionSpanManager.__init__
+
+    def patched_init(self, session_id, session_root_path, tracer=t):
+        original_init(self, session_id, session_root_path, tracer=tracer)
+
+    with (
+        patch("exgentic.observers.handlers.otel.get_benchmark_entries", return_value={}),
+        patch("exgentic.observers.handlers.otel.get_agent_entries", return_value=agent_entries),
+        patch("exgentic.observers.handlers.otel.get_settings", return_value=settings),
+        patch(
+            "exgentic.observers.handlers.otel.to_otel_attribute_value",
+            side_effect=lambda v: str(v) if v is not None else None,
+        ),
+        patch("exgentic.observers.handlers.otel.flush_traces"),
+        patch.object(SessionSpanManager, "__init__", patched_init),
+    ):
+        obs.on_run_start(rc)
+        obs.on_session_creation(session)
+        obs.on_session_start(session, agent, MockObservation())
+        obs.on_session_success(session, score, agent)
+
+    spans = exporter.get_finished_spans()
+    return next((s for s in spans if "session" in s.name), None), spans
+
+
+class TestSessionRootInvokeAgentSemconv:
+    """gen_ai.operation.name + gen_ai.agent.* on session ROOT."""
+
+    def test_operation_name_is_invoke_agent(self, ctx, tmp_path):
+        session_span, _ = _lifecycle_with_agent_entry(ctx, tmp_path)
+        assert session_span.attributes["gen_ai.operation.name"] == "invoke_agent"
+
+    def test_agent_id_from_entry_slug_name(self, ctx, tmp_path):
+        entry = MagicMock(slug_name="smol-react", display_name="SmolAgents ReAct")
+        session_span, _ = _lifecycle_with_agent_entry(ctx, tmp_path, agent_entry=entry)
+        assert session_span.attributes["gen_ai.agent.id"] == "smol-react"
+
+    def test_agent_name_from_entry_display_name(self, ctx, tmp_path):
+        entry = MagicMock(slug_name="smol-react", display_name="SmolAgents ReAct")
+        session_span, _ = _lifecycle_with_agent_entry(ctx, tmp_path, agent_entry=entry)
+        assert session_span.attributes["gen_ai.agent.name"] == "SmolAgents ReAct"
+
+    def test_agent_id_falls_back_to_run_config_agent_when_no_entry(self, ctx, tmp_path):
+        """No agent entry → agent.id falls back to run_config.agent slug."""
+        session_span, _ = _lifecycle_with_agent_entry(ctx, tmp_path)
+        assert session_span.attributes["gen_ai.agent.id"] == MockRunConfig().agent
+
+    def test_agent_name_omitted_when_no_entry(self, ctx, tmp_path):
+        """No agent entry → no display_name source → attribute omitted."""
+        session_span, _ = _lifecycle_with_agent_entry(ctx, tmp_path)
+        assert "gen_ai.agent.name" not in session_span.attributes
+
+    def test_agent_description_from_class_docstring(self, ctx, tmp_path):
+        class DocAgent(MockAgent):
+            """A documented agent."""
+
+        session_span, _ = _lifecycle_with_agent_entry(ctx, tmp_path, agent=DocAgent())
+        assert session_span.attributes["gen_ai.agent.description"] == "A documented agent."
+
+    def test_agent_description_omitted_when_no_docstring(self, ctx, tmp_path):
+        class NoDocAgent(MockAgent):
+            __doc__ = None
+
+        session_span, _ = _lifecycle_with_agent_entry(ctx, tmp_path, agent=NoDocAgent())
+        assert "gen_ai.agent.description" not in session_span.attributes
+
+
+class TestExecuteToolTypeAttribute:
+    """gen_ai.tool.type = 'function' on both execute_tool spans."""
+
+    def test_initial_observation_span_has_tool_type(self, ctx, tmp_path):
+        _, _, all_spans = _full_lifecycle_spans(ctx, tmp_path)
+        initial = next(s for s in all_spans if s.name == "execute_tool initial_observation")
+        assert initial.attributes["gen_ai.tool.type"] == "function"
+
+    def test_react_tool_span_has_tool_type(self, ctx, tmp_path):
+        _, tool_spans, _ = _full_lifecycle_spans(ctx, tmp_path, add_react_step=True)
+        browse = next(s for s in tool_spans if s.name == "execute_tool browse")
+        assert browse.attributes["gen_ai.tool.type"] == "function"
+
+
+class TestEvaluationResultEvents:
+    """gen_ai.evaluation.result span events on session close."""
+
+    def test_primary_event_emitted_on_success(self, ctx, tmp_path):
+        session_span, _ = _lifecycle_with_agent_entry(ctx, tmp_path)
+        events = [e for e in session_span.events if e.name == "gen_ai.evaluation.result"]
+        assert len(events) == 1
+
+    def test_primary_event_attributes(self, ctx, tmp_path):
+        session_span, _ = _lifecycle_with_agent_entry(ctx, tmp_path)
+        event = next(e for e in session_span.events if e.name == "gen_ai.evaluation.result")
+        assert event.attributes["gen_ai.evaluation.name"] == "score"
+        assert event.attributes["gen_ai.evaluation.score.value"] == 0.95
+        assert event.attributes["gen_ai.evaluation.score.label"] == "success"
+
+    def test_label_is_failure_when_score_unsuccessful(self, ctx, tmp_path):
+        class FailScore(MockScore):
+            success = False
+
+        session_span, _ = _lifecycle_with_agent_entry(ctx, tmp_path, score=FailScore())
+        event = next(e for e in session_span.events if e.name == "gen_ai.evaluation.result")
+        assert event.attributes["gen_ai.evaluation.score.label"] == "failure"
+
+    def test_per_metric_events_emitted_for_numeric(self, ctx, tmp_path):
+        class MetricScore(MockScore):
+            session_metrics: ClassVar = {"accuracy": 0.8, "latency": 1.5}
+
+        session_span, _ = _lifecycle_with_agent_entry(ctx, tmp_path, score=MetricScore())
+        events = [e for e in session_span.events if e.name == "gen_ai.evaluation.result"]
+        # 1 primary + 2 per-metric
+        assert len(events) == 3
+        names = {e.attributes["gen_ai.evaluation.name"] for e in events}
+        assert names == {"score", "accuracy", "latency"}
+
+    def test_per_metric_event_uses_label_for_non_numeric(self, ctx, tmp_path):
+        class MetricScore(MockScore):
+            session_metrics: ClassVar = {"verdict": "pass"}
+
+        session_span, _ = _lifecycle_with_agent_entry(ctx, tmp_path, score=MetricScore())
+        verdict_event = next(
+            e
+            for e in session_span.events
+            if e.name == "gen_ai.evaluation.result" and e.attributes["gen_ai.evaluation.name"] == "verdict"
+        )
+        assert verdict_event.attributes["gen_ai.evaluation.score.label"] == "pass"
+        assert "gen_ai.evaluation.score.value" not in verdict_event.attributes
+
+
+class TestLLMInferenceNewAttributes:
+    """Cache/reasoning token attrs and gen_ai.request.stream on inference spans."""
+
+    def test_cache_creation_input_tokens(self):
+        spans = _invoke_write_otel(
+            response_obj={
+                "id": "x",
+                "model": "claude-3-5-sonnet",
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 50,
+                    "cache_creation_input_tokens": 200,
+                },
+                "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "hi"}}],
+            }
+        )
+        assert spans[0].attributes["gen_ai.usage.cache_creation.input_tokens"] == 200
+
+    def test_cache_read_input_tokens(self):
+        spans = _invoke_write_otel(
+            response_obj={
+                "id": "x",
+                "model": "claude-3-5-sonnet",
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 50,
+                    "cache_read_input_tokens": 150,
+                },
+                "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "hi"}}],
+            }
+        )
+        assert spans[0].attributes["gen_ai.usage.cache_read.input_tokens"] == 150
+
+    def test_reasoning_output_tokens(self):
+        spans = _invoke_write_otel(
+            response_obj={
+                "id": "x",
+                "model": "o1",
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 200,
+                    "completion_tokens_details": {"reasoning_tokens": 180},
+                },
+                "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "hi"}}],
+            }
+        )
+        assert spans[0].attributes["gen_ai.usage.reasoning.output_tokens"] == 180
+
+    def test_request_stream_true(self):
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": True,
+                "optional_params": {},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            }
+        )
+        assert spans[0].attributes["gen_ai.request.stream"] is True
+
+    def test_request_stream_false(self):
+        spans = _invoke_write_otel(
+            kwargs={
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": False,
+                "optional_params": {},
+                "litellm_params": {"custom_llm_provider": "openai"},
+            }
+        )
+        assert spans[0].attributes["gen_ai.request.stream"] is False
+
+    def test_request_stream_omitted_when_unset(self):
+        spans = _invoke_write_otel()
+        assert "gen_ai.request.stream" not in spans[0].attributes
+
+    def test_cache_attrs_omitted_when_no_cache_used(self):
+        """Calls without prompt caching should not emit cache attrs."""
+        spans = _invoke_write_otel()
+        assert "gen_ai.usage.cache_creation.input_tokens" not in spans[0].attributes
+        assert "gen_ai.usage.cache_read.input_tokens" not in spans[0].attributes
+
+
+class TestTraceLoggerRecordsSessionTimings:
+    """trace_logger writes per-call durations into SessionLLMTimings."""
+
+    def test_log_event_records_duration(self):
+        from datetime import datetime, timedelta
+
+        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from exgentic.observers.handlers.session_timings import get_session_llm_timings
+
+        # Drain any stray entries from prior tests
+        get_session_llm_timings().pop("ts-sess-001")
+
+        logger = TraceLogger()
+        mock_ctx = MagicMock(session_id="ts-sess-001", run_id="run-1", role=MagicMock(value="agent"))
+
+        kwargs = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "hi"}],
+            "optional_params": {},
+            "litellm_params": {"custom_llm_provider": "openai"},
+        }
+        response_obj = {
+            "id": "x",
+            "model": "gpt-4o",
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+            "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "hi"}}],
+        }
+        start = datetime(2026, 1, 1, 0, 0, 0)
+        end = start + timedelta(seconds=2.5)
+
+        settings = MagicMock(otel_enabled=False, otel_record_content=False, llm_log_path=None)
+        with (
+            patch("exgentic.integrations.litellm.trace_logger.get_settings", return_value=settings),
+            patch.object(logger, "get_context", return_value=mock_ctx),
+            patch.object(logger, "_resolve_log_path", return_value="/dev/null"),
+            patch("exgentic.integrations.litellm.trace_logger.open", create=True),
+        ):
+            logger.log_success_event(kwargs, response_obj, start, end)
+
+        durations = get_session_llm_timings().pop("ts-sess-001")
+        assert durations == [2.5]
