@@ -593,6 +593,9 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
     # Agent inference params (for logging)
     inference_model: str = "N/A"
 
+    # Judge model used by the evaluator to grade agent responses.
+    eval_model_id: str = "openai/Azure/gpt-4.1"
+
     # searcher params
     searcher_type: str = "faiss"  # "bm25" or "faiss"
     searcher_model_name: str = "Qwen/Qwen3-Embedding-8B"  # Used for faiss only
@@ -706,6 +709,7 @@ class BrowseCompPlusBenchmark(Benchmark, BaseModel):
         kwargs: dict[str, Any] = {
             "searcher_params": self._searcher_params(),
             "assets_dir": self._assets_dir,
+            "eval_model_id": self.eval_model_id,
             "max_interactions": self.max_interactions,
         }
         if self.retriever_runner:
