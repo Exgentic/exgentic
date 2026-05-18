@@ -17,6 +17,16 @@ Exgentic is a universal evaluation framework that enables standardized testing o
 3. **Researchers & Component Developers** - Test agentic components (memory, context compression, planning) across different agents and domains.
 4. **Benchmark Builders** - Evaluate your benchmark across multiple agents to ensure meaningful differentiation.
 
+## Resources
+
+| | |
+|---|---|
+| **Leaderboard** | [exgentic.ai](https://www.exgentic.ai) |
+| **Results Dataset** | [open-agent-leaderboard/results](https://huggingface.co/datasets/open-agent-leaderboard/results) |
+| **Leaderboard Space** | [open-agent-leaderboard/leaderboard](https://huggingface.co/spaces/open-agent-leaderboard/leaderboard) |
+| **Paper** | [arXiv:2602.22953](https://arxiv.org/abs/2602.22953) |
+| **Submit Results** | Open a PR on the [results dataset](https://huggingface.co/datasets/open-agent-leaderboard/results) |
+
 ---
 
 ## Quick Start
