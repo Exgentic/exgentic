@@ -405,7 +405,7 @@ class ExgenticAgentExecutor:
             self._fire_and_forget(event_emitter.emit_event(f"✓ Agent initialized with {len(self.action_types)} tools"))
 
             # Agent loop
-            max_iterations = 50
+            max_iterations = 100
             current_observation = None
             final_result = None
             executor = ThreadPoolExecutor(max_workers=1)
@@ -467,7 +467,15 @@ class ExgenticAgentExecutor:
                                 result_json = json.loads(result_text)
                                 if result_json.get("status") == "completed":
                                     self._fire_and_forget(event_emitter.emit_event("✓ Session completed successfully"))
-                                    final_result = "Session completed"
+                                    action_type = next((at for at in self.action_types if at.name == tool_name), None)
+                                    if action_type and (action_type.is_message or action_type.is_finish):
+                                        output_args = {k: v for k, v in args_dict.items() if k != "session_id"}
+                                        if len(output_args) == 1:
+                                            final_result = str(next(iter(output_args.values())))
+                                        else:
+                                            final_result = json.dumps(output_args)
+                                    else:
+                                        final_result = "Session completed"
                                     break
                                 if result_json.get("status") == "success":
                                     results.append(result_json["observation"])
