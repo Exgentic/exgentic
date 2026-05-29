@@ -215,3 +215,32 @@ def test_on_session_creation_called_before_start(ctx, tmp_path):
     creation_idx = observer.calls.index("on_session_creation")
     start_idx = observer.calls.index("on_session_start")
     assert creation_idx < start_idx, "on_session_creation must precede on_session_start"
+
+
+def test_session_error_when_score_raises(ctx, tmp_path):
+    """Regression: a benchmark scorer crash must surface as on_session_error.
+
+    Without this guard the score() exception leaves the session in a
+    half-state on disk (no results.json), which is then re-classified as
+    INCOMPLETE on the next pass and re-run forever in a deterministic
+    crash loop. We instead expect the failure to land in on_session_error
+    so observers (including the results writer) record the outcome.
+    """
+
+    class CrashingScoreSession(MockSession):
+        def score(self):
+            raise RuntimeError("scorer rejected malformed conversation")
+
+    observer = RecordingObserver()
+    run_session(
+        session_config=MagicMock(),
+        session=CrashingScoreSession(),
+        agent=MockAgent(),
+        tracker=Tracker(observers=[observer], use_defaults=False),
+    )
+
+    assert "on_session_scoring" in observer.calls
+    assert "on_session_error" in observer.calls
+    assert "on_session_success" not in observer.calls
+    # Error must land *after* scoring started.
+    assert observer.calls.index("on_session_scoring") < observer.calls.index("on_session_error")
