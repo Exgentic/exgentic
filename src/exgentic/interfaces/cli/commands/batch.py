@@ -826,6 +826,23 @@ def batch_patch_cmd(
         click.echo(f"Done. {changes} session(s) renamed.")
 
 
+# Fields dropped under --slim. Run-scope drops blobs that duplicate
+# --scope=session output; session-scope drops the two JSON-encoded sub-objects.
+_SLIM_EXCLUDE_FIELDS_RUN: set[str] = {
+    "session_results",
+    "executed_session_ids",
+    "planned_session_ids",
+    "aggregated_session_ids",
+    "skipped_session_ids",
+    "skipped_session_reasons",
+    "missing_result_files",
+    "accumulated_agent_report",
+    "accumulated_benchmark_report",
+    "benchmark_results",
+}
+_SLIM_EXCLUDE_FIELDS_SESSION: set[str] = {"cost_reports", "details"}
+
+
 @batch_cmd.command(
     "extract",
     context_settings={"allow_extra_args": True},
@@ -843,25 +860,49 @@ def batch_patch_cmd(
     show_default=True,
     help="CSV output path (use '-' for stdout).",
 )
+@click.option(
+    "--scope",
+    type=click.Choice(["run", "session"]),
+    default="run",
+    show_default=True,
+    help="Granularity: 'run' = one row per config (aggregates), 'session' = one row per task (raw).",
+)
+@click.option(
+    "--slim",
+    is_flag=True,
+    help="Drop bulky/redundant fields. For --scope=run: session_results, *_session_ids, "
+    "accumulated_*_report. For --scope=session: details, cost_reports.",
+)
 @click.pass_context
 def batch_extract_cmd(
     ctx: click.Context,
     config_values: tuple[str, ...],
     output_path: str,
+    scope: str,
+    slim: bool,
 ) -> None:
-    """Extract run results from multiple configs into a single CSV."""
+    """Extract run-level or per-session results into a single CSV."""
     config_paths = _expand_config_inputs(config_values, list(ctx.args))
     failures: list[tuple[str, str]] = []
     rows: list[dict[str, Any]] = []
     all_keys: set[str] = set()
-    preferred_keys = [
-        "config_path",
-        "results_path",
-        "run_id",
-    ]
+
+    if scope == "session":
+        preferred_keys = [
+            "config_path",
+            "run_id",
+            "session_id",
+            "task_id",
+        ]
+    else:
+        preferred_keys = [
+            "config_path",
+            "results_path",
+            "run_id",
+        ]
 
     for config_path in config_paths:
-        results_path = "-"
+        results_path: Any = "-"
         run_id = "-"
         try:
             cfg = _load_run_like_config(config_path)
@@ -874,12 +915,35 @@ def batch_extract_cmd(
                 raise click.ClickException(f"Results JSON is not an object: {results_path}")
             if "benchmark_score" not in payload:
                 raise click.ClickException(f"Missing benchmark_score in results: {results_path}")
-            row: dict[str, Any] = {
+            if scope == "session":
+                session_results = payload.get("session_results")
+                if not isinstance(session_results, list):
+                    raise click.ClickException(f"No session_results list in: {results_path}")
+                for s in session_results:
+                    if not isinstance(s, dict):
+                        continue
+                    row: dict[str, Any] = {
+                        "config_path": config_path,
+                        "run_id": run_id,
+                    }
+                    for key, value in s.items():
+                        if slim and key in _SLIM_EXCLUDE_FIELDS_SESSION:
+                            continue
+                        if key in row:
+                            row[f"session_{key}"] = value
+                        else:
+                            row[key] = value
+                    rows.append(row)
+                    all_keys.update(row.keys())
+                continue
+            row = {
                 "config_path": config_path,
                 "results_path": str(results_path),
                 "run_id": run_id,
             }
             for key, value in payload.items():
+                if slim and key in _SLIM_EXCLUDE_FIELDS_RUN:
+                    continue
                 if key in row:
                     row[f"results_{key}"] = value
                 else:
@@ -888,12 +952,13 @@ def batch_extract_cmd(
             failures.append((config_path, str(exc)))
             row = {
                 "config_path": config_path,
-                "results_path": results_path,
+                "results_path": str(results_path),
                 "run_id": run_id,
                 "error": _format_batch_error(exc),
             }
-        rows.append(row)
-        all_keys.update(row.keys())
+        if scope == "run":
+            rows.append(row)
+            all_keys.update(row.keys())
 
     ordered_keys = [k for k in preferred_keys if k in all_keys]
     ordered_keys.extend(sorted(k for k in all_keys if k not in ordered_keys))
