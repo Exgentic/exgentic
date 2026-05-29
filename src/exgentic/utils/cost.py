@@ -1,9 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
+import json
+import logging
+from pathlib import Path
 from typing import Any, Optional, Self, Sequence, TypeVar
 
 from pydantic import BaseModel, computed_field
+
+_log = logging.getLogger(__name__)
 
 name_map = {
     "claude-3-5-haiku": "claude-3-5-haiku-20241022",
@@ -11,6 +16,59 @@ name_map = {
     "DeepSeek-V3": "deepseek/deepseek-v3",
     "Kimi-K2.5": "moonshot/kimi-k2.5",
 }
+
+_pricing_loaded = False
+
+
+def _load_custom_pricing() -> None:
+    """Load custom model pricing from ~/.exgentic/pricing.json if it exists.
+
+    The pricing file should be a JSON object mapping model names to pricing info:
+    {
+        "my-custom-model": {
+            "input_cost_per_token": 0.0001,
+            "output_cost_per_token": 0.0002,
+            "litellm_provider": "openai"
+        }
+    }
+
+    This allows users to register pricing for custom models without modifying source code.
+    """
+    global _pricing_loaded
+    if _pricing_loaded:
+        return
+
+    _pricing_loaded = True
+
+    pricing_file = Path.home() / ".exgentic" / "pricing.json"
+    if not pricing_file.exists():
+        return
+
+    try:
+        import litellm
+
+        with open(pricing_file) as f:
+            custom_pricing = json.load(f)
+
+        if not isinstance(custom_pricing, dict):
+            _log.warning("Custom pricing file %s is not a JSON object, ignoring", pricing_file)
+            return
+
+        for model_name, pricing_info in custom_pricing.items():
+            if not isinstance(pricing_info, dict):
+                _log.warning("Pricing info for model %s is not a dict, skipping", model_name)
+                continue
+
+            try:
+                litellm.register_model({model_name: pricing_info})
+                _log.debug("Registered custom pricing for model: %s", model_name)
+            except Exception as e:
+                _log.warning("Failed to register pricing for model %s: %s", model_name, e)
+
+    except json.JSONDecodeError as e:
+        _log.warning("Failed to parse custom pricing file %s: %s", pricing_file, e)
+    except Exception as e:
+        _log.warning("Failed to load custom pricing from %s: %s", pricing_file, e)
 
 
 class TokensCost(BaseModel):
@@ -30,6 +88,8 @@ def litellm_cost_per_token(model_name: str):
 
 
 def litellm_tokens_cost(input_tokens: int, output_tokens: int, model_name: str) -> TokensCost:
+    _load_custom_pricing()
+
     for src, dst in name_map.items():
         model_name = model_name.replace(src, dst)
 
@@ -49,7 +109,8 @@ def litellm_tokens_cost(input_tokens: int, output_tokens: int, model_name: str) 
             continue
     raise ValueError(
         f"No pricing info found for model '{model_name}'. "
-        f"Add it to the name_map in exgentic/utils/cost.py or check litellm model support."
+        f"Add it to ~/.exgentic/pricing.json, the name_map in exgentic/utils/cost.py, "
+        f"or check litellm model support."
     )
 
 
