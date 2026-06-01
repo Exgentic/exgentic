@@ -67,157 +67,91 @@ def _set_json_attr(span, key: str, value: Any) -> None:
             span.set_attribute(key, serialized)
 
 
-# ---------------------------------------------------------------------------
-# Spec-shape normalization for content attributes
-# ---------------------------------------------------------------------------
-# `gen_ai.tool.definitions`, `gen_ai.input.messages`, and
-# `gen_ai.output.messages` each have a canonical OTel GenAI shape. LiteLLM
-# hands us whatever the underlying provider used (OpenAI native, Anthropic
-# native, …), so we have to normalize before serializing.
+# OTel GenAI content attributes have canonical shapes. LiteLLM hands us
+# the raw provider format (OpenAI envelope / Anthropic native), so we
+# normalize before serializing.
 
 
 def _normalize_tool_definitions(tools: Any) -> list[dict] | Any:
-    """Normalize each entry to the OTel Tool Definitions JSON Schema shape.
+    """Tool entries → flat `{type:"function", name, description, parameters}`.
 
-    Target shape: `{type, name, description, parameters}`.
-
-    OpenAI native      `{type:"function", function:{name, description, parameters}}`
-    Anthropic native   `{name, description, input_schema}`                     (no type)
-    Spec target        `{type:"function", name, description, parameters}`
+    Handles OpenAI envelope `{type, function:{...}}` and Anthropic native
+    `{name, description, input_schema}` (which has no type).
     """
     if not isinstance(tools, list):
         return tools
-    out: list[dict] = []
+    out = []
     for t in tools:
         if not isinstance(t, dict):
-            out.append(t)
-            continue
-        d: dict[str, Any] = {}
-        ttype = t.get("type")
-        d["type"] = ttype if isinstance(ttype, str) and ttype else "function"
-        # OpenAI envelope: pull body out of `function: {...}`.
-        if "function" in t and isinstance(t["function"], dict):
-            inner = t["function"]
-            for k in ("name", "description", "parameters"):
-                if k in inner:
-                    d[k] = inner[k]
-            for k, v in inner.items():
-                d.setdefault(k, v)
-        # Flat shape (Anthropic / spec): copy direct keys.
-        for k in ("name", "description", "parameters"):
-            if k in t and k not in d:
-                d[k] = t[k]
-        # Anthropic uses `input_schema`; spec uses `parameters`.
-        if "input_schema" in t and "parameters" not in d:
-            d["parameters"] = t["input_schema"]
+            out.append(t); continue
+        # OpenAI envelope → unwrap `function: {...}`.
+        if isinstance(t.get("function"), dict):
+            d = {"type": t.get("type") or "function", **t["function"]}
+        else:
+            d = {**t}
+            d.setdefault("type", "function")
+        # Anthropic `input_schema` → spec `parameters`.
+        if "input_schema" in d and "parameters" not in d:
+            d["parameters"] = d.pop("input_schema")
         out.append(d)
     return out
 
 
+def _block_to_part(blk: dict) -> dict:
+    """One Anthropic content block → one OTel part."""
+    t = blk.get("type")
+    if t == "tool_use":
+        return {"type": "tool_call", "id": blk.get("id", ""),
+                "name": blk.get("name", ""), "arguments": blk.get("input", {})}
+    if t == "tool_result":
+        # Per v2.10 contract: `result` is always a JSON-stringified blocks list.
+        inner = blk.get("content", "")
+        blocks = inner if isinstance(inner, list) else [{"type": "text", "text": str(inner) if inner else ""}]
+        return {"type": "tool_call_response", "id": blk.get("tool_use_id", ""),
+                "result": json.dumps(blocks, ensure_ascii=False, default=str)}
+    if t == "thinking":
+        p = {"type": "thinking", "thinking": blk.get("thinking", "")}
+        if blk.get("signature") is not None:
+            p["signature"] = blk["signature"]
+        return p
+    if t == "image":
+        return {"type": "text", "content": "[image content]"}
+    return {"type": "text", "content": blk.get("text", "") or str(blk)}
+
+
 def _convert_input_messages_to_parts(messages: Any) -> list[dict] | Any:
-    """Convert OpenAI / Anthropic native messages to the OTel parts shape.
+    """Messages → OTel `[{role, parts: [{type, ...}]}]` shape.
 
-    Target shape: `[{role, parts: [{type, ...}]}]`.
-
-    Handles:
-      - role=user/assistant with string content → single text part
-      - role=user with list content (Anthropic blocks):
-            type=text       → text part
-            type=tool_use   → tool_call part
-            type=tool_result → tool_call_response part (multi-block content
-                              preserved as JSON-stringified blocks list per
-                              the v2.10 contract — `json.loads(result)` is
-                              always a list of {type, ...} blocks)
-            type=image      → text placeholder (no image part type in OTel yet)
-      - role=assistant with tool_calls → tool_call parts
-      - role=tool (OpenAI) → tool_call_response part
+    Handles OpenAI native (string content, `tool_calls`, `role=tool`) and
+    Anthropic native (typed content blocks: text/tool_use/tool_result/thinking).
     """
     if not isinstance(messages, list):
         return messages
-    out: list[dict] = []
+    out = []
     for m in messages:
-        if not isinstance(m, dict):
-            continue
+        if not isinstance(m, dict): continue
         role = m.get("role", "")
         content = m.get("content", "")
-        parts: list[dict] = []
-        # OpenAI `tool` role messages: the `content` IS the tool result, not
-        # natural-language text. Skip the text-part path; the tool_call_response
-        # handler below will produce the right part shape.
+        parts = []
         if role == "tool":
-            pass
+            # OpenAI tool message: content is the result itself.
+            c = content if isinstance(content, str) else json.dumps(content, default=str)
+            parts.append({"type": "tool_call_response", "id": m.get("tool_call_id", ""),
+                          "result": json.dumps([{"type": "text", "text": c}], ensure_ascii=False)})
         elif isinstance(content, str):
             if content:
                 parts.append({"type": "text", "content": content})
         elif isinstance(content, list):
-            for blk in content:
-                if not isinstance(blk, dict):
-                    continue
-                btype = blk.get("type")
-                if btype == "text":
-                    parts.append({"type": "text", "content": blk.get("text", "")})
-                elif btype == "tool_use":
-                    parts.append(
-                        {
-                            "type": "tool_call",
-                            "id": blk.get("id", ""),
-                            "name": blk.get("name", ""),
-                            "arguments": blk.get("input", {}),
-                        }
-                    )
-                elif btype == "tool_result":
-                    inner = blk.get("content", "")
-                    # Per v2.10 contract: `result` is always a
-                    # JSON-stringified blocks list, regardless of content.
-                    if isinstance(inner, list):
-                        blocks = inner
-                    elif isinstance(inner, str):
-                        blocks = [{"type": "text", "text": inner}]
-                    else:
-                        blocks = [{"type": "text", "text": str(inner)}]
-                    parts.append(
-                        {
-                            "type": "tool_call_response",
-                            "id": blk.get("tool_use_id", ""),
-                            "result": json.dumps(blocks, ensure_ascii=False, default=str),
-                        }
-                    )
-                elif btype == "thinking":
-                    p = {"type": "thinking", "thinking": blk.get("thinking", "")}
-                    if blk.get("signature") is not None:
-                        p["signature"] = blk["signature"]
-                    parts.append(p)
-                elif btype == "image":
-                    parts.append({"type": "text", "content": "[image content]"})
-                else:
-                    parts.append({"type": "text", "content": blk.get("text", "") or str(blk)})
-        # Assistant tool_calls (OpenAI native)
-        if role == "assistant" and m.get("tool_calls"):
-            for tc in m["tool_calls"]:
-                fn = tc.get("function", {}) if isinstance(tc, dict) else {}
-                args = fn.get("arguments", "") if isinstance(fn, dict) else ""
-                try:
-                    args = json.loads(args) if isinstance(args, str) else args
-                except (json.JSONDecodeError, TypeError):
-                    pass
-                parts.append(
-                    {
-                        "type": "tool_call",
-                        "id": tc.get("id", "") if isinstance(tc, dict) else "",
-                        "name": fn.get("name", "") if isinstance(fn, dict) else "",
-                        "arguments": args,
-                    }
-                )
-        # OpenAI tool message → tool_call_response
-        if role == "tool":
-            c = content if isinstance(content, str) else json.dumps(content, default=str)
-            parts.append(
-                {
-                    "type": "tool_call_response",
-                    "id": m.get("tool_call_id", ""),
-                    "result": json.dumps([{"type": "text", "text": c}], ensure_ascii=False),
-                }
-            )
+            parts.extend(_block_to_part(b) for b in content if isinstance(b, dict))
+        # Assistant tool_calls (OpenAI envelope).
+        for tc in (m.get("tool_calls") or []) if role == "assistant" else ():
+            if not isinstance(tc, dict): continue
+            fn = tc.get("function") or {}
+            args = fn.get("arguments", "")
+            try: args = json.loads(args) if isinstance(args, str) else args
+            except (json.JSONDecodeError, TypeError): pass
+            parts.append({"type": "tool_call", "id": tc.get("id", ""),
+                          "name": fn.get("name", ""), "arguments": args})
         out.append({"role": role, "parts": parts})
     return out
 
