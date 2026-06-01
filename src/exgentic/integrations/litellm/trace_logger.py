@@ -83,7 +83,8 @@ def _normalize_tool_definitions(tools: Any) -> list[dict] | Any:
     out = []
     for t in tools:
         if not isinstance(t, dict):
-            out.append(t); continue
+            out.append(t)
+            continue
         # OpenAI envelope → unwrap `function: {...}`.
         if isinstance(t.get("function"), dict):
             d = {"type": t.get("type") or "function", **t["function"]}
@@ -101,14 +102,21 @@ def _block_to_part(blk: dict) -> dict:
     """One Anthropic content block → one OTel part."""
     t = blk.get("type")
     if t == "tool_use":
-        return {"type": "tool_call", "id": blk.get("id", ""),
-                "name": blk.get("name", ""), "arguments": blk.get("input", {})}
+        return {
+            "type": "tool_call",
+            "id": blk.get("id", ""),
+            "name": blk.get("name", ""),
+            "arguments": blk.get("input", {}),
+        }
     if t == "tool_result":
         # Per v2.10 contract: `result` is always a JSON-stringified blocks list.
         inner = blk.get("content", "")
         blocks = inner if isinstance(inner, list) else [{"type": "text", "text": str(inner) if inner else ""}]
-        return {"type": "tool_call_response", "id": blk.get("tool_use_id", ""),
-                "result": json.dumps(blocks, ensure_ascii=False, default=str)}
+        return {
+            "type": "tool_call_response",
+            "id": blk.get("tool_use_id", ""),
+            "result": json.dumps(blocks, ensure_ascii=False, default=str),
+        }
     if t == "thinking":
         p = {"type": "thinking", "thinking": blk.get("thinking", "")}
         if blk.get("signature") is not None:
@@ -129,15 +137,21 @@ def _convert_input_messages_to_parts(messages: Any) -> list[dict] | Any:
         return messages
     out = []
     for m in messages:
-        if not isinstance(m, dict): continue
+        if not isinstance(m, dict):
+            continue
         role = m.get("role", "")
         content = m.get("content", "")
         parts = []
         if role == "tool":
             # OpenAI tool message: content is the result itself.
             c = content if isinstance(content, str) else json.dumps(content, default=str)
-            parts.append({"type": "tool_call_response", "id": m.get("tool_call_id", ""),
-                          "result": json.dumps([{"type": "text", "text": c}], ensure_ascii=False)})
+            parts.append(
+                {
+                    "type": "tool_call_response",
+                    "id": m.get("tool_call_id", ""),
+                    "result": json.dumps([{"type": "text", "text": c}], ensure_ascii=False),
+                }
+            )
         elif isinstance(content, str):
             if content:
                 parts.append({"type": "text", "content": content})
@@ -145,13 +159,15 @@ def _convert_input_messages_to_parts(messages: Any) -> list[dict] | Any:
             parts.extend(_block_to_part(b) for b in content if isinstance(b, dict))
         # Assistant tool_calls (OpenAI envelope).
         for tc in (m.get("tool_calls") or []) if role == "assistant" else ():
-            if not isinstance(tc, dict): continue
+            if not isinstance(tc, dict):
+                continue
             fn = tc.get("function") or {}
             args = fn.get("arguments", "")
-            try: args = json.loads(args) if isinstance(args, str) else args
-            except (json.JSONDecodeError, TypeError): pass
-            parts.append({"type": "tool_call", "id": tc.get("id", ""),
-                          "name": fn.get("name", ""), "arguments": args})
+            try:
+                args = json.loads(args) if isinstance(args, str) else args
+            except (json.JSONDecodeError, TypeError):
+                pass
+            parts.append({"type": "tool_call", "id": tc.get("id", ""), "name": fn.get("name", ""), "arguments": args})
         out.append({"role": role, "parts": parts})
     return out
 
