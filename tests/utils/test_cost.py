@@ -106,3 +106,12 @@ def test_cost_per_token(name, expected):
 def test_unknown_model_raises():
     with pytest.raises(ValueError, match="No pricing info found"):
         litellm_tokens_cost(model_name="openai/azure/totally-fake-model", input_tokens=100, output_tokens=100)
+
+
+def test_hosted_vllm_model_returns_zero_cost():
+    cost = litellm_tokens_cost(
+        model_name="hosted_vllm/Qwen/Qwen3.5-397B-A17B-FP8",
+        input_tokens=100,
+        output_tokens=100,
+    )
+    assert cost == TokensCost(input_cost=0.0, output_cost=0.0, total_cost=0.0)

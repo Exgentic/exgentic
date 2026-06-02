@@ -36,8 +36,19 @@ from ._utils import (
 from .service import HTTPTransport, _wait_for_health
 from .transport import ObjectProxy
 
-_HEALTH_TIMEOUT = 360.0
-_TRANSPORT_TIMEOUT = 600.0
+
+def _float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+_HEALTH_TIMEOUT = _float_env("EXGENTIC_VENV_HEALTH_TIMEOUT", 360.0)
+_TRANSPORT_TIMEOUT = _float_env("EXGENTIC_VENV_TRANSPORT_TIMEOUT", 600.0)
 
 
 def _uv(*args: str, check: bool = True, **kwargs: Any) -> subprocess.CompletedProcess:

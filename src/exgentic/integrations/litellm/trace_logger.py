@@ -152,6 +152,10 @@ class TraceLogger(CustomLogger):
         from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
         ctx = self.get_context(kwargs)
+        # Handle missing context: return current OTEL context without parent span
+        if ctx is None or ctx.otel_context is None:
+            return context.get_current()
+
         trace_id_hex = ctx.otel_context.trace_id
         span_id_hex = ctx.otel_context.span_id
 

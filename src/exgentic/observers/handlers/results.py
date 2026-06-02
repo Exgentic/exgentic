@@ -2,6 +2,7 @@
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
 import json
+import logging
 import os
 import threading
 import time
@@ -32,6 +33,9 @@ from ...core.types import (
 from ...interfaces.registry import get_agent_entries, get_benchmark_entries
 from ...utils.cost import CostReport, accumulate_reports
 from .session_ledger import SessionLedger
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -240,7 +244,20 @@ class ResultsObserver(Observer):
         success = bool(score.success)
         value = score.score
         is_finished = score.is_finished
-        agent_cost_report = agent.get_cost() if agent is not None else CostReport.initialize_empty()
+        if agent is not None:
+            try:
+                agent_cost_report = agent.get_cost()
+            except Exception as exc:
+                if "No pricing info found for model" in str(exc):
+                    logger.warning(
+                        "Failed to resolve agent pricing; defaulting agent cost to 0.0. error=%s",
+                        exc,
+                    )
+                    agent_cost_report = CostReport.initialize_empty()
+                else:
+                    raise
+        else:
+            agent_cost_report = CostReport.initialize_empty()
         benchmark_cost_report = session.get_cost()
         status = self._resolve_session_status(score)
         from .session_timings import get_session_llm_timings

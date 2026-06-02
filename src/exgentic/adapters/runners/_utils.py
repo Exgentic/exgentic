@@ -77,6 +77,7 @@ _FORWARD_SUFFIXES = (
 # Prefix patterns catch multi-variable providers that use keys without
 # the above suffixes (region names, credential file paths, model IDs).
 _FORWARD_PREFIXES = (
+    "CE_MANAGER_",
     "AWS_",
     "AZURE_",
     "GOOGLE_",
@@ -93,18 +94,34 @@ _FORWARD_PREFIXES = (
 )
 
 
+_FORWARD_EXACT = frozenset({"PYTHONPATH", "HOME", "USER", "LANG", "LC_ALL"})
+
+
 def prepare_subprocess_env() -> dict[str, str]:
     """Build a filtered env dict for subprocess runners (venv, docker).
 
-    Forwards only model-provider credentials, base URLs, and OTEL
-    configuration (see :data:`_FORWARD_SUFFIXES` and
-    :data:`_FORWARD_PREFIXES`).  Exgentic context and settings travel
-    via ``runtime.json`` (see :func:`inject_exgentic_env`), so no
-    ``EXGENTIC_*`` vars need to be forwarded here.
+    Forwards only model-provider credentials, base URLs, OTEL
+    configuration, and a small set of exact-match vars needed for
+    package resolution and locale (see :data:`_FORWARD_SUFFIXES`,
+    :data:`_FORWARD_PREFIXES`, and :data:`_FORWARD_EXACT`).
+
+    ``PYTHONPATH`` is forwarded so that optional packages installed
+    outside the venv (e.g. ``ce_manager``, ``llm_ce_proxy``) remain
+    importable in the child process for CE-Manager bootstrap.
+
+    Exgentic context and settings travel via ``runtime.json``
+    (see :func:`inject_exgentic_env`), so no ``EXGENTIC_*`` vars need
+    to be forwarded here.
     """
     import os
 
-    return {k: v for k, v in os.environ.items() if k.endswith(_FORWARD_SUFFIXES) or k.startswith(_FORWARD_PREFIXES)}
+    return {
+        k: v
+        for k, v in os.environ.items()
+        if k in _FORWARD_EXACT
+        or k.endswith(_FORWARD_SUFFIXES)
+        or k.startswith(_FORWARD_PREFIXES)
+    }
 
 
 def inject_exgentic_env(env: dict[str, str], role: Role | None = None) -> None:
