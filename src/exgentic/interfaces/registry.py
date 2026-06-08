@@ -182,6 +182,13 @@ AGENTS: dict[str, RegistryEntry] = {
         attr="GeminiAgent",
         kind="agent",
     ),
+    "a2a": RegistryEntry(
+        slug_name="a2a",
+        display_name="A2A Agent",
+        module="exgentic.agents.a2a.agent",
+        attr="A2AAgent",
+        kind="agent",
+    ),
 }
 
 

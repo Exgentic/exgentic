@@ -36,6 +36,9 @@ dependencies = [
 exgentic = "exgentic.interfaces.cli.main:main"
 
 [project.optional-dependencies]
+a2a = [
+    "a2a-sdk>=0.2,<1",
+]
 analysis = [
     "matplotlib>=3,<4",
     "numpy>=2,<3",
