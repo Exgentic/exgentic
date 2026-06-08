@@ -31,6 +31,8 @@ class A2AAgent(Agent):
     """URL of the A2A agent endpoint (e.g. ``http://localhost:8080``)."""
 
     max_steps: int = 150
+    timeout: float = 300.0
+    """Seconds to wait for each A2A message exchange before timing out."""
 
     @classmethod
     def _get_instance_class(cls):
@@ -54,4 +56,5 @@ class A2AAgent(Agent):
             "session_id": session_id,
             "agent_url": self.agent_url,
             "max_steps": self.max_steps,
+            "timeout": self.timeout,
         }
