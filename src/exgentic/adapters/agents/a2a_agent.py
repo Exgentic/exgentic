@@ -28,15 +28,14 @@ from typing import Any, Optional
 
 from a2a.client import ClientConfig, ClientFactory
 from a2a.client.client import Client
-from a2a.types import (
+from a2a.types.a2a_pb2 import (
     Message,
     Part,
     Role,
+    SendMessageRequest,
+    StreamResponse,
     Task,
-    TaskArtifactUpdateEvent,
     TaskState,
-    TaskStatusUpdateEvent,
-    TextPart,
 )
 
 from ...core.agent_instance import AgentInstance
@@ -168,17 +167,37 @@ def _extract_text_from_message(message: Message) -> str:
     if not message.parts:
         return ""
     for part in message.parts:
-        # Part is a RootModel; the discriminated union is in part.root
-        inner = part.root
-        if isinstance(inner, TextPart):
-            texts.append(inner.text)
-        elif hasattr(inner, "data") and inner.data is not None:
+        # In a2a-sdk v1.x, Part is a protobuf message with a ``text`` oneof field.
+        if part.HasField("text"):
+            texts.append(part.text)
+        elif part.HasField("data"):
             # DataPart — serialize its structured data
+            from google.protobuf.json_format import MessageToDict  # noqa: PLC0415
+
             try:
-                texts.append(json.dumps(inner.data))
+                texts.append(json.dumps(MessageToDict(part.data)))
             except (TypeError, ValueError):
-                texts.append(str(inner.data))
+                texts.append(str(part.data))
     return "\n".join(texts)
+
+
+def _extract_text_from_task(task: Task) -> str:
+    """Extract text from a Task's status message and artifacts."""
+    parts: list[str] = []
+
+    # Check task status message
+    if task.status and task.status.HasField("message"):
+        status_text = _extract_text_from_message(task.status.message)
+        if status_text:
+            parts.append(status_text)
+
+    # Check artifacts
+    for artifact in task.artifacts:
+        for part in artifact.parts:
+            if part.HasField("text") and part.text:
+                parts.append(part.text)
+
+    return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -279,119 +298,131 @@ class A2AAgentInstance(AgentInstance):
     async def _async_init_client(self) -> Client:
         """Lazily initialize the A2A client via ClientFactory."""
         if self._client is None:
-            config = ClientConfig(streaming=True)
-            self._client = await ClientFactory.connect(
-                self._agent_url,
-                client_config=config,
-            )
+            import httpx
+
+            httpx_client = httpx.AsyncClient(timeout=httpx.Timeout(self._timeout))
+            config = ClientConfig(streaming=False, httpx_client=httpx_client)
+            factory = ClientFactory(config)
+            try:
+                self._client = await factory.create_from_url(self._agent_url)
+            except ValueError:
+                # Agent card may not include supportedInterfaces — fall back
+                # to constructing a card with the known URL and JSON-RPC binding.
+                from a2a.types import AgentCard, AgentInterface, AgentCapabilities
+
+                jsonrpc_url = self._agent_url.rstrip("/") + "/jsonrpc"
+                card = AgentCard(
+                    name="a2a-agent",
+                    version="1.0.0",
+                    capabilities=AgentCapabilities(),
+                    supported_interfaces=[
+                        AgentInterface(
+                            url=jsonrpc_url,
+                            protocol_binding="JSONRPC",
+                        ),
+                    ],
+                )
+                self._client = factory.create(card)
         return self._client
 
     async def _async_send(self, text: str) -> str:
         """Send a message to the A2A agent and return the response text.
 
-        Uses ``Client.send_message`` which takes a :class:`Message` directly
-        and returns an async iterator yielding either:
-        - ``tuple[Task, TaskStatusUpdateEvent | TaskArtifactUpdateEvent | None]``
-        - ``Message``
+        Uses ``Client.send_message`` which yields ``StreamResponse`` protobuf
+        messages with a ``payload`` oneof of ``task``, ``message``,
+        ``status_update``, or ``artifact_update``.
         """
         client = await self._async_init_client()
 
-        # Build the A2A Message using the SDK helper pattern
+        # Build the A2A SendMessageRequest using protobuf types
         message = Message(
-            role=Role.user,
-            parts=[Part(root=TextPart(text=text))],
+            role=Role.ROLE_USER,
+            parts=[Part(text=text)],
             message_id=str(uuid.uuid4()),
             context_id=self._context_id,
-            task_id=self._task_id,
         )
+        # Attach task_id if we have one from a previous exchange
+        if self._task_id:
+            message.task_id = self._task_id
+
+        request = SendMessageRequest(message=message)
 
         response_text = ""
         try:
-            async for event in client.send_message(message):
-                # Client.send_message yields either:
-                #   - tuple[Task, update_event | None]  (task lifecycle)
-                #   - Message                           (message-only)
-                if isinstance(event, Message):
-                    msg_text = _extract_text_from_message(event)
+            async for stream_resp in client.send_message(request):
+                # stream_resp is a StreamResponse protobuf with a payload oneof
+                if not isinstance(stream_resp, StreamResponse):
+                    continue
+
+                if stream_resp.HasField("message"):
+                    msg = stream_resp.message
+                    msg_text = _extract_text_from_message(msg)
                     if msg_text:
                         response_text = msg_text
-                elif isinstance(event, tuple):
-                    task_obj, update_event = event
-                    if isinstance(task_obj, Task):
-                        self._task_id = task_obj.id
 
-                        # Check task status message
-                        if task_obj.status and task_obj.status.message:
-                            status_text = _extract_text_from_message(
-                                task_obj.status.message
+                elif stream_resp.HasField("task"):
+                    task_obj = stream_resp.task
+                    self._task_id = task_obj.id
+
+                    # Extract text from task
+                    task_text = _extract_text_from_task(task_obj)
+                    if task_text:
+                        response_text = task_text
+
+                    # Handle task state transitions
+                    if task_obj.status:
+                        state = task_obj.status.state
+                        if state in (
+                            TaskState.TASK_STATE_COMPLETED,
+                            TaskState.TASK_STATE_FAILED,
+                            TaskState.TASK_STATE_CANCELED,
+                            TaskState.TASK_STATE_REJECTED,
+                        ):
+                            # Terminal state: clear task_id so the next
+                            # send creates a new task within the same
+                            # context (same context_id).
+                            self._task_id = None
+
+                        if state == TaskState.TASK_STATE_FAILED:
+                            if not response_text:
+                                response_text = "Agent task failed"
+                            logger.warning(
+                                "A2A task %s failed: %s",
+                                task_obj.id,
+                                response_text[:200],
                             )
-                            if status_text:
-                                response_text = status_text
-
-                        # Check artifacts for response content
-                        if task_obj.artifacts:
-                            for artifact in task_obj.artifacts:
-                                for part in artifact.parts:
-                                    inner = part.root
-                                    if isinstance(inner, TextPart) and inner.text:
-                                        if response_text:
-                                            response_text += "\n"
-                                        response_text += inner.text
-
-                        # Handle task state transitions
-                        if task_obj.status:
-                            state = task_obj.status.state
-                            if state in (
-                                TaskState.completed,
-                                TaskState.failed,
-                                TaskState.canceled,
-                                TaskState.rejected,
-                            ):
-                                # Terminal state: clear task_id so the next
-                                # send creates a new task within the same
-                                # context (same context_id).  This is
-                                # how A2A multi-turn works.
-                                self._task_id = None
-
-                            if state == TaskState.failed:
-                                if not response_text:
-                                    response_text = "Agent task failed"
-                                logger.warning(
-                                    "A2A task %s failed: %s",
-                                    task_obj.id,
-                                    response_text[:200],
-                                )
-                            elif state == TaskState.rejected:
-                                if not response_text:
-                                    response_text = "Agent rejected the task"
-                                logger.warning(
-                                    "A2A task %s rejected", task_obj.id
-                                )
-                            elif state == TaskState.input_required:
-                                # The agent needs more input — keep the
-                                # task_id so we continue the same task
-                                self._task_id = task_obj.id
-                                logger.info(
-                                    "A2A task %s requires additional input",
-                                    task_obj.id,
-                                )
-
-                    # Process status update events for additional text
-                    if isinstance(update_event, TaskStatusUpdateEvent):
-                        if update_event.status and update_event.status.message:
-                            update_text = _extract_text_from_message(
-                                update_event.status.message
+                        elif state == TaskState.TASK_STATE_REJECTED:
+                            if not response_text:
+                                response_text = "Agent rejected the task"
+                            logger.warning(
+                                "A2A task %s rejected", task_obj.id
                             )
-                            if update_text:
-                                response_text = update_text
-                    elif isinstance(update_event, TaskArtifactUpdateEvent):
-                        if update_event.artifact:
-                            for part in update_event.artifact.parts:
-                                inner = part.root
-                                if isinstance(inner, TextPart) and inner.text:
-                                    if response_text:
-                                        response_text += "\n"
-                                    response_text += inner.text
+                        elif state == TaskState.TASK_STATE_INPUT_REQUIRED:
+                            # The agent needs more input — keep the
+                            # task_id so we continue the same task
+                            self._task_id = task_obj.id
+                            logger.info(
+                                "A2A task %s requires additional input",
+                                task_obj.id,
+                            )
+
+                elif stream_resp.HasField("status_update"):
+                    update = stream_resp.status_update
+                    if update.status and update.status.HasField("message"):
+                        update_text = _extract_text_from_message(
+                            update.status.message
+                        )
+                        if update_text:
+                            response_text = update_text
+
+                elif stream_resp.HasField("artifact_update"):
+                    artifact = stream_resp.artifact_update
+                    if artifact.HasField("artifact"):
+                        for part in artifact.artifact.parts:
+                            if part.HasField("text") and part.text:
+                                if response_text:
+                                    response_text += "\n"
+                                response_text += part.text
 
         except Exception as exc:
             logger.error("A2A send_message failed: %s", exc, exc_info=True)
