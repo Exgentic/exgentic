@@ -114,11 +114,12 @@ def _build_system_prompt(
                 example_args[pname] = "value"
 
     parts.append("\n## Response Format\n")
-    parts.append("Respond with ONLY a JSON object, nothing else:\n")
-    parts.append(f'```json\n{{"action": "{example_action}", "arguments": {json.dumps(example_args)}}}\n```\n')
-    parts.append("Do NOT include any text before or after the JSON.\n")
+    parts.append("You MUST respond with ONLY a valid JSON object. No explanation, no markdown, no text.\n")
+    parts.append(f'Example: {{"action": "{example_action}", "arguments": {json.dumps(example_args)}}}\n')
     if finish_actions:
-        parts.append(f"When you have the final answer, use the `{finish_actions[0]}` action.\n")
+        parts.append(f'\nWhen you have the final numerical answer, submit it:\n')
+        parts.append(f'{{"action": "{finish_actions[0]}", "arguments": {{"answer": 42}}}}\n')
+    parts.append("\nIMPORTANT: Output ONLY the JSON. No thinking, no explanation, no text before or after.\n")
 
     return "".join(parts)
 
@@ -162,8 +163,16 @@ def _parse_agent_response(
     try:
         data = json.loads(json_text)
     except (json.JSONDecodeError, ValueError):
-        # Fall back to message action
-        return MessageAction(arguments=ExgMessage(content=text))
+        # Try to find JSON object within the text
+        brace_start = json_text.find("{")
+        brace_end = json_text.rfind("}")
+        if brace_start >= 0 and brace_end > brace_start:
+            try:
+                data = json.loads(json_text[brace_start : brace_end + 1])
+            except (json.JSONDecodeError, ValueError):
+                return MessageAction(arguments=ExgMessage(content=text))
+        else:
+            return MessageAction(arguments=ExgMessage(content=text))
 
     if not isinstance(data, dict):
         return MessageAction(arguments=ExgMessage(content=text))
