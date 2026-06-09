@@ -240,14 +240,14 @@ class TestBuildSystemPrompt:
 
 class TestExtractTextFromMessage:
     def test_text_parts(self):
-        from a2a.types import Message, Part, Role, TextPart
+        from a2a.types import Message, Part, Role
         from exgentic.adapters.agents.a2a_agent import _extract_text_from_message
 
         msg = Message(
-            role=Role.agent,
+            role=Role.ROLE_AGENT,
             parts=[
-                Part(root=TextPart(text="Hello")),
-                Part(root=TextPart(text="World")),
+                Part(text="Hello"),
+                Part(text="World"),
             ],
             message_id="test-1",
         )
@@ -259,7 +259,7 @@ class TestExtractTextFromMessage:
         from exgentic.adapters.agents.a2a_agent import _extract_text_from_message
 
         msg = Message(
-            role=Role.agent,
+            role=Role.ROLE_AGENT,
             parts=[],
             message_id="test-2",
         )
@@ -267,12 +267,12 @@ class TestExtractTextFromMessage:
         assert text == ""
 
     def test_single_text_part(self):
-        from a2a.types import Message, Part, Role, TextPart
+        from a2a.types import Message, Part, Role
         from exgentic.adapters.agents.a2a_agent import _extract_text_from_message
 
         msg = Message(
-            role=Role.agent,
-            parts=[Part(root=TextPart(text="Just one"))],
+            role=Role.ROLE_AGENT,
+            parts=[Part(text="Just one")],
             message_id="test-3",
         )
         assert _extract_text_from_message(msg) == "Just one"
