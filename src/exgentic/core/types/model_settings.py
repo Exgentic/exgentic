@@ -18,6 +18,7 @@ class ModelSettings(BaseModel):
     top_p: float | None = None
     max_tokens: int | None = None
     reasoning_effort: str | None = None
+    tool_choice: str | None = None
     num_retries: int | None = 5
     retry_after: float = 0.5
     retry_strategy: RetryStrategy = RetryStrategy.EXPONENTIAL_BACKOFF

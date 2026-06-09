@@ -325,6 +325,7 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
             model=self.model,
             messages=self.messages,
             tools=self._assistant_tools(),
+            **({"tool_choice": self.model_settings.tool_choice} if self.model_settings.tool_choice else {}),
             caching=self._use_cache,
         )
 
@@ -368,7 +369,9 @@ class LiteLLMToolCallingAgentInstance(AgentInstance):
     def _completion(self, **kwargs):
         call_kwargs = self.model_settings.model_dump(
             exclude_none=True,
-            exclude={"num_retries", "retry_after", "retry_strategy"},
+            # tool_choice is applied explicitly on the action completion only, never on
+            # the (tool-less) shortlisting completion, so keep it out of the generic dump.
+            exclude={"num_retries", "retry_after", "retry_strategy", "tool_choice"},
         )
         call_kwargs.update(self._litellm_params_extra)
         call_kwargs.update(kwargs)
