@@ -63,6 +63,7 @@ def _action_types_to_schema(actions: list[ActionType]) -> list[dict[str, Any]]:
         entry: dict[str, Any] = {
             "name": at.name,
             "description": at.description,
+            "is_finish": at.is_finish,
         }
         arg_model = at.arguments
         if arg_model is not None and hasattr(arg_model, "model_json_schema"):
@@ -86,13 +87,39 @@ def _build_system_prompt(
     if context:
         for key, value in context.items():
             parts.append(f"\n<{key}>\n{value}\n</{key}>")
-    parts.append(
-        "\n\nYou MUST respond with a JSON object selecting one of the following actions:\n"
-    )
-    parts.append(json.dumps(action_schemas, indent=2))
-    parts.append(
-        '\n\nRespond with: {"action": "<action_name>", "arguments": {<action_arguments>}}'
-    )
+
+    # Build action descriptions with examples
+    parts.append("\n\n## Available Actions\n")
+    parts.append("You MUST respond with ONLY a JSON object. No other text.\n\n")
+    for schema in action_schemas:
+        parts.append(f"- **{schema['name']}**: {schema.get('description', '')}\n")
+        if "parameters" in schema:
+            props = schema["parameters"].get("properties", {})
+            req = schema["parameters"].get("required", [])
+            for pname, pinfo in props.items():
+                opt = "" if pname in req else " (optional)"
+                parts.append(f"  - `{pname}` ({pinfo.get('type', 'any')}){opt}: {pinfo.get('description', '')}\n")
+
+    # Explicit format instruction with example
+    finish_actions = [s["name"] for s in action_schemas if s.get("is_finish")]
+    example_action = action_schemas[0]["name"] if action_schemas else "action_name"
+    example_args = {}
+    if action_schemas and "parameters" in action_schemas[0]:
+        for pname, pinfo in action_schemas[0]["parameters"].get("properties", {}).items():
+            if pinfo.get("type") == "integer":
+                example_args[pname] = 42
+            elif pinfo.get("type") == "string":
+                example_args[pname] = "example"
+            else:
+                example_args[pname] = "value"
+
+    parts.append("\n## Response Format\n")
+    parts.append("Respond with ONLY a JSON object, nothing else:\n")
+    parts.append(f'```json\n{{"action": "{example_action}", "arguments": {json.dumps(example_args)}}}\n```\n')
+    parts.append("Do NOT include any text before or after the JSON.\n")
+    if finish_actions:
+        parts.append(f"When you have the final answer, use the `{finish_actions[0]}` action.\n")
+
     return "".join(parts)
 
 
@@ -279,6 +306,7 @@ class A2AAgentInstance(AgentInstance):
         """Send initial prompt to the A2A agent with task + context + action schemas."""
         super().start(task, context, actions)
         self._actions = list(actions)
+        self._task_text = task
 
         # Build the system prompt that tells the agent what actions are available
         action_schemas = _action_types_to_schema(self._actions)
@@ -439,10 +467,19 @@ class A2AAgentInstance(AgentInstance):
             self.logger.warning("Finished: max steps reached (%d)", self.max_steps)
             return None
 
-        # Build observation text to send
+        # Build observation text to send, including action context
         obs_text = self._observation_to_text(observation)
         if obs_text is None:
             return None
+
+        # Re-include task and action schemas — the A2A server may not maintain
+        # conversation history, so each message must be self-contained.
+        action_schemas = _action_types_to_schema(self._actions)
+        obs_text = _build_system_prompt(
+            self._task_text,
+            {},
+            action_schemas,
+        ) + f"\n\nPrevious action result:\n{obs_text}\n\nNow choose your next action."
 
         # Send to A2A agent
         self.logger.info("Sending observation to A2A agent (step %d)", self._step_count)
