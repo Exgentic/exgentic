@@ -3,6 +3,7 @@
 
 import functools
 import logging
+import os
 from abc import abstractmethod
 from collections.abc import Callable
 
@@ -50,11 +51,19 @@ class SmolagentBaseAgentInstance(CodeAgentInstance):
         self._model = None
 
         # Check model accessibility
+        _health_timeout_env = os.environ.get("EXGENTIC_MODEL_HEALTH_TIMEOUT")
+        _health_kwargs: dict = {}
+        if _health_timeout_env:
+            try:
+                _health_kwargs["timeout"] = float(_health_timeout_env)
+            except ValueError:
+                pass
         check_model_accessible_sync(
             self.model_id,
             logger=self.logger,
             model_settings=self.model_settings,
             litellm_params_extra=self._litellm_params_extra,
+            **_health_kwargs,
         )
 
     def run_code_agent(self, functions: list[Callable]) -> None:
