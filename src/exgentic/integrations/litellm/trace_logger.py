@@ -67,6 +67,111 @@ def _set_json_attr(span, key: str, value: Any) -> None:
             span.set_attribute(key, serialized)
 
 
+# OTel GenAI content attributes have canonical shapes. LiteLLM hands us
+# the raw provider format (OpenAI envelope / Anthropic native), so we
+# normalize before serializing.
+
+
+def _normalize_tool_definitions(tools: Any) -> list[dict] | Any:
+    """Tool entries → flat `{type:"function", name, description, parameters}`.
+
+    Handles OpenAI envelope `{type, function:{...}}` and Anthropic native
+    `{name, description, input_schema}` (which has no type).
+    """
+    if not isinstance(tools, list):
+        return tools
+    out = []
+    for t in tools:
+        if not isinstance(t, dict):
+            out.append(t)
+            continue
+        # OpenAI envelope → unwrap `function: {...}`.
+        if isinstance(t.get("function"), dict):
+            d = {"type": t.get("type") or "function", **t["function"]}
+        else:
+            d = {**t}
+            d.setdefault("type", "function")
+        # Anthropic `input_schema` → spec `parameters`.
+        if "input_schema" in d and "parameters" not in d:
+            d["parameters"] = d.pop("input_schema")
+        out.append(d)
+    return out
+
+
+def _block_to_part(blk: dict) -> dict:
+    """One Anthropic content block → one OTel part."""
+    t = blk.get("type")
+    if t == "tool_use":
+        return {
+            "type": "tool_call",
+            "id": blk.get("id", ""),
+            "name": blk.get("name", ""),
+            "arguments": blk.get("input", {}),
+        }
+    if t == "tool_result":
+        # Per v2.10 contract: `result` is always a JSON-stringified blocks list.
+        inner = blk.get("content", "")
+        blocks = inner if isinstance(inner, list) else [{"type": "text", "text": str(inner) if inner else ""}]
+        return {
+            "type": "tool_call_response",
+            "id": blk.get("tool_use_id", ""),
+            "result": json.dumps(blocks, ensure_ascii=False, default=str),
+        }
+    if t == "thinking":
+        p = {"type": "thinking", "thinking": blk.get("thinking", "")}
+        if blk.get("signature") is not None:
+            p["signature"] = blk["signature"]
+        return p
+    if t == "image":
+        return {"type": "text", "content": "[image content]"}
+    return {"type": "text", "content": blk.get("text", "") or str(blk)}
+
+
+def _convert_input_messages_to_parts(messages: Any) -> list[dict] | Any:
+    """Messages → OTel `[{role, parts: [{type, ...}]}]` shape.
+
+    Handles OpenAI native (string content, `tool_calls`, `role=tool`) and
+    Anthropic native (typed content blocks: text/tool_use/tool_result/thinking).
+    """
+    if not isinstance(messages, list):
+        return messages
+    out = []
+    for m in messages:
+        if not isinstance(m, dict):
+            continue
+        role = m.get("role", "")
+        content = m.get("content", "")
+        parts = []
+        if role == "tool":
+            # OpenAI tool message: content is the result itself.
+            c = content if isinstance(content, str) else json.dumps(content, default=str)
+            parts.append(
+                {
+                    "type": "tool_call_response",
+                    "id": m.get("tool_call_id", ""),
+                    "result": json.dumps([{"type": "text", "text": c}], ensure_ascii=False),
+                }
+            )
+        elif isinstance(content, str):
+            if content:
+                parts.append({"type": "text", "content": content})
+        elif isinstance(content, list):
+            parts.extend(_block_to_part(b) for b in content if isinstance(b, dict))
+        # Assistant tool_calls (OpenAI envelope).
+        for tc in (m.get("tool_calls") or []) if role == "assistant" else ():
+            if not isinstance(tc, dict):
+                continue
+            fn = tc.get("function") or {}
+            args = fn.get("arguments", "")
+            try:
+                args = json.loads(args) if isinstance(args, str) else args
+            except (json.JSONDecodeError, TypeError):
+                pass
+            parts.append({"type": "tool_call", "id": tc.get("id", ""), "name": fn.get("name", ""), "arguments": args})
+        out.append({"role": role, "parts": parts})
+    return out
+
+
 class TraceLogger(CustomLogger):
     def __init__(self, file_path: str | None = None) -> None:
         super().__init__()
@@ -382,8 +487,23 @@ class TraceLogger(CustomLogger):
 
     @staticmethod
     def _set_content_attributes(span, kwargs: dict[str, Any], response_obj: dict[str, Any]) -> None:
-        _set_json_attr(span, "gen_ai.tool.definitions", kwargs.get("tools"))
-        _set_json_attr(span, "gen_ai.input.messages", kwargs.get("messages"))
+        # Tool definitions must follow the OTel JSON Schema shape (flat keys,
+        # required `type` and `name`). LiteLLM may hand us OpenAI native shape
+        # (`{type, function: {...}}`) or Anthropic native shape (no `type`).
+        _set_json_attr(
+            span,
+            "gen_ai.tool.definitions",
+            _normalize_tool_definitions(kwargs.get("tools")),
+        )
+        # Input messages must be in OTel `[{role, parts: [...]}]` shape. The
+        # raw provider format (OpenAI or Anthropic native) needs converting so
+        # downstream consumers don't see vendor-specific block structures
+        # leaking through as text.
+        _set_json_attr(
+            span,
+            "gen_ai.input.messages",
+            _convert_input_messages_to_parts(kwargs.get("messages")),
+        )
 
         if not response_obj:
             return
@@ -404,12 +524,21 @@ class TraceLogger(CustomLogger):
 
             for tc in _safe_get(message, "tool_calls") or []:
                 func = _safe_get(tc, "function", {})
+                # OpenAI hands us `arguments` as a JSON-encoded string;
+                # downstream OTel consumers want the deserialized dict so a
+                # follow-on `args["command"]` works. Decode best-effort.
+                args = _safe_get(func, "arguments")
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
                 output_msg["parts"].append(
                     {
                         "type": "tool_call",
                         "id": _safe_get(tc, "id"),
                         "name": _safe_get(func, "name"),
-                        "arguments": _safe_get(func, "arguments"),
+                        "arguments": args,
                     }
                 )
 
