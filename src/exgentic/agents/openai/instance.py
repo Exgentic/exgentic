@@ -207,6 +207,7 @@ class OpenAIMCPAgentInstance(MCPAgentInstance):
                     max_tokens=self.model_settings.max_tokens,
                     top_p=self.model_settings.top_p,
                     reasoning=(Reasoning(effort=reasoning_effort) if reasoning_effort is not None else None),
+                    tool_choice=self.model_settings.tool_choice,
                 )
                 num_retries = self.model_settings.num_retries or 0
                 retry_after = self.model_settings.retry_after

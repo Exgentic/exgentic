@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -160,3 +161,79 @@ def test_cli_agent_subclasses_forward_extras_to_base(module_path, class_name):
 
     assert agent._litellm_params_extra == EXTRAS
     assert health.call_args.kwargs["litellm_params_extra"] == EXTRAS
+
+
+class _FakeActionResponse(dict):
+    """Minimal litellm response shaped for the action completion in ``react``."""
+
+    def __init__(self):
+        super().__init__(
+            choices=[{"message": SimpleNamespace(content="done", tool_calls=None), "finish_reason": "stop"}]
+        )
+        self.usage = SimpleNamespace(prompt_tokens=1, completion_tokens=1)
+
+
+class _FakeShortlistResponse:
+    """Minimal litellm response shaped for the tool-shortlisting completion."""
+
+    def __init__(self):
+        self.choices = [SimpleNamespace(message={"content": ""})]
+        self.usage = SimpleNamespace(prompt_tokens=1, completion_tokens=1)
+
+
+def _make_tool_calling_agent(tool_choice):
+    from exgentic.agents.litellm_tool_calling import instance as mod
+    from exgentic.core.types import ModelSettings
+
+    with patch.object(mod, "check_model_accessible_sync"):
+        return mod.LiteLLMToolCallingAgentInstance(
+            session_id="s1",
+            model="openai/gpt-4o-mini",
+            model_settings=ModelSettings(tool_choice=tool_choice),
+        )
+
+
+def test_tool_choice_forwarded_on_action_completion():
+    agent = _make_tool_calling_agent("required")
+    agent.enable_tool_shortlisting = False
+    agent._registry = MagicMock()
+    agent._registry.openai_tools.return_value = []
+
+    captured = []
+    agent._completion_with_retries = lambda call_kwargs: (captured.append(call_kwargs), _FakeActionResponse())[1]
+
+    agent.react(None)
+
+    assert captured[0]["tool_choice"] == "required"
+
+
+def test_tool_choice_absent_on_shortlist_completion():
+    agent = _make_tool_calling_agent("required")
+    agent.enable_tool_shortlisting = True
+    agent.max_selected_tools = 1
+    agent._registry = MagicMock()
+    agent._registry.openai_tools.return_value = [
+        {"function": {"name": "a", "description": "tool a"}},
+        {"function": {"name": "b", "description": "tool b"}},
+    ]
+
+    captured = []
+    agent._completion_with_retries = lambda call_kwargs: (captured.append(call_kwargs), _FakeShortlistResponse())[1]
+
+    agent._assistant_tools()
+
+    assert "tool_choice" not in captured[0]
+
+
+def test_tool_choice_absent_on_action_completion_when_unset():
+    agent = _make_tool_calling_agent(None)
+    agent.enable_tool_shortlisting = False
+    agent._registry = MagicMock()
+    agent._registry.openai_tools.return_value = []
+
+    captured = []
+    agent._completion_with_retries = lambda call_kwargs: (captured.append(call_kwargs), _FakeActionResponse())[1]
+
+    agent.react(None)
+
+    assert "tool_choice" not in captured[0]

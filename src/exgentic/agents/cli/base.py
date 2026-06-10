@@ -133,6 +133,8 @@ class ProxyBackedMCPAgentInstance(MCPAgentInstance, abc.ABC):
             self.model_settings = model_settings
         else:
             raise ValueError("model_settings must be a ModelSettings instance.")
+        if self.model_settings.tool_choice is not None:
+            self.logger.warning("tool_choice is not supported by this agent (it owns its tool-call loop); ignoring it.")
         self._litellm_params_extra: dict[str, object] = dict(litellm_params_extra or {})
 
         # Check model accessibility
