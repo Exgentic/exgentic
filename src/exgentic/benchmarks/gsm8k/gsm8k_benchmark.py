@@ -156,7 +156,7 @@ class GSM8kSession(Session):
         if session_id is not None:
             self._session_id = session_id
         idx = int(task_id)
-        row = load_dataset("gsm8k", "main", split=f"test[{idx}:{idx + 1}]")[0]
+        row = load_dataset("openai/gsm8k", "main", split=f"test[{idx}:{idx + 1}]")[0]
         self._question = row["question"]
         self._answer = row["answer"]
         self._task_id = idx
