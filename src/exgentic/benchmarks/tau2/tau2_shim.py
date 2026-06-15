@@ -48,7 +48,7 @@ from tau2.data_model.message import (  # noqa: E402
     ToolMessage,
     UserMessage,
 )
-from tau2.data_model.simulation import Results, RunConfig, TerminationReason  # noqa: E402
+from tau2.data_model.simulation import Results, TextRunConfig as RunConfig, TerminationReason  # noqa: E402
 from tau2.environment.tool import Tool  # noqa: E402
 from tau2.metrics.agent_metrics import compute_metrics, is_successful  # noqa: E402
 from tau2.registry import registry  # noqa: E402

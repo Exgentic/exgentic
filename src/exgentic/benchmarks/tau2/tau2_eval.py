@@ -239,9 +239,15 @@ class TAU2Session(PairableProxySession):
 
         def _runner():
             self.logger.debug(f"Runner started PID:{os.getpid()}")
+            # Ensure litellm uses the correct Vertex AI location for Gemini 3.x models
+            import litellm as _litellm
+            if os.environ.get("VERTEXAI_LOCATION"):
+                _litellm.vertex_location = os.environ["VERTEXAI_LOCATION"]
+            if os.environ.get("VERTEXAI_PROJECT"):
+                _litellm.vertex_project = os.environ["VERTEXAI_PROJECT"]
             agent_name = self._cfg.agent
             if agent_name not in registry.get_agents():
-                registry.register_agent(TAU2ProxyAgent, agent_name)
+                registry.register_agent_factory(factory=TAU2ProxyAgent, name=agent_name)
             # Prepare session log path and redirect Tau2 console + prints
             log_fh = open(self.paths.benchmark_dir / "tau2_session.log", "a", encoding="utf-8")
             prev_console = ConsoleDisplay.console
