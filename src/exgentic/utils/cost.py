@@ -19,6 +19,11 @@ class TokensCost(BaseModel):
     total_cost: float
 
 
+def _is_unpriced_rits_model(model_name: str) -> bool:
+    lower = model_name.lower()
+    return lower.startswith("hosted_vllm/") or lower.startswith("rits/")
+
+
 def _cost_per_token(*, model: str, prompt_tokens: int, completion_tokens: int):
     from litellm.cost_calculator import cost_per_token
 
@@ -30,6 +35,9 @@ def litellm_cost_per_token(model_name: str):
 
 
 def litellm_tokens_cost(input_tokens: int, output_tokens: int, model_name: str) -> TokensCost:
+    if _is_unpriced_rits_model(model_name):
+        return TokensCost(input_cost=0.0, output_cost=0.0, total_cost=0.0)
+
     for src, dst in name_map.items():
         model_name = model_name.replace(src, dst)
 

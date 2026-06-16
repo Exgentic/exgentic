@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import threading
 from pathlib import Path
 from shutil import copytree
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
@@ -68,6 +69,7 @@ class AppWorldSession(Session):
     CACHE_DIR: ClassVar[str] = "./appworld_disk_cache"
     TASK_OUTPUT_SUBDIR: ClassVar[str] = "task_output"
     SCORES_FILE_NAME: ClassVar[str] = "scores.json"
+    _APPWORLD_INIT_LOCK: ClassVar[threading.Lock] = threading.Lock()
 
     def __init__(
         self,
@@ -116,7 +118,7 @@ class AppWorldSession(Session):
         # check_same_thread=True, causing ProgrammingError.
         self._patch_appworld_sqlite()
 
-        self._world: AppWorld = AppWorld(task_id=self._task_id, **self._env_kwargs)
+        self._world: AppWorld = self._create_world(task_id=self._task_id, env_kwargs=self._env_kwargs)
         self._experiment_name: str = self._world.experiment_name or DEFAULT_EXPERIMENT_NAME
         self._task_output_dir: Path = (
             Path(path_store.experiment_outputs) / self._experiment_name / "tasks" / self._task_id
@@ -124,6 +126,19 @@ class AppWorldSession(Session):
 
         self.logger.info(f"Task ID: {task_id}")
         super().__init__()
+
+    @staticmethod
+    def _create_world(task_id: str, env_kwargs: dict[str, Any]):
+        """Construct AppWorld under a global lock.
+
+        AppWorld initialization calls global cache cleanup routines that are not
+        thread-safe in some versions. Serializing construction avoids races like
+        "dictionary changed size during iteration" when sessions start in parallel.
+        """
+        from appworld.environment import AppWorld  # type: ignore
+
+        with AppWorldSession._APPWORLD_INIT_LOCK:
+            return AppWorld(task_id=task_id, **env_kwargs)
 
     @staticmethod
     def _patch_appworld_sqlite() -> None:

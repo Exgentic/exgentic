@@ -801,6 +801,43 @@ class TestTraceLoggerParentContext:
         # tracer methods should not have been called
         logger._tracer.start_span.assert_not_called()
 
+    def test_get_parent_context_handles_none_context(self):
+        """_get_parent_context returns current OTEL context when get_context returns None."""
+        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from opentelemetry import context as otel_context
+
+        logger = TraceLogger()
+        
+        with patch.object(logger, "get_context", return_value=None):
+            parent_ctx = logger._get_parent_context({})
+        
+        # Should return current OTEL context without raising AttributeError
+        assert parent_ctx is not None
+        # Verify it's the current context (same object)
+        assert parent_ctx == otel_context.get_current()
+
+    def test_get_parent_context_handles_missing_otel_context(self):
+        """_get_parent_context returns current OTEL context when otel_context is None."""
+        from exgentic.integrations.litellm.trace_logger import TraceLogger
+        from opentelemetry import context as otel_context
+
+        ctx = Context(
+            run_id="run-1",
+            output_dir="/tmp",
+            cache_dir="/tmp",
+            session_id="sess-1",
+            otel_context=None,  # Missing otel_context
+        )
+
+        logger = TraceLogger()
+
+        with patch.object(logger, "get_context", return_value=ctx):
+            parent_ctx = logger._get_parent_context({})
+
+        # Should return current OTEL context without raising AttributeError
+        assert parent_ctx is not None
+        assert parent_ctx == otel_context.get_current()
+
 
 # ===================================================================
 # H. on_session_success final attributes
