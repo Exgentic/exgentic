@@ -64,6 +64,32 @@ _TRANSIENT_STATUS_CODES = frozenset({429, 500, 502, 503})
 _REACHABLE_STATUS_CODES = frozenset({400, 422})
 _PERMANENT_STATUS_CODES = frozenset({401, 403, 404})
 
+# Lowercase substrings identifying errors that are permanent for THIS caller
+# regardless of HTTP status. We've seen the LiteLLM proxy wrap auth failures
+# AND model-availability failures inside HTTP 400 responses, which the status
+# code alone classifies as REACHABLE — letting the health check pass on a
+# misconfigured key. Match by substring on the message body to override.
+_PERMANENT_MARKERS = (
+    # Auth
+    "authentication error",
+    "expired_key",
+    "expired key",
+    "invalid_api_key",
+    "invalid api key",
+    "incorrect api key",
+    # Model availability for this key/team
+    "invalid model name",
+    "team not allowed",
+    "model not allowed",
+    "model_not_found",
+    "model_not_available",
+)
+
+
+def _looks_permanent(exc: BaseException) -> bool:
+    msg = (getattr(exc, "message", None) or str(exc) or "").lower()
+    return any(marker in msg for marker in _PERMANENT_MARKERS)
+
 
 class ErrorCategory(Enum):
     """Classification of a litellm error for retry/health-check decisions."""
@@ -86,7 +112,11 @@ def classify_error(exc: BaseException) -> ErrorCategory:
 
     Classification priority:
     1. Python built-in types (TimeoutError, ConnectionError)
-    2. HTTP status code (extracted from exc or exc.original_exception)
+    2. HTTP status code (extracted from exc or exc.original_exception).
+       For REACHABLE statuses (400/422), permanent-marker substrings in the
+       message body override to PERMANENT — LiteLLM proxy wraps auth and
+       model-availability failures in 400 responses that would otherwise
+       silently pass the health check.
     3. litellm exception type name
     """
     # 1. Python built-ins
@@ -109,6 +139,10 @@ def classify_error(exc: BaseException) -> ErrorCategory:
         if status in _PERMANENT_STATUS_CODES:
             return ErrorCategory.PERMANENT
         if status in _REACHABLE_STATUS_CODES:
+            # Refine: a "reachable" status with a permanent-marker in the body
+            # is still permanent (auth, model-not-available, team-blocked).
+            if _looks_permanent(exc) or (original is not None and _looks_permanent(original)):
+                return ErrorCategory.PERMANENT
             return ErrorCategory.REACHABLE
         if status in _TRANSIENT_STATUS_CODES:
             return ErrorCategory.TRANSIENT
