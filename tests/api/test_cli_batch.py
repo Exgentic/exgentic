@@ -130,6 +130,147 @@ def test_batch_extract_writes_csv(tmp_path):
     assert rows[0]["benchmark_score"] == "1.0"
 
 
+def test_batch_extract_slim_drops_bulky_fields(tmp_path):
+    """--slim should drop session_results, *_session_ids, accumulated_*_report, etc."""
+    runner = CliRunner()
+    config_path = _write_config(tmp_path / "extract-slim.json", run_id="run-slim")
+
+    results_path = tmp_path / "run-slim" / "results.json"
+    results_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "benchmark_name": "Test Benchmark",
+        "agent_name": "Test Agent",
+        "benchmark_score": 0.7,
+        "total_sessions": 2,
+        # Bulky fields:
+        "session_results": [{"session_id": "s1", "score": 0.7}, {"session_id": "s2", "score": 0.7}],
+        "executed_session_ids": ["s1", "s2"],
+        "planned_session_ids": ["s1", "s2"],
+        "aggregated_session_ids": ["s1", "s2"],
+        "accumulated_agent_report": "x" * 5000,
+        "accumulated_benchmark_report": "y" * 5000,
+    }
+    results_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    output_csv = tmp_path / "slim.csv"
+    result = runner.invoke(
+        cli,
+        ["batch", "extract", "--config", config_path, "--output", str(output_csv), "--slim"],
+    )
+    assert result.exit_code == 0, result.output
+    with open(output_csv, encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+    assert len(rows) == 1
+    # Aggregates retained:
+    assert rows[0]["benchmark_score"] == "0.7"
+    assert rows[0]["benchmark_name"] == "Test Benchmark"
+    # Bulky fields dropped:
+    for dropped in (
+        "session_results",
+        "executed_session_ids",
+        "planned_session_ids",
+        "aggregated_session_ids",
+        "accumulated_agent_report",
+        "accumulated_benchmark_report",
+    ):
+        assert dropped not in reader.fieldnames, f"{dropped} should be dropped under --slim"
+
+
+def test_batch_extract_scope_session_emits_one_row_per_task(tmp_path):
+    """--scope=session flattens session_results with run-identity columns."""
+    runner = CliRunner()
+    config_path = _write_config(tmp_path / "extract-sess.json", run_id="run-sess")
+
+    results_path = tmp_path / "run-sess" / "results.json"
+    results_path.parent.mkdir(parents=True, exist_ok=True)
+    session_results = [
+        {"session_id": "s1", "task_id": "task-1", "score": 1.0, "success": True, "status": "success"},
+        {"session_id": "s2", "task_id": "task-2", "score": 0.0, "success": False, "status": "unsuccessful"},
+        {"session_id": "s3", "task_id": "task-3", "score": 0.0, "success": False, "status": "error"},
+    ]
+    payload = {
+        "benchmark_name": "Test Benchmark",
+        "benchmark_score": 0.33,
+        "total_sessions": 3,
+        "session_results": session_results,
+    }
+    results_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    output_csv = tmp_path / "sessions.csv"
+    result = runner.invoke(
+        cli,
+        ["batch", "extract", "--config", config_path, "--output", str(output_csv), "--scope", "session"],
+    )
+    assert result.exit_code == 0, result.output
+    with open(output_csv, encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+
+    assert len(rows) == 3
+    statuses = {r["status"] for r in rows}
+    assert statuses == {"success", "unsuccessful", "error"}
+    # Run-identity columns present on every row:
+    for r in rows:
+        assert r["run_id"] == "run-sess"
+        assert r["config_path"].endswith("extract-sess.json")
+    # Per-session fields present:
+    task_ids = sorted(r["task_id"] for r in rows)
+    assert task_ids == ["task-1", "task-2", "task-3"]
+
+
+def test_batch_extract_scope_session_slim_drops_json_blobs(tmp_path):
+    """--scope=session --slim drops `details` and `cost_reports`."""
+    runner = CliRunner()
+    config_path = _write_config(tmp_path / "extract-sess-slim.json", run_id="run-sess-slim")
+
+    results_path = tmp_path / "run-sess-slim" / "results.json"
+    results_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "benchmark_name": "Test Benchmark",
+        "benchmark_score": 1.0,
+        "total_sessions": 1,
+        "session_results": [
+            {
+                "session_id": "s1",
+                "task_id": "task-1",
+                "score": 1.0,
+                "success": True,
+                "status": "success",
+                "agent_cost": 0.05,
+                "details": {"session_metadata": {"large": "x" * 5000}},
+                "cost_reports": {"agent": {"total_cost": 0.05, "by_step": [{"i": 1}] * 100}},
+            }
+        ],
+    }
+    results_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    output_csv = tmp_path / "sessions-slim.csv"
+    result = runner.invoke(
+        cli,
+        [
+            "batch",
+            "extract",
+            "--config",
+            config_path,
+            "--output",
+            str(output_csv),
+            "--scope",
+            "session",
+            "--slim",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    with open(output_csv, encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        fields = reader.fieldnames or []
+        rows = list(reader)
+    assert len(rows) == 1
+    assert rows[0]["score"] == "1.0"
+    assert "details" not in fields
+    assert "cost_reports" not in fields
+
+
 def _write_session_results(run_root, session_id: str, payload: dict) -> None:
     sdir = run_root / "sessions" / session_id
     sdir.mkdir(parents=True, exist_ok=True)
