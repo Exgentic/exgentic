@@ -270,7 +270,44 @@ So the same config works everywhere — pick the agent and benchmark you want, s
 
 Exgentic's cost tracking calls `litellm.cost_per_token(model=...)`, which looks the model up in LiteLLM's built-in pricing database. For non-standard backends (your own gateway, an internal deployment, RITS, etc.) the model isn't in that database, so the lookup raises `ValueError("No pricing info found for model '...'")` and your run fails when it tries to record cost.
 
-LiteLLM's native fix is `litellm.register_model()` — register your model once, before constructing the agent, and the lookup succeeds from then on:
+#### Option 1: Config file (recommended for CLI users)
+
+Create a `~/.exgentic/pricing.json` file with your custom model pricing:
+
+```json
+{
+  "my-custom-model": {
+    "input_cost_per_token": 0.0001,
+    "output_cost_per_token": 0.0002,
+    "litellm_provider": "openai"
+  },
+  "another-model": {
+    "input_cost_per_token": 0.00005,
+    "output_cost_per_token": 0.00015,
+    "litellm_provider": "openai"
+  }
+}
+```
+
+Exgentic automatically loads this file on startup and registers all models with LiteLLM. This works for both CLI and Python API usage.
+
+If you don't know the rates, set both to `0`:
+
+```json
+{
+  "my-custom-model": {
+    "input_cost_per_token": 0,
+    "output_cost_per_token": 0,
+    "litellm_provider": "openai"
+  }
+}
+```
+
+Cost will report as `$0` — your explicit choice, not a silent fallback.
+
+#### Option 2: Python API with `litellm.register_model()`
+
+For Python API users, you can also register models programmatically using LiteLLM's native API — register your model once, before constructing the agent, and the lookup succeeds from then on:
 
 ```python
 import litellm
@@ -306,8 +343,6 @@ litellm.register_model({
 Cost will report as `$0` — your explicit choice, not a silent fallback. The framework deliberately doesn't auto-suppress the pricing-lookup failure: a silent `$0` for an unregistered model would hide a real bill from you.
 
 Reference: [LiteLLM custom pricing docs](https://docs.litellm.ai/docs/proxy/custom_pricing).
-
-> **CLI users**: cost registration currently only works through the Python API (the CLI subprocess has no place to slip in a `register_model` call). If you're driving from the CLI against a non-standard backend, either run via `exgentic.evaluate(...)` from a script that does the registration first, or accept the cost-tracking failure for now. A follow-up will add CLI support if there's demand.
 
 ---
 
