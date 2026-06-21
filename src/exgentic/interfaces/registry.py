@@ -140,6 +140,29 @@ BENCHMARKS: dict[str, RegistryEntry] = {
         subset_arg="subset",
         task_id_type="str",
     ),
+    "pinchbench": RegistryEntry(
+        slug_name="pinchbench",
+        display_name="PinchBench",
+        module="exgentic.benchmarks.pinchbench.pinchbench_benchmark",
+        attr="PinchBenchBenchmark",
+        kind="benchmark",
+        subsets=(
+            "all",
+            "productivity",
+            "research",
+            "writing",
+            "coding",
+            "analysis",
+            "csv_analysis",
+            "log_analysis",
+            "meeting_analysis",
+            "memory",
+            "skills",
+            "integrations",
+        ),
+        subset_arg="category",
+        task_id_type="int",
+    ),
 }
 
 AGENTS: dict[str, RegistryEntry] = {
