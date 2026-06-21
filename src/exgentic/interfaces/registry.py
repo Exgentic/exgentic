@@ -120,6 +120,16 @@ BENCHMARKS: dict[str, RegistryEntry] = {
         subset_arg="subset",
         task_id_type="int",
     ),
+    "gaia": RegistryEntry(
+        slug_name="gaia",
+        display_name="GAIA",
+        module="exgentic.benchmarks.gaia.gaia_benchmark",
+        attr="GAIABenchmark",
+        kind="benchmark",
+        subsets=("2023_all", "2023_level1", "2023_level2", "2023_level3"),
+        subset_arg="subset",
+        task_id_type="int",
+    ),
     "swebench": RegistryEntry(
         slug_name="swebench",
         display_name="SWE-bench",
