@@ -33,6 +33,31 @@ class RunnerMixin:
                 "module_path": type(self).__module__,
             }
 
+        if runner == "kubernetes":
+            s = get_settings()
+            kw: dict[str, Any] = {
+                "env_name": f"{kind}/{self.slug_name}",
+                "module_path": type(self).__module__,
+                "port_forward": s.kubernetes_port_forward,
+            }
+            if s.kubernetes_image:
+                kw["image"] = s.kubernetes_image
+            if s.kubernetes_namespace:
+                kw["namespace"] = s.kubernetes_namespace
+            if s.kubernetes_service_account:
+                kw["service_account"] = s.kubernetes_service_account
+            if s.kubernetes_image_pull_secrets:
+                kw["image_pull_secrets"] = [
+                    n.strip() for n in s.kubernetes_image_pull_secrets.split(",") if n.strip()
+                ]
+            # Results persist on a shared PVC mounted at the output_dir path
+            # (host bind mounts have no meaning in-cluster).
+            if s.kubernetes_output_pvc:
+                ctx = try_get_context()
+                output_dir = ctx.output_dir if ctx is not None else s.output_dir
+                kw["volumes"] = {s.kubernetes_output_pvc: str(Path(output_dir).resolve())}
+            return kw
+
         if runner != "docker":
             return {}
 

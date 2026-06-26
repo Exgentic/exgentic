@@ -5,7 +5,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
@@ -19,7 +20,13 @@ class LitellmSettings:
     log_level: str
     drop_params: bool = True
     modify_params: bool = True
-    timeout: int = 180
+    # Per-request timeout. The default 180s is too short for the first call of a
+    # cold span/full-recompute middleware deploy (the warmup prefill can run for
+    # minutes), which surfaced as "Model not accessible: TimeoutError()" at step 0.
+    # Env-tunable so a sweep can raise it without a code change.
+    timeout: int = field(
+        default_factory=lambda: int(os.environ.get("EXGENTIC_LITELLM_TIMEOUT", "600"))
+    )
 
 
 def configure_litellm(

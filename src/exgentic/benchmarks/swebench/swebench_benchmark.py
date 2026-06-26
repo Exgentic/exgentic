@@ -43,6 +43,50 @@ class SubmitPatchAction(FinishAction):
     arguments: SubmitPatchArgs
 
 
+# --- Structured file-editor tools -------------------------------------------
+# A bash-only agent has to edit source via heredocs/sed, which gemma-4 (and weaker
+# models) get wrong, so they default to re-running the repro forever instead of
+# editing. These give a reliable view/create/str_replace seam (the standard
+# SWE-bench editor); they run through the same sandbox as bash.
+
+
+class ViewArgs(BaseModel):
+    path: str = Field(description="Path of the file to view")
+    view_range: list[int] | None = Field(
+        default=None,
+        description="Optional [start, end] 1-indexed line range; omit to view the whole file",
+    )
+
+
+class ViewAction(SingleAction):
+    name: str = "view"
+    arguments: ViewArgs
+
+
+class CreateArgs(BaseModel):
+    path: str = Field(description="Path of the file to create (overwrites if it exists)")
+    file_text: str = Field(description="Full text content to write to the file")
+
+
+class CreateAction(SingleAction):
+    name: str = "create"
+    arguments: CreateArgs
+
+
+class StrReplaceArgs(BaseModel):
+    path: str = Field(description="Path of the file to edit")
+    old_str: str = Field(
+        description="Exact text to replace; must occur EXACTLY ONCE in the file "
+        "(include surrounding lines for uniqueness)",
+    )
+    new_str: str = Field(description="Replacement text")
+
+
+class StrReplaceAction(SingleAction):
+    name: str = "str_replace"
+    arguments: StrReplaceArgs
+
+
 class SessionScore(BaseSessionScore):
     instance_id: str = ""
     agent: dict[str, Any] = Field(default_factory=dict)

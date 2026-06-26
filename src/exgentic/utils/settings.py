@@ -18,7 +18,7 @@ load_dotenv(DOTENV_PATH)
 if TYPE_CHECKING:
     from ..integrations.litellm.config import LitellmSettings
 
-RunnerName = Literal["direct", "thread", "process", "service", "docker", "venv"]
+RunnerName = Literal["direct", "thread", "process", "service", "docker", "venv", "kubernetes"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 
@@ -46,6 +46,17 @@ class ExgenticSettings(BaseSettings):
     dotenv_path: str = str(DOTENV_PATH)
     otel_enabled: bool = False
     otel_record_content: bool = True
+
+    # Kubernetes runner defaults (used when runner="kubernetes"). Env:
+    # EXGENTIC_KUBERNETES_IMAGE / _NAMESPACE / _SERVICE_ACCOUNT / _OUTPUT_PVC / _SANDBOX.
+    kubernetes_image: str | None = None
+    kubernetes_namespace: str | None = None
+    kubernetes_service_account: str | None = None
+    kubernetes_image_pull_secrets: str | None = None  # comma-separated secret names
+    kubernetes_output_pvc: str | None = None
+    # In-cluster orchestrators reach the spawned service over cluster DNS; set
+    # EXGENTIC_KUBERNETES_PORT_FORWARD=false there. Laptops keep it true.
+    kubernetes_port_forward: bool = True
 
     _litellm_cache_configured: bool = False
 

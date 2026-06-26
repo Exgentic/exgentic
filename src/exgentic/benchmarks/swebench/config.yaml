@@ -5,7 +5,9 @@ session:
   timeout: 1000                   # Default timeout for bash commands (seconds)
   environment_pull_timeout: 600   # Timeout for Docker container startup/pull (seconds)
   observation_size_limit: 10000   # Max characters in observation output
-  max_interactions: 200           # Max actions per session (null for unlimited)
+  max_interactions: 1000          # Max actions per session (null for unlimited).
+                                  # Must exceed --max-steps (500) so the step cap,
+                                  # not this action cap, is the binding limit.
   timeout_template: |
     The last command <command>{command}<command> timed out and has been killed.
     The output of the command was:

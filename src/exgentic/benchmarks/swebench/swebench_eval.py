@@ -35,7 +35,13 @@ from ...utils.logging import hook_loggers_into_session
 from ...utils.paths import get_run_id
 from ...utils.settings import ExgenticSettings
 from . import swebench_evaluation, swebench_logs, swebench_metrics
-from .swebench_benchmark import BashAction, SubmitPatchAction
+from .swebench_benchmark import (
+    BashAction,
+    CreateAction,
+    StrReplaceAction,
+    SubmitPatchAction,
+    ViewAction,
+)
 
 # =============================================================================
 # Configuration
@@ -84,8 +90,16 @@ def run_bash(
 
 
 def generate_patch(env, cwd: str, base_commit: str) -> str:
-    """Generate patch from staged changes."""
-    command = f"git add -A && git diff --staged {base_commit} | cat"
+    """Generate patch from staged changes.
+
+    safe.directory '*' makes git trust the repo even when /testbed is owned by a
+    different uid than the exec user (otherwise git refuses with "dubious ownership"
+    and emits nothing to stdout -> an empty, silently-wrong patch).
+    """
+    command = (
+        "git config --global --add safe.directory '*' 2>/dev/null; "
+        f"git add -A && git diff --staged {base_commit} | cat"
+    )
     output = env.execute(command=command, cwd=cwd)
     return output["output"]
 
@@ -207,6 +221,82 @@ class SWEBenchSession(Session):
         )
         return result
 
+    def _run_editor_py(self, snippet: str) -> str:
+        """Run a self-contained python snippet in the sandbox via bash, base64-encoded
+        so we never fight shell/heredoc quoting (the exact failure mode that made the
+        bash-only agent's edits unreliable)."""
+        import base64
+
+        b64 = base64.b64encode(snippet.encode("utf-8")).decode()
+        cmd = f"python3 -c \"import base64;exec(base64.b64decode('{b64}').decode())\""
+        return run_bash(
+            command=cmd,
+            env=self.env,
+            timeout=self._timeout,
+            size_limit=self._observation_size_limit,
+            timeout_template=self._timeout_template,
+        )
+
+    def _handle_view(self, action: ViewAction) -> str:
+        path = action.arguments.path
+        vr = action.arguments.view_range
+        self.logger.info(f"STEP | {self._step_count:<3} | ACTION | view | path: {path} | range: {vr}")
+        snippet = (
+            "import sys\n"
+            f"p={path!r}; vr={vr!r}\n"
+            "try:\n"
+            "    lines=open(p,encoding='utf-8',errors='surrogateescape').read().splitlines()\n"
+            "except FileNotFoundError:\n"
+            "    print('ERROR: file not found: '+p); sys.exit(1)\n"
+            "a,b=(vr[0],vr[1]) if vr and len(vr)==2 else (1,len(lines))\n"
+            "a=max(1,a); b=min(len(lines),b)\n"
+            "for i in range(a,b+1):\n"
+            "    print(f'{i:6d}\\t{lines[i-1]}')\n"
+        )
+        return self._run_editor_py(snippet)
+
+    def _handle_create(self, action: CreateAction) -> str:
+        import base64
+
+        path = action.arguments.path
+        self.logger.info(f"STEP | {self._step_count:<3} | ACTION | create | path: {path}")
+        b64 = base64.b64encode(action.arguments.file_text.encode("utf-8")).decode()
+        snippet = (
+            "import base64,os\n"
+            f"p={path!r}\n"
+            f"d=base64.b64decode({b64!r}).decode('utf-8','surrogateescape')\n"
+            "os.makedirs(os.path.dirname(p) or '.',exist_ok=True)\n"
+            "open(p,'w',encoding='utf-8',errors='surrogateescape').write(d)\n"
+            "print('OK: wrote '+str(len(d))+' chars to '+p)\n"
+        )
+        return self._run_editor_py(snippet)
+
+    def _handle_str_replace(self, action: StrReplaceAction) -> str:
+        import base64
+
+        path = action.arguments.path
+        self.logger.info(f"STEP | {self._step_count:<3} | ACTION | str_replace | path: {path}")
+        b64old = base64.b64encode(action.arguments.old_str.encode("utf-8")).decode()
+        b64new = base64.b64encode(action.arguments.new_str.encode("utf-8")).decode()
+        snippet = (
+            "import base64,sys\n"
+            f"p={path!r}\n"
+            f"old=base64.b64decode({b64old!r}).decode('utf-8','surrogateescape')\n"
+            f"new=base64.b64decode({b64new!r}).decode('utf-8','surrogateescape')\n"
+            "try:\n"
+            "    s=open(p,encoding='utf-8',errors='surrogateescape').read()\n"
+            "except FileNotFoundError:\n"
+            "    print('ERROR: file not found: '+p); sys.exit(1)\n"
+            "c=s.count(old)\n"
+            "if c==0:\n"
+            "    print('ERROR: old_str not found in '+p+'. Use view to copy the exact text.'); sys.exit(1)\n"
+            "if c>1:\n"
+            "    print('ERROR: old_str occurs '+str(c)+' times; must be unique - add surrounding lines.'); sys.exit(1)\n"
+            "open(p,'w',encoding='utf-8',errors='surrogateescape').write(s.replace(old,new,1))\n"
+            "print('OK: replaced 1 occurrence in '+p)\n"
+        )
+        return self._run_editor_py(snippet)
+
     def _handle_submit_patch(self, action: SubmitPatchAction) -> str:
         self.logger.info(f"STEP | {self._step_count:<3} | ACTION | submit_patch | summary: {action.arguments.summary}")
         self._final_patch = generate_patch(
@@ -295,6 +385,24 @@ class SWEBenchSession(Session):
         if self._final_patch is None:
             self.logger.info("SCORE | Harness evaluation skipped: no patch available for evaluation")
             return None
+
+        import os
+
+        if os.environ.get("SWEBENCH_SANDBOX", "").lower() == "kubernetes":
+            try:
+                from .kube_sandbox import grade_in_pod
+
+                return grade_in_pod(
+                    env=self.env,
+                    instance=self._instance,
+                    model_patch=self._final_patch,
+                    test_output_path=self.paths.benchmark_dir / "test_output.txt",
+                    logger=self.logger,
+                )
+            except Exception as e:  # noqa: BLE001 - grading must not crash the run
+                self.logger.exception(f"SCORE | Pod grading failed: {e}")
+                return None
+
         try:
             return swebench_evaluation.run_harness(
                 patch=self._final_patch,
@@ -337,6 +445,31 @@ class SWEBenchSession(Session):
                 handler=self._handle_bash,
             )
             self._registry.add_action(
+                name="view",
+                description=(
+                    "View a file's contents with line numbers. Use this before"
+                    " editing to copy the exact text for str_replace."
+                ),
+                action_cls=ViewAction,
+                handler=self._handle_view,
+            )
+            self._registry.add_action(
+                name="str_replace",
+                description=(
+                    "Edit a file by replacing an exact unique string. Prefer this"
+                    " over bash/sed for source edits - it is reliable and the change"
+                    " is captured in the final patch. old_str must occur exactly once."
+                ),
+                action_cls=StrReplaceAction,
+                handler=self._handle_str_replace,
+            )
+            self._registry.add_action(
+                name="create",
+                description="Create (or overwrite) a file with the given text.",
+                action_cls=CreateAction,
+                handler=self._handle_create,
+            )
+            self._registry.add_action(
                 name="finish",
                 description=(
                     "Finish the task by submitting a brief"
@@ -371,7 +504,14 @@ class SWEBenchSession(Session):
     # -------------------------------------------------------------------------
 
     def _setup_environment(self) -> None:
-        """Initialize the Docker environment for the task."""
+        """Initialize the task environment (Docker container, or a Pod when
+        ``SWEBENCH_SANDBOX=kubernetes`` - no docker/privileged)."""
+        import os
+
+        if os.environ.get("SWEBENCH_SANDBOX", "").lower() == "kubernetes":
+            self._setup_kube_environment()
+            return
+
         self.logger.info("ENV | Setting up environment")
         from ...utils.container_reaper import docker_run_label_args
         from ...utils.logging import capture_stdio_to_session
@@ -397,6 +537,49 @@ class SWEBenchSession(Session):
 
         if self.container_base_commit != self._instance["base_commit"]:
             self.logger.error(
+                f"ENV | Base commit mismatch: expected {self._instance['base_commit']} "
+                f"| got {self.container_base_commit}"
+            )
+
+    def _setup_kube_environment(self) -> None:
+        """Pod-native env: each task runs in its own Pod from the SWE-bench
+        instance image, exec'd via kubectl. No docker, no privileged."""
+        import os
+
+        from swebench.harness.test_spec.test_spec import make_test_spec
+
+        from .kube_sandbox import KubernetesEnvironment
+
+        # namespace= gives the *pullable* image name (e.g.
+        # swebench/sweb.eval.x86_64.<id>) rather than the local build key.
+        img_ns = os.environ.get("SWEBENCH_IMAGE_NAMESPACE", "swebench")
+        ts = make_test_spec(self._instance, namespace=img_ns)
+        ns = (
+            os.environ.get("EXGENTIC_KUBERNETES_NAMESPACE")
+            or os.environ.get("POD_NAMESPACE")
+            or "default"
+        )
+        sa = os.environ.get("SWEBENCH_SANDBOX_SA") or None
+        pull = [
+            s.strip()
+            for s in os.environ.get("EXGENTIC_KUBERNETES_IMAGE_PULL_SECRETS", "").split(",")
+            if s.strip()
+        ]
+        self.logger.info(f"ENV | Pod sandbox: image {ts.instance_image_key} in ns {ns}")
+        self.env = KubernetesEnvironment(
+            image=ts.instance_image_key,
+            namespace=ns,
+            service_account=sa,
+            image_pull_secrets=pull,
+            cwd=self.container_repo_dir,
+            timeout=self._timeout if isinstance(self._timeout, int) else 1800,
+            pull_timeout=self._environment_pull_timeout,
+            logger=self.logger,
+        )
+        result = self.env.execute(command="git rev-parse HEAD", cwd=self.container_repo_dir)
+        self.container_base_commit = result["output"].strip()
+        if self.container_base_commit != self._instance["base_commit"]:
+            self.logger.warning(
                 f"ENV | Base commit mismatch: expected {self._instance['base_commit']} "
                 f"| got {self.container_base_commit}"
             )

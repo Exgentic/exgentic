@@ -11,6 +11,7 @@ Runners wrap any object and control where it executes:
 - ``service`` — HTTP service in a background thread
 - ``docker``  — HTTP service inside a Docker container
 - ``venv``    — HTTP service in an isolated uv virtual environment
+- ``kubernetes`` — HTTP service in a Kubernetes Pod (in-cluster, off the laptop)
 
 Usage::
 
@@ -27,7 +28,7 @@ from .transport import ObjectHost, ObjectProxy, Transport
 if TYPE_CHECKING:
     from ...core.context import Role
 
-RunnerName = Literal["direct", "thread", "process", "service", "docker", "venv"]
+RunnerName = Literal["direct", "thread", "process", "service", "docker", "venv", "kubernetes"]
 
 
 def _resolve_cls(cls: type | str) -> type:
@@ -110,6 +111,32 @@ def with_runner(
             if key in kwargs:
                 docker_kw[key] = kwargs.pop(key)
         return DockerRunner(cls, *args, role=role, **docker_kw, **kwargs).start()
+
+    if runner == "kubernetes":
+        from .kubernetes import KubernetesRunner
+
+        k8s_kw = {}
+        for key in (
+            "env_name",
+            "module_path",
+            "image",
+            "namespace",
+            "service_account",
+            "image_pull_secrets",
+            "resources",
+            "env_secrets",
+            "env",
+            "volumes",
+            "security_context",
+            "node_selector",
+            "labels",
+            "use_job",
+            "health_timeout",
+            "port_forward",
+        ):
+            if key in kwargs:
+                k8s_kw[key] = kwargs.pop(key)
+        return KubernetesRunner(cls, *args, role=role, **k8s_kw, **kwargs).start()
 
     if runner == "venv":
         from .venv import VenvRunner
