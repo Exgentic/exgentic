@@ -17,8 +17,11 @@ from __future__ import annotations
 import atexit
 import os
 import shutil
+import signal
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -32,11 +35,19 @@ from ._utils import (
     prepare_subprocess_env,
     serialize_kwargs,
 )
-from .service import HTTPTransport, _wait_for_health
+from .service import HTTPTransport
 from .transport import ObjectProxy
 
 _HEALTH_TIMEOUT = 120.0
 _TRANSPORT_TIMEOUT = 600.0
+
+
+class _ProcessExitedError(RuntimeError):
+    """Raised when the venv subprocess exits before becoming healthy.
+
+    Distinct from TimeoutError so the caller can tell a crash (process
+    died with a real error) apart from a genuine health-check timeout.
+    """
 
 
 def _uv(*args: str, check: bool = True, **kwargs: Any) -> subprocess.CompletedProcess:
@@ -90,6 +101,12 @@ class VenvRunner:
         self._health_timeout = health_timeout or _HEALTH_TIMEOUT
         self._role = role
         self._process: subprocess.Popen | None = None
+        # Background threads drain the subprocess pipes so a chatty child
+        # can never deadlock by filling the OS pipe buffer (~64KB). Output
+        # accumulates in these buffers for diagnostics.
+        self._stdout_chunks: list[bytes] = []
+        self._stderr_chunks: list[bytes] = []
+        self._drain_threads: list[threading.Thread] = []
 
     # ── venv handling ─────────────────────────────────────────────────
 
@@ -143,7 +160,6 @@ class VenvRunner:
 
     def start(self) -> ObjectProxy:
         import logging
-        import time
 
         _log = logging.getLogger(__name__)
 
@@ -190,12 +206,14 @@ class VenvRunner:
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            start_new_session=True,
         )
+        self._start_drain_threads()
         atexit.register(self._stop_process)
 
         url = f"http://127.0.0.1:{self._port}"
         try:
-            _wait_for_health(url, timeout=self._health_timeout)
+            self._wait_for_health_with_process_check(url, timeout=self._health_timeout)
             t4 = time.perf_counter()
             msg = (
                 f"VenvRunner.start env={self._env_name} ensure_venv={t1 - t0:.3f}s "
@@ -203,24 +221,87 @@ class VenvRunner:
             )
             _log.info(msg)
             print(msg, flush=True)
-        except TimeoutError:
-            proc = self._process
-            if proc is not None:
-                proc.terminate()
-                stdout, stderr = proc.communicate(timeout=5)
-            else:
-                stdout, stderr = b"", b""
+        except (TimeoutError, _ProcessExitedError):
+            # The wait method already framed an informative message (crash
+            # exit code, or timeout) and included the drained output, so
+            # just clean up the process and re-raise it unchanged.
             self._stop_process()
-            raise TimeoutError(
-                f"Venv service did not become healthy within {self._health_timeout}s.\n"
-                f"stdout:\n{stdout.decode(errors='replace')}\n"
-                f"stderr:\n{stderr.decode(errors='replace')}"
-            ) from None
+            raise
 
-        transport = HTTPTransport(url, timeout=_TRANSPORT_TIMEOUT)
+        # Liveness callable so RPCs fail fast if the venv subprocess
+        # dies mid-session instead of hanging on httpx's transport timeout.
+        def _is_alive() -> bool:
+            proc = self._process
+            return proc is not None and proc.poll() is None
+
+        transport = HTTPTransport(url, timeout=_TRANSPORT_TIMEOUT, is_alive=_is_alive)
         proxy = ObjectProxy(transport)
         object.__setattr__(proxy, "close", make_close(transport, self._stop_process))
         return proxy
+
+    def _start_drain_threads(self) -> None:
+        """Continuously read stdout/stderr so the child never blocks on a full pipe."""
+        proc = self._process
+        if proc is None:
+            return
+
+        def _drain(stream: Any, sink: list[bytes]) -> None:
+            try:
+                for chunk in iter(lambda: stream.read(4096), b""):
+                    sink.append(chunk)
+            except (ValueError, OSError):
+                # Stream closed concurrently (e.g. by _stop_process).
+                pass
+
+        self._drain_threads = []
+        for stream, sink in ((proc.stdout, self._stdout_chunks), (proc.stderr, self._stderr_chunks)):
+            if stream is None:
+                continue
+            t = threading.Thread(target=_drain, args=(stream, sink), daemon=True)
+            t.start()
+            self._drain_threads.append(t)
+
+    def _captured_output(self) -> tuple[str, str]:
+        """Snapshot of the drained stdout/stderr collected so far."""
+        return (
+            b"".join(self._stdout_chunks).decode(errors="replace"),
+            b"".join(self._stderr_chunks).decode(errors="replace"),
+        )
+
+    def _wait_for_health_with_process_check(self, url: str, timeout: float) -> None:
+        """Wait for the health endpoint, but fail fast if the subprocess exits.
+
+        This prevents waiting the full timeout period when the subprocess
+        crashes immediately (e.g. due to authentication errors during init).
+        On crash it raises ``_ProcessExitedError``; on a genuine timeout it
+        raises ``TimeoutError``. Both carry the drained stdout/stderr.
+        """
+        import httpx
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            # Fail fast if the process has already exited.
+            if self._process is not None and self._process.poll() is not None:
+                stdout, stderr = self._captured_output()
+                exit_code = self._process.returncode
+                raise _ProcessExitedError(
+                    f"Venv service process exited with code {exit_code} before becoming healthy.\n"
+                    f"stdout:\n{stdout}\n"
+                    f"stderr:\n{stderr}"
+                )
+
+            try:
+                if httpx.get(f"{url}/health", timeout=2.0).status_code == 200:
+                    return
+            except httpx.HTTPError:
+                pass
+
+            time.sleep(0.1)
+
+        stdout, stderr = self._captured_output()
+        raise TimeoutError(
+            f"Venv service did not become healthy within {timeout}s.\n" f"stdout:\n{stdout}\n" f"stderr:\n{stderr}"
+        )
 
     def _stop_process(self) -> None:
         if self._process is None:
@@ -228,7 +309,8 @@ class VenvRunner:
         proc = self._process
         self._process = None
         try:
-            proc.terminate()
+            # Kill the entire process group (start_new_session=True creates one).
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
             proc.wait(timeout=5)
         except Exception:
             try:
