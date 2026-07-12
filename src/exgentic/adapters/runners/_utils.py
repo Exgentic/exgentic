@@ -101,10 +101,17 @@ def prepare_subprocess_env() -> dict[str, str]:
     :data:`_FORWARD_PREFIXES`).  Exgentic context and settings travel
     via ``runtime.json`` (see :func:`inject_exgentic_env`), so no
     ``EXGENTIC_*`` vars need to be forwarded here.
+
+    ``HOME`` is always forwarded: Python's ``Path.home()`` and many CLI
+    tools rely on it to locate config and data directories (e.g. the
+    EnvironmentManager resolves ``~/.exgentic`` from ``HOME``).
     """
     import os
 
-    return {k: v for k, v in os.environ.items() if k.endswith(_FORWARD_SUFFIXES) or k.startswith(_FORWARD_PREFIXES)}
+    env = {k: v for k, v in os.environ.items() if k.endswith(_FORWARD_SUFFIXES) or k.startswith(_FORWARD_PREFIXES)}
+    if "HOME" in os.environ:
+        env["HOME"] = os.environ["HOME"]
+    return env
 
 
 def inject_exgentic_env(env: dict[str, str], role: Role | None = None) -> None:
