@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import threading
 import time
+from collections.abc import Callable
 from typing import Any, Optional
 
 import cloudpickle as cp
@@ -121,11 +122,14 @@ def serve(obj: Any, host: str = "0.0.0.0", port: int = 8080) -> None:
 class HTTPTransport(Transport):
     """Talks to an HTTP server hosting an ObjectHost."""
 
-    def __init__(self, base_url: str, timeout: float = 30.0) -> None:
+    def __init__(self, base_url: str, timeout: float = 30.0, is_alive: Callable[[], bool] | None = None) -> None:
         self._base_url = base_url.rstrip("/")
         self._client = httpx.Client(timeout=timeout)
+        self._is_alive = is_alive
 
     def _rpc(self, endpoint: str, payload: dict) -> Any:
+        if self._is_alive is not None and not self._is_alive():
+            raise RuntimeError(f"Service at {self._base_url} is no longer alive")
         resp = self._client.post(f"{self._base_url}{endpoint}", json=payload)
         resp.raise_for_status()
         data = RPCResponse(**resp.json())
