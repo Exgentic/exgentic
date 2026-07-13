@@ -1,9 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026, The Exgentic organization and its contributors.
 
+import logging
 from typing import Any, Optional, Self, Sequence, TypeVar
 
 from pydantic import BaseModel, computed_field
+
+logger = logging.getLogger(__name__)
 
 name_map = {
     "claude-3-5-haiku": "claude-3-5-haiku-20241022",
@@ -181,7 +184,11 @@ class LiteLLMCostReport(LLMCostReport):
         """Fetch cost data from LiteLLM pricing API."""
         if input_tokens == 0 and output_tokens == 0:
             return TokensCost(input_cost=0, output_cost=0, total_cost=0)
-        return litellm_tokens_cost(input_tokens, output_tokens, model_name=model_name)
+        try:
+            return litellm_tokens_cost(input_tokens, output_tokens, model_name=model_name)
+        except ValueError as e:
+            logger.warning("%s Cost will be reported as 0.", e)
+            return TokensCost(input_cost=0, output_cost=0, total_cost=0)
 
 
 T = TypeVar("T", bound=CostReport)
