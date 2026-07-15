@@ -97,24 +97,29 @@ def mcp_cmd(
         if subset_arg:
             benchmark_kwargs[subset_arg] = subset
 
-    # Parse and apply --set values for benchmark parameters
+    # Parse and apply --set values for benchmark/agent parameters
+    action_timeout: float = 30.0
     if set_values:
         from ..options import _parse_set_list, _set_nested, _validate_set_keys_for_benchmark
 
         set_items = _parse_set_list(set_values)
 
-        # Validate that only benchmark.* parameters are provided
+        # Validate that only benchmark.* and agent.action_timeout are provided
         for group, path, _ in set_items:
+            if group == "agent" and path == ["action_timeout"]:
+                continue
             if group != "benchmark":
                 raise click.ClickException(
-                    f"Only benchmark.* parameters are allowed in mcp command. "
+                    f"Only benchmark.* and agent.action_timeout parameters are allowed in mcp command. "
                     f"Got {group}.{'.'.join(path) if path else ''}"
                 )
 
-        _validate_set_keys_for_benchmark(benchmark, set_items)
+        _validate_set_keys_for_benchmark(benchmark, [(g, p, v) for g, p, v in set_items if g == "benchmark"])
         for group, path, value in set_items:
             if group == "benchmark":
                 _set_nested(benchmark_kwargs, path, value)
+            elif group == "agent" and path == ["action_timeout"]:
+                action_timeout = float(value)
 
     try:
         benchmark_instance = benchmark_cls(**benchmark_kwargs)
@@ -333,7 +338,7 @@ def mcp_cmd(
         # For now, create a placeholder that will be populated
         action_tools = []
 
-        def make_action_tool(at, args_cls):
+        def make_action_tool(at, args_cls, timeout: float = 30.0):
             """Create a tool function for an action type."""
 
             def _execute_action_sync(session_id: str, **kwargs) -> dict:
@@ -375,10 +380,10 @@ def mcp_cmd(
 
                 step_thread = threading.Thread(target=execute_step, daemon=True)
                 step_thread.start()
-                step_thread.join(timeout=30.0)
+                step_thread.join(timeout=timeout)
 
                 if step_thread.is_alive():
-                    return {"error": "Action execution timed out after 30 seconds"}
+                    return {"error": f"Action execution timed out after {timeout:.0f} seconds"}
 
                 if "error" in error_container:
                     return {"error": f"Failed to execute action: {error_container['error']}"}
@@ -447,7 +452,7 @@ def mcp_cmd(
             # Create action tools
             for action_type in action_types:
                 args_model = action_type.arguments
-                action_tools.append(make_action_tool(action_type, args_model))
+                action_tools.append(make_action_tool(action_type, args_model, action_timeout))
             click.echo(f"✓ Loaded {len(action_tools)} action types")
 
             # Close the temporary session

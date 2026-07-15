@@ -492,10 +492,7 @@ class ExgenticAgentExecutor:
                             self._fire_and_forget(event_emitter.emit_event(f"❌ {error_msg}"))
 
                             if "timed out" in str(e).lower() or "timeout" in str(e).lower():
-                                self._fire_and_forget(
-                                    event_emitter.emit_event("⚠️  Timeout detected, assuming session completed")
-                                )
-                                final_result = "Session completed (timeout)"
+                                final_result = error_msg
                                 break
 
                     if final_result is not None:
