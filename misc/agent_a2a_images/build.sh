@@ -17,6 +17,8 @@ main() {
     RUNTIME=$(detect_runtime)
     print_info "Detected container runtime: ${RUNTIME}"
 
+    check_git_clean "${script_dir}/Dockerfile" || exit 1
+
     AGENT=""
     TAG="latest"
     USE_CACHE="false"

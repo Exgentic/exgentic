@@ -14,6 +14,54 @@ print_warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 print_step()  { echo -e "${BLUE}[STEP]${NC} $1"; }
 
+# Fail if there are uncommitted changes or if the current branch doesn't match
+# the branch checked out inside the Dockerfile (git checkout <branch> line).
+# Pass the path to the Dockerfile as the first argument.
+check_git_clean() {
+    local dockerfile=${1:-Dockerfile}
+
+    if ! git rev-parse --is-inside-work-tree &>/dev/null; then
+        print_error "Not inside a git repository"
+        return 1
+    fi
+
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        print_error "There are uncommitted changes. Commit or stash them before building."
+        git status --short
+        return 1
+    fi
+
+    local current_branch
+    current_branch=$(git rev-parse --abbrev-ref HEAD)
+
+    # Extract the branch the Dockerfile checks out (first "git checkout <branch>" line)
+    local dockerfile_branch
+    dockerfile_branch=$(grep -m1 'git checkout ' "$dockerfile" 2>/dev/null | awk '{print $NF}')
+
+    if [ -n "$dockerfile_branch" ] && [ "$current_branch" != "$dockerfile_branch" ]; then
+        print_error "Current branch '${current_branch}' does not match the Dockerfile branch '${dockerfile_branch}'."
+        print_error "Switch to '${dockerfile_branch}' or update the Dockerfile before building."
+        return 1
+    fi
+
+    local remote_ref
+    remote_ref=$(git rev-parse --abbrev-ref --symbolic-full-name "@{u}" 2>/dev/null || true)
+
+    if [ -z "$remote_ref" ]; then
+        print_error "Current branch '${current_branch}' has no upstream. Push it before building."
+        return 1
+    fi
+
+    local unpushed
+    unpushed=$(git rev-list "${remote_ref}..HEAD" --count)
+    if [ "$unpushed" -gt 0 ]; then
+        print_error "There are ${unpushed} unpushed commit(s) on branch '${current_branch}'. Push before building."
+        return 1
+    fi
+
+    print_info "Git working tree is clean and up to date with remote (branch: ${current_branch})."
+}
+
 # Detect container runtime (docker preferred over podman)
 detect_runtime() {
     if command -v docker &> /dev/null; then
@@ -93,7 +141,7 @@ build_image() {
 
     # Platform and output flags
     if [ "$multiplatform" = "true" ] && [ "$should_push" = "true" ]; then
-        build_cmd="$build_cmd --platform linux/amd64,linux/arm64 --push -t ${ghcr_image}"
+        build_cmd="$build_cmd --platform linux/amd64,linux/arm64 --network=host --push -t ${ghcr_image}"
     elif [ "$multiplatform" = "true" ]; then
         local native_platform
         native_platform=$(uname -m)

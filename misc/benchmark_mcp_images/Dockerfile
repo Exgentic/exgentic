@@ -44,7 +44,7 @@ RUN uv pip install --system --no-cache datasets # to allow direct (and not venv)
 ENV HOME=/app
 
 # Setup the benchmark - this will install to /app/.exgentic/
-RUN exgentic install --benchmark ${BENCHMARK_NAME}
+RUN exgentic install --benchmark ${BENCHMARK_NAME} --local
 
 # Copy entrypoint script
 WORKDIR /app
