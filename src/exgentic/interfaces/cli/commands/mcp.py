@@ -97,29 +97,27 @@ def mcp_cmd(
         if subset_arg:
             benchmark_kwargs[subset_arg] = subset
 
-    # Parse and apply --set values for benchmark/agent parameters
+    # Parse and apply --set values for benchmark parameters
     action_timeout: float = 30.0
     if set_values:
         from ..options import _parse_set_list, _set_nested, _validate_set_keys_for_benchmark
 
         set_items = _parse_set_list(set_values)
 
-        # Validate that only benchmark.* and agent.action_timeout are provided
-        for group, path, _ in set_items:
-            if group == "agent" and path == ["action_timeout"]:
-                continue
-            if group != "benchmark":
+        # Validate that only benchmark.* parameters are provided
+        for grp, path, _ in set_items:
+            if grp != "benchmark":
                 raise click.ClickException(
-                    f"Only benchmark.* and agent.action_timeout parameters are allowed in mcp command. "
-                    f"Got {group}.{'.'.join(path) if path else ''}"
+                    f"Only benchmark.* parameters are allowed in mcp command. "
+                    f"Got {grp}.{'.'.join(path) if path else ''}"
                 )
 
-        _validate_set_keys_for_benchmark(benchmark, [(g, p, v) for g, p, v in set_items if g == "benchmark"])
-        for group, path, value in set_items:
-            if group == "benchmark":
-                _set_nested(benchmark_kwargs, path, value)
-            elif group == "agent" and path == ["action_timeout"]:
+        _validate_set_keys_for_benchmark(benchmark, [(g, p, v) for g, p, v in set_items if p != ["action_timeout"]])
+        for _, path, value in set_items:
+            if path == ["action_timeout"]:
                 action_timeout = float(value)
+            else:
+                _set_nested(benchmark_kwargs, path, value)
 
     try:
         benchmark_instance = benchmark_cls(**benchmark_kwargs)
