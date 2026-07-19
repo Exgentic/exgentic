@@ -103,6 +103,8 @@ EOF
     fi
     echo ""
 
+    prune_build_space "$RUNTIME"
+
     SUCCESS_COUNT=0
     FAIL_COUNT=0
 

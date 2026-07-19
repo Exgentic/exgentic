@@ -62,6 +62,28 @@ check_git_clean() {
     print_info "Git working tree is clean and up to date with remote (branch: ${current_branch})."
 }
 
+# Reclaim disk space before building: prune the buildx cache and dangling
+# images, then report how much was freed and the remaining usage. Multi-platform
+# builds export the image to a tarball and re-import it, which needs a large slab
+# of temporary disk; a full VM is the most common cause of those builds failing.
+prune_build_space() {
+    local runtime=$1
+
+    print_step "Reclaiming disk space before build..."
+
+    if [ "$runtime" = "docker" ]; then
+        print_info "Pruning buildx build cache..."
+        docker buildx prune -f 2>&1 | tail -1
+    fi
+
+    print_info "Pruning dangling images..."
+    $runtime image prune -f 2>&1 | tail -1
+
+    print_info "Disk usage after prune:"
+    $runtime system df 2>&1
+    echo ""
+}
+
 # Detect container runtime (docker preferred over podman)
 detect_runtime() {
     if command -v docker &> /dev/null; then
