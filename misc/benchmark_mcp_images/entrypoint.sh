@@ -39,8 +39,13 @@ done
 # Change to the exgentic directory
 cd /app/exgentic
 
+SUBSET_ARG=""
+if [ -n "$SUBSET" ]; then
+    SUBSET_ARG="--subset $SUBSET"
+fi
+
 # Run the exgentic MCP server with --set arguments
 # --disable-dns-rebinding-protection is added to allow kubernetes to access the MCP
-echo "Command: exgentic mcp --benchmark $BENCHMARK_NAME --host $HOST --port $PORT $SET_ARGS --disable-dns-rebinding-protection"
-eval exec exgentic mcp --benchmark "$BENCHMARK_NAME" --host "$HOST" --port "$PORT" $SET_ARGS --disable-dns-rebinding-protection
+echo "Command: exgentic mcp --benchmark $BENCHMARK_NAME --host $HOST --port $PORT $SUBSET_ARG $SET_ARGS --disable-dns-rebinding-protection"
+eval exec exgentic mcp --benchmark "$BENCHMARK_NAME" --host "$HOST" --port "$PORT" $SUBSET_ARG $SET_ARGS --disable-dns-rebinding-protection
 
