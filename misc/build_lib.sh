@@ -25,9 +25,11 @@ check_git_clean() {
         return 1
     fi
 
-    if ! git diff --quiet || ! git diff --cached --quiet; then
+    local dirty_files
+    dirty_files=$(git status --short | awk '{print $2}' | grep -vE '(^|/)(build\.sh|build_lib\.sh|Dockerfile)$' || true)
+    if [ -n "$dirty_files" ]; then
         print_error "There are uncommitted changes. Commit or stash them before building."
-        git status --short
+        echo "$dirty_files"
         return 1
     fi
 
@@ -163,7 +165,14 @@ build_image() {
 
     # Platform and output flags
     if [ "$multiplatform" = "true" ] && [ "$should_push" = "true" ]; then
-        build_cmd="$build_cmd --platform linux/amd64,linux/arm64 --network=host --push -t ${ghcr_image}"
+        if ! command -v skopeo &>/dev/null; then
+            print_error "skopeo is required for multiplatform push but was not found"
+            print_error "Install it: apt install skopeo  (Debian/Ubuntu)  |  brew install skopeo  (Mac)"
+            return 1
+        fi
+        local oci_tarball
+        oci_tarball=$(mktemp /tmp/exgentic-oci-XXXXXX.tar)
+        build_cmd="$build_cmd --platform linux/amd64,linux/arm64 --output type=oci,dest=${oci_tarball} -t ${ghcr_image}"
     elif [ "$multiplatform" = "true" ]; then
         local native_platform
         native_platform=$(uname -m)
@@ -185,8 +194,20 @@ build_image() {
 
     if $build_cmd "--build-arg" "${build_arg_name}=${name}" -f Dockerfile .; then
         if [ "$multiplatform" = "true" ] && [ "$should_push" = "true" ]; then
-            print_info "✓ Successfully built and pushed multi-platform ${ghcr_image}"
-            print_info "View at: https://github.com/orgs/Exgentic/packages/container/package/${image_prefix}-${name}"
+            print_info "✓ Successfully built multi-platform image to ${oci_tarball}"
+            print_info "Pushing to GHCR via skopeo..."
+            if skopeo copy --all \
+                --dest-creds "${GITHUB_USERNAME}:${GITHUB_TOKEN}" \
+                "oci-archive:${oci_tarball}" \
+                "docker://${ghcr_image}"; then
+                print_info "✓ Successfully pushed ${ghcr_image}"
+                print_info "View at: https://github.com/orgs/Exgentic/packages/container/package/${image_prefix}-${name}"
+            else
+                print_error "✗ Failed to push ${ghcr_image}"
+                rm -f "${oci_tarball}"
+                return 1
+            fi
+            rm -f "${oci_tarball}"
         else
             print_info "✓ Successfully built ${local_image}"
             if [ "$should_push" = "true" ]; then
@@ -203,6 +224,7 @@ build_image() {
         return 0
     else
         print_error "✗ Failed to build ${local_image}"
+        [ -n "${oci_tarball:-}" ] && rm -f "${oci_tarball}"
         return 1
     fi
 }
