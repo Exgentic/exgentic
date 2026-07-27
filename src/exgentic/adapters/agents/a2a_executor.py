@@ -408,6 +408,16 @@ class ExgenticAgentExecutor:
             max_iterations = 100
             current_observation = None
             final_result = None
+            # A tool call may raise (e.g. "submit" rejecting unparsable LLM
+            # output). We keep looping so the agent can recover, but if such an
+            # error is the last thing that happens before the loop ends, the run
+            # must be reported as failed rather than completed — otherwise the
+            # error text is delivered as a normal artifact on a completed task
+            # and downstream (the A2A runner, MLflow) records it as success.
+            # last_tool_error holds the terminating exception when the loop exits
+            # on an error (timeout break, or a trailing error that becomes the
+            # final result); it is cleared as soon as a later step succeeds.
+            last_tool_error: Exception | None = None
             executor = ThreadPoolExecutor(max_workers=1)
 
             try:
@@ -418,6 +428,11 @@ class ExgenticAgentExecutor:
                     if action is None:
                         self._fire_and_forget(event_emitter.emit_event("✓ Agent completed execution"))
                         break
+
+                    # The agent produced another action after seeing the previous
+                    # observation, so any earlier tool error was recovered from and
+                    # is no longer terminal.
+                    last_tool_error = None
 
                     tracker.on_react_success(mock_session, action)
                     actions_to_execute = action.to_action_list()
@@ -489,6 +504,10 @@ class ExgenticAgentExecutor:
                         except Exception as e:
                             error_msg = f"Error executing {tool_name}: {e}"
                             results.append(error_msg)
+                            # Remember the error so finalization can mark the task
+                            # failed if the run ends here. A subsequent successful
+                            # step clears this (see the react loop head).
+                            last_tool_error = e
                             self._fire_and_forget(event_emitter.emit_event(f"❌ {error_msg}"))
 
                             if "timed out" in str(e).lower() or "timeout" in str(e).lower():
@@ -539,16 +558,29 @@ class ExgenticAgentExecutor:
                 span_manager.set_attribute("mlflow.spanOutputs", truncated_output)
                 span_manager.set_attribute("output.value", truncated_output)
 
-            # Notify tracker of session success
-            from ...core.types import SessionScore
-
-            score = SessionScore(success=False, score=-1.0, is_finished=True)
-            tracker.on_session_success(mock_session, score, agent_instance)
-
+            # If the run ended on an unrecovered tool error, report it as a
+            # failure: mark the root span ERROR (via on_session_error) and end
+            # the A2A task in the failed state so clients don't record the error
+            # text as a successful completion. Otherwise take the success path.
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, ctx.run, agent_instance.close)
-            await event_emitter.emit_event(final_result, final=True)
-            print(f"📁 Completed request - Success {output_dir_path / run_id}")
+            if last_tool_error is not None:
+                if span_manager:
+                    span_manager.record_exception(last_tool_error)
+                tracker.on_session_error(mock_session, last_tool_error)
+
+                await loop.run_in_executor(None, ctx.run, agent_instance.close)
+                await event_emitter.emit_event(final_result, failed=True)
+                print(f"📁 Completed request - Failed {output_dir_path / run_id}")
+            else:
+                # Notify tracker of session success
+                from ...core.types import SessionScore
+
+                score = SessionScore(success=False, score=-1.0, is_finished=True)
+                tracker.on_session_success(mock_session, score, agent_instance)
+
+                await loop.run_in_executor(None, ctx.run, agent_instance.close)
+                await event_emitter.emit_event(final_result, final=True)
+                print(f"📁 Completed request - Success {output_dir_path / run_id}")
 
             # Flush traces to ensure they're exported
             from ...utils.otel import flush_traces
