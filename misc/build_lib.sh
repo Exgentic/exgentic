@@ -130,7 +130,15 @@ build_image() {
     local local_image="localhost/${image_prefix}-${name}:${tag}"
     local ghcr_image="ghcr.io/exgentic/${image_prefix}-${name}:${tag}"
 
+    # Commit baked into the image. check_git_clean guarantees local HEAD equals
+    # the pushed branch tip that the Dockerfile clones, so local HEAD is the
+    # authoritative source revision. Passed through as OCI image labels.
+    local git_commit git_branch
+    git_commit=$(git rev-parse HEAD 2>/dev/null || echo unknown)
+    git_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
+
     print_info "Building ${local_image} using ${runtime}..."
+    print_info "Source revision: ${git_branch} @ ${git_commit}"
     if [ "$use_cache" = "false" ]; then
         print_info "Building without cache (default)"
     else
@@ -163,6 +171,18 @@ build_image() {
         build_cmd="$build_cmd --no-cache"
     fi
 
+    # Index-level OCI annotations. Dockerfile LABELs only reach the per-platform
+    # image config, which GitHub's package UI (and multi-arch consumers) do not
+    # read; the manifest index is what they inspect. buildx's "index:" prefix
+    # writes these onto the OCI index so the revision/description surface there.
+    local description="Exgentic ${image_prefix}-${name} (built from ${git_branch} @ ${git_commit})"
+    local annotations=(
+        "--annotation" "index:org.opencontainers.image.source=https://github.com/Exgentic/exgentic"
+        "--annotation" "index:org.opencontainers.image.revision=${git_commit}"
+        "--annotation" "index:org.opencontainers.image.version=${git_branch}"
+        "--annotation" "index:org.opencontainers.image.description=${description}"
+    )
+
     # Platform and output flags
     if [ "$multiplatform" = "true" ] && [ "$should_push" = "true" ]; then
         if ! command -v skopeo &>/dev/null; then
@@ -192,7 +212,17 @@ build_image() {
         build_cmd="$build_cmd -t ${local_image}"
     fi
 
-    if $build_cmd "--build-arg" "${build_arg_name}=${name}" -f Dockerfile .; then
+    # --annotation is a buildx flag; podman does not accept it.
+    local annotation_args=()
+    if [ "$runtime" = "docker" ]; then
+        annotation_args=("${annotations[@]}")
+    fi
+
+    if $build_cmd "${annotation_args[@]}" \
+        "--build-arg" "${build_arg_name}=${name}" \
+        "--build-arg" "GIT_COMMIT=${git_commit}" \
+        "--build-arg" "GIT_BRANCH=${git_branch}" \
+        -f Dockerfile .; then
         if [ "$multiplatform" = "true" ] && [ "$should_push" = "true" ]; then
             print_info "✓ Successfully built multi-platform image to ${oci_tarball}"
             print_info "Pushing to GHCR via skopeo..."
