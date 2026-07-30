@@ -26,9 +26,11 @@ from exgentic.benchmarks.pinchbench.pinchbench_benchmark import (
     _default_skill_repo_path,
     _extract_grading_code,
     _extract_grading_criteria,
+    _judge_max_tokens,
     _load_task_index,
     _parse_judge_json,
     _parse_task_file,
+    _run_llm_judge,
 )
 from exgentic.core.actions import build_action
 
@@ -262,6 +264,87 @@ class TestParseJudgeJson:
 
     def test_unparsable_returns_empty_dict(self) -> None:
         assert _parse_judge_json("not json at all") == {}
+
+    def test_truncated_json_is_not_parsable(self) -> None:
+        """What a reasoning model emits when it runs out of budget mid-object."""
+        assert _parse_judge_json('```json\n{\n  "scores": {\n    "Criterion 1": 0') == {}
+
+
+# ---------------------------------------------------------------------------
+# LLM judge
+# ---------------------------------------------------------------------------
+
+
+def _judge_response(content: str, finish_reason: str = "stop") -> Any:
+    return SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=content), finish_reason=finish_reason)]
+    )
+
+
+class TestJudgeMaxTokens:
+    def test_default_budget_fits_a_reasoning_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("PINCHBENCH_JUDGE_MAX_TOKENS", raising=False)
+        assert _judge_max_tokens() == 4096
+
+    @pytest.mark.parametrize("raw", ["not-a-number", "0", "-5", ""])
+    def test_invalid_override_falls_back_to_default(self, monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
+        monkeypatch.setenv("PINCHBENCH_JUDGE_MAX_TOKENS", raw)
+        assert _judge_max_tokens() == 4096
+
+    def test_valid_override_is_used(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PINCHBENCH_JUDGE_MAX_TOKENS", "512")
+        assert _judge_max_tokens() == 512
+
+
+class TestRunLLMJudge:
+    def _run(self, response: Any) -> tuple[float, dict[str, float], str]:
+        with mock.patch("litellm.completion", return_value=response):
+            return _run_llm_judge(prompt="p", expected_behavior="e", rubric="r", agent_output="a", workspace_path="")
+
+    def test_parses_scores_and_total(self) -> None:
+        score, breakdown, notes = self._run(
+            _judge_response('{"scores": {"tone": 1.0, "clarity": 0.6}, "total": 0.8, "notes": "good"}')
+        )
+        assert score == pytest.approx(0.8)
+        assert breakdown == {"tone": 1.0, "clarity": 0.6}
+        assert notes == "good"
+
+    def test_total_falls_back_to_mean_of_criteria(self) -> None:
+        score, _breakdown, _notes = self._run(_judge_response('{"scores": {"a": 1.0, "b": 0.0}}'))
+        assert score == pytest.approx(0.5)
+
+    def test_budget_is_passed_to_the_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PINCHBENCH_JUDGE_MAX_TOKENS", "2048")
+        with mock.patch("litellm.completion", return_value=_judge_response('{"total": 1.0}')) as call:
+            _run_llm_judge(prompt="p", expected_behavior="e", rubric="r", agent_output="a", workspace_path="")
+        assert call.call_args.kwargs["max_tokens"] == 2048
+
+    def test_truncation_is_reported_distinctly_from_a_bad_verdict(self) -> None:
+        """A judge that ran out of tokens must not look like a judge that said 0."""
+        score, breakdown, notes = self._run(
+            _judge_response('```json\n{\n  "scores": {\n    "tone": 0', finish_reason="length")
+        )
+        assert score == 0.0
+        assert breakdown == {}
+        assert "truncated" in notes
+        assert "PINCHBENCH_JUDGE_MAX_TOKENS" in notes
+
+    def test_unparsable_verdict_is_reported_as_such(self) -> None:
+        _score, _breakdown, notes = self._run(_judge_response("I refuse to grade this."))
+        assert notes == "LLM judge returned unparsable response"
+
+    def test_empty_content_does_not_raise(self) -> None:
+        score, _breakdown, notes = self._run(_judge_response(None))
+        assert score == 0.0
+        assert notes
+
+    def test_transport_failure_is_reported(self) -> None:
+        with mock.patch("litellm.completion", side_effect=RuntimeError("boom")):
+            score, _breakdown, notes = _run_llm_judge(
+                prompt="p", expected_behavior="e", rubric="r", agent_output="a", workspace_path=""
+            )
+        assert score == 0.0
+        assert "LLM judge call failed" in notes
 
 
 # ---------------------------------------------------------------------------

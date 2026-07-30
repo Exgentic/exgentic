@@ -251,6 +251,25 @@ def _average_scores(scores: dict[str, float]) -> float:
     return sum(values) / len(values) if values else 0.0
 
 
+# Default judge budget.  Must be generous enough that a reasoning model can
+# think *and* still emit the JSON verdict; 1024 is not (observed: 979 reasoning
+# tokens leaving 41 for output, truncating the JSON and silently scoring 0.0).
+_DEFAULT_JUDGE_MAX_TOKENS = 4096
+
+
+def _judge_max_tokens() -> int:
+    """Token budget for the judge response, overridable for cheaper models."""
+    raw = os.environ.get("PINCHBENCH_JUDGE_MAX_TOKENS")
+    if raw:
+        try:
+            value = int(raw)
+        except ValueError:
+            return _DEFAULT_JUDGE_MAX_TOKENS
+        if value > 0:
+            return value
+    return _DEFAULT_JUDGE_MAX_TOKENS
+
+
 def _run_llm_judge(
     prompt: str,
     expected_behavior: str,
@@ -307,15 +326,25 @@ def _run_llm_judge(
             model=os.environ.get("PINCHBENCH_JUDGE_MODEL", "gpt-4o-mini"),
             messages=[{"role": "user", "content": judge_prompt}],
             temperature=0.0,
-            max_tokens=1024,
+            max_tokens=_judge_max_tokens(),
         )
-        raw_text = response.choices[0].message.content.strip()
+        choice = response.choices[0]
+        raw_text = (choice.message.content or "").strip()
     except Exception as exc:
         return 0.0, {}, f"LLM judge call failed: {exc}"
 
     # Parse JSON response
     parsed = _parse_judge_json(raw_text)
     if not parsed:
+        # Reasoning models can burn the whole budget before emitting any JSON,
+        # which truncates the response mid-object.  Report that distinctly from
+        # a judge that simply answered badly.
+        if getattr(choice, "finish_reason", None) == "length":
+            return (
+                0.0,
+                {},
+                "LLM judge response was truncated (finish_reason=length); raise PINCHBENCH_JUDGE_MAX_TOKENS",
+            )
         return 0.0, {}, "LLM judge returned unparsable response"
 
     scores = {}
