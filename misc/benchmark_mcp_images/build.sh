@@ -110,9 +110,13 @@ EOF
     FAIL_COUNT=0
 
     if build_image "$BENCHMARK" "exgentic-mcp" "BENCHMARK_NAME" "$RUNTIME" "$TAG" "$USE_CACHE" "$PUSH_TO_GHCR" "$MULTIPLATFORM"; then
-        ((SUCCESS_COUNT++))
+        # Plain arithmetic assignment, not a standalone ((expr++)) command: under
+        # `set -e`, ((x++)) with x=0 evaluates to the pre-increment value (0),
+        # which bash treats as command failure and exits the script immediately
+        # -- even though the build just succeeded. $((x + 1)) has no such trap.
+        SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
     else
-        ((FAIL_COUNT++))
+        FAIL_COUNT=$((FAIL_COUNT + 1))
     fi
     echo ""
 
