@@ -481,8 +481,15 @@ async def test_acheck_does_not_retry_not_found_error():
 # ---------------------------------------------------------------------------
 
 
-def test_validate_model_environment_reports_missing_keys():
-    """Missing provider credentials are reported by name."""
+def test_validate_model_environment_reports_missing_keys(monkeypatch):
+    """Missing provider credentials are reported by name.
+
+    Clears the gateway env vars so an ambient OPENAI_API_BASE/KEY in the
+    developer's shell cannot engage the gateway-alias shortcut.
+    """
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     env = {"keys_in_environment": False, "missing_keys": ["AZURE_API_KEY"]}
     with patch("litellm.validate_environment", return_value=env):
         assert validate_model_environment("azure/gpt-4.1") == ["AZURE_API_KEY"]
@@ -635,3 +642,51 @@ async def test_async_reachable_check_raises_on_missing_credentials():
         with pytest.raises(HealthCheckError) as exc_info:
             await acheck_model_reachable("gpt-4o", logger)
     assert "OPENAI_API_KEY" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Layer 1: provider-prefixed aliases behind an OpenAI-compatible gateway
+# ---------------------------------------------------------------------------
+
+
+def test_gateway_alias_does_not_require_provider_credentials(monkeypatch):
+    """``azure/x`` served by a gateway must not demand AZURE_API_* credentials.
+
+    LiteLLM gateways commonly namespace aliases with provider-shaped prefixes
+    (``azure/``, ``aws/``, ``gcp/``). The prefix is part of the alias, not a
+    routing decision, so requiring that provider's env vars would reject models
+    the gateway actually serves.
+    """
+    monkeypatch.setenv("OPENAI_API_BASE", "https://gateway.example.com")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-gateway")
+    env = {"keys_in_environment": False, "missing_keys": ["AZURE_API_BASE", "AZURE_API_KEY"]}
+    with patch("litellm.validate_environment", return_value=env):
+        assert validate_model_environment("azure/gpt-5-mini") == []
+
+
+def test_provider_credentials_still_required_without_gateway(monkeypatch):
+    """Without a gateway configured, a real provider route must still be validated."""
+    monkeypatch.delenv("OPENAI_API_BASE", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    env = {"keys_in_environment": False, "missing_keys": ["AZURE_API_BASE", "AZURE_API_KEY"]}
+    with patch("litellm.validate_environment", return_value=env):
+        assert validate_model_environment("azure/gpt-4.1") == ["AZURE_API_BASE", "AZURE_API_KEY"]
+
+
+def test_missing_gateway_key_is_still_reported(monkeypatch):
+    """A base URL without a key is a real misconfiguration, not a gateway alias."""
+    monkeypatch.setenv("OPENAI_API_BASE", "https://gateway.example.com")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    env = {"keys_in_environment": False, "missing_keys": ["OPENAI_API_KEY"]}
+    with patch("litellm.validate_environment", return_value=env):
+        assert validate_model_environment("gpt-4o") == ["OPENAI_API_KEY"]
+
+
+def test_gateway_shortcut_requires_both_base_and_key(monkeypatch):
+    """The shortcut needs a key too; a bare base URL must not suppress validation."""
+    monkeypatch.setenv("OPENAI_API_BASE", "https://gateway.example.com")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    env = {"keys_in_environment": False, "missing_keys": ["AZURE_API_KEY"]}
+    with patch("litellm.validate_environment", return_value=env):
+        assert validate_model_environment("azure/gpt-5-mini") == ["AZURE_API_KEY"]
