@@ -29,7 +29,7 @@ This wrapper provides access to Exgentic agents through the A2A protocol. Each D
 The easiest way to build an agent image:
 
 ```bash
-cd a2a/exgentic_agent
+cd misc/agent_a2a_images
 
 # Build an agent image
 ./build.sh tool_calling
@@ -39,6 +39,13 @@ The script will:
 - Auto-detect docker or podman
 - Build the image with proper tagging
 - Provide colored output and progress information
+
+The build clones the repository over the network and checks out the branch named
+in the `Dockerfile`, so `build.sh` requires a clean working tree on that same
+branch, with no unpushed commits — the image is built from the pushed revision,
+not from your local files. Untracked files (for example a leftover `out/`
+directory from a previous run) also count as uncommitted; remove or stash them
+before building.
 
 
 ### Run the Agent
@@ -55,15 +62,49 @@ docker run -p 8000:8000 \
 
 The agent will start on `http://0.0.0.0:8000`
 
-### Test the Agent
+`MCP_URL` is required and must point at a running benchmark MCP server; the
+agent exits at startup if it cannot connect. See
+[the benchmark MCP images](../benchmark_mcp_images/README.md), or run one from
+this same image with `--entrypoint exgentic ... mcp --benchmark gsm8k`.
+
+The model name must be one the configured endpoint actually serves, prefixed so
+that LiteLLM routes it. Behind a LiteLLM gateway, aliases are commonly
+namespaced (`Azure/gpt-4.1`, `aws/claude-sonnet-4-5`) and need an `openai/`
+prefix so LiteLLM treats the rest as the gateway's model name — for example
+`openai/Azure/gpt-4.1`. Without a routable prefix LiteLLM fails with
+`LLM Provider NOT provided`. List what an endpoint serves with:
 
 ```bash
-# Check if agent is running
-curl http://localhost:8000/health
-
-# List available capabilities
-curl http://localhost:8000/capabilities
+curl -s -H "Authorization: Bearer $OPENAI_API_KEY" "$OPENAI_API_BASE/v1/models"
 ```
+
+### Test the Agent
+
+The A2A server exposes its capabilities through the standard agent card; there
+are no `/health` or `/capabilities` endpoints.
+
+```bash
+# Check the agent is running and see its declared capabilities and MCP tools
+curl http://localhost:8000/.well-known/agent-card.json
+```
+
+Sending work requires a benchmark session. Create one on the MCP server
+(`create_session` returns a `session_id`), then pass that id in the A2A request
+metadata — the executor reads `session_id` from there and fails with
+`No session_id found in request metadata or task text.` if it is absent:
+
+```bash
+curl -s -X POST http://localhost:8000/ \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":"1","method":"message/send",
+       "params":{"metadata":{"session_id":"<SESSION_ID>"},
+                 "message":{"role":"user","messageId":"m1",
+                            "parts":[{"kind":"text","text":"Solve the task and submit the answer."}]}}}'
+```
+
+Pair the agent with a benchmark that exposes a message action (for example
+tau2). A benchmark whose actions are all tools, such as gsm8k, fails with
+`No action with is_message=True found`.
 
 ## Build Script Usage
 
@@ -71,7 +112,7 @@ The `build.sh` script provides a convenient way to build agent images:
 
 ```bash
 # Basic usage
-./build.sh AGENT_NAME [--tag TAG] [--use-cache] [--push]
+./build.sh AGENT_NAME [--tag TAG] [--use-cache] [--push] [--multiplatform]
 
 # Examples
 ./build.sh tool_calling                    # Build without cache (default)
@@ -81,6 +122,7 @@ The `build.sh` script provides a convenient way to build agent images:
 ./build.sh tool_calling --push             # Build and push to GitHub Container Registry
 ./build.sh tool_calling --tag v1.0.0 --push  # Build v1.0.0 and push to GHCR
 ./build.sh tool_calling --tag v1.0.0 --use-cache --push  # Build v1.0.0 with cache and push
+./build.sh tool_calling --multiplatform --push  # Build linux/amd64 + linux/arm64 and push
 
 # Get help
 ./build.sh --help
@@ -93,6 +135,9 @@ The `build.sh` script provides a convenient way to build agent images:
 - Builds without cache by default for consistency
 - Optional cache usage with `--use-cache` flag
 - Optional push to GitHub Container Registry with `--push` flag
+- Optional `--multiplatform` build for `linux/amd64` and `linux/arm64`; combined
+  with `--push` it publishes both platforms via skopeo (which must be
+  installed). Without `--push` only the native platform is loaded locally.
 
 ### Pushing to GitHub Container Registry
 
@@ -177,10 +222,11 @@ When using external models, you need to provide API credentials as environment v
 | `OPENAI_API_KEY` | Yes (for OpenAI models) | Your OpenAI API key |
 | `OPENAI_API_BASE` | No | Custom API base URL (if using a proxy or alternative endpoint) |
 
-**Example with OpenAI credentials:**
+**Example with OpenAI credentials** (`-e VAR` without a value forwards it from
+your shell, keeping the key out of the command line and shell history):
 ```bash
 docker run -p 8000:8000 \
-  -e OPENAI_API_KEY='your-api-key-here' \
+  -e OPENAI_API_KEY \
   -e EXGENTIC_SET_AGENT_MODEL='openai/gpt-4o' \
   exgentic-a2a-tool_calling:latest
 ```
@@ -188,7 +234,7 @@ docker run -p 8000:8000 \
 **Example with custom API base:**
 ```bash
 docker run -p 8000:8000 \
-  -e OPENAI_API_KEY='your-api-key-here' \
+  -e OPENAI_API_KEY \
   -e OPENAI_API_BASE='https://custom-endpoint.example.com/v1' \
   -e EXGENTIC_SET_AGENT_MODEL='openai/gpt-4o' \
   exgentic-a2a-tool_calling:latest

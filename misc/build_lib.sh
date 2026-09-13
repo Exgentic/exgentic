@@ -183,7 +183,11 @@ build_image() {
         "--annotation" "index:org.opencontainers.image.description=${description}"
     )
 
-    # Platform and output flags
+    # Platform and output flags. Also records whether the chosen output carries
+    # an OCI index: "index:" annotations are only valid for a multi-platform
+    # export, and buildx hard-fails ("index annotations not supported for single
+    # platform export") when they are passed to a single-platform --load.
+    local exports_index="false"
     if [ "$multiplatform" = "true" ] && [ "$should_push" = "true" ]; then
         if ! command -v skopeo &>/dev/null; then
             print_error "skopeo is required for multiplatform push but was not found"
@@ -193,6 +197,7 @@ build_image() {
         local oci_tarball
         oci_tarball=$(mktemp /tmp/exgentic-oci-XXXXXX.tar)
         build_cmd="$build_cmd --platform linux/amd64,linux/arm64 --output type=oci,dest=${oci_tarball} -t ${ghcr_image}"
+        exports_index="true"
     elif [ "$multiplatform" = "true" ]; then
         local native_platform
         native_platform=$(uname -m)
@@ -212,9 +217,12 @@ build_image() {
         build_cmd="$build_cmd -t ${local_image}"
     fi
 
-    # --annotation is a buildx flag; podman does not accept it.
+    # --annotation is a buildx flag; podman does not accept it. Index-level
+    # annotations additionally require an export that has an index, so they are
+    # limited to the multi-platform OCI output. Single-platform images still
+    # carry the same metadata via the Dockerfile LABELs.
     local annotation_args=()
-    if [ "$runtime" = "docker" ]; then
+    if [ "$runtime" = "docker" ] && [ "$exports_index" = "true" ]; then
         annotation_args=("${annotations[@]}")
     fi
 
