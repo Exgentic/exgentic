@@ -3,7 +3,13 @@
 
 import os
 
-from .health import acheck_model_accessible
+from .health import (
+    acheck_model_accessible,
+    acheck_model_reachable,
+    check_model_accessible_sync,
+    check_models_endpoint,
+    validate_model_environment,
+)
 from .proxy import LitellmProxy
 from .trace_cost import load_trace_cost
 from .trace_logger import (
@@ -23,11 +29,15 @@ if os.environ.get("EXGENTIC_PROXY_CACHE_INIT", "").lower() in ("true", "1"):
     get_settings()
 
 __all__ = [
-    "LitellmProxy",
-    "trace_logger",
-    "TraceLogger",
-    "FILE_ENV",
     "DEFAULT_FILE",
-    "load_trace_cost",
+    "FILE_ENV",
+    "LitellmProxy",
+    "TraceLogger",
     "acheck_model_accessible",
+    "acheck_model_reachable",
+    "check_model_accessible_sync",
+    "check_models_endpoint",
+    "load_trace_cost",
+    "trace_logger",
+    "validate_model_environment",
 ]

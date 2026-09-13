@@ -15,9 +15,15 @@ from exgentic.integrations.litellm.health import (
     _HEALTH_MIN_RETRIES,
     _HEALTH_MIN_RETRY_DELAY,
     ErrorCategory,
+    HealthCheckError,
+    _models_url,
+    _served_model_ids,
     acheck_model_accessible,
+    acheck_model_reachable,
     check_model_accessible_sync,
+    check_models_endpoint,
     classify_error,
+    validate_model_environment,
 )
 
 
@@ -33,18 +39,44 @@ class MockLiteLLMError(Exception):
         return ""
 
 
+def _raise_and_close(exc: BaseException):
+    """Build a ``run_sync`` side effect that raises *exc* without leaking the coroutine.
+
+    ``run_sync`` is handed a coroutine; a plain ``side_effect`` exception never
+    awaits it, which surfaces later as an unraisable "coroutine was never
+    awaited" RuntimeWarning in an unrelated test.
+    """
+
+    def _side_effect(coro, *args, **kwargs):
+        close = getattr(coro, "close", None)
+        if close is not None:
+            close()
+        raise exc
+
+    return _side_effect
+
+
+def _skip_cheap_layers():
+    """Stub layers 1 and 2 so a test can isolate the strict completion call."""
+    return (
+        patch("exgentic.integrations.litellm.health.validate_model_environment", return_value=[]),
+        patch("exgentic.integrations.litellm.health.check_models_endpoint", return_value=None),
+    )
+
+
 def test_health_check_extracts_message_attribute_from_exception(caplog):
     """Test that health check extracts error details from exception.message attribute."""
     caplog.set_level(logging.ERROR)
 
     with patch("exgentic.utils.sync.run_sync") as mock_run_sync:
         exc = MockLiteLLMError("API key authentication failed")
-        mock_run_sync.side_effect = exc
+        mock_run_sync.side_effect = _raise_and_close(exc)
 
         logger = logging.getLogger("test")
 
-        with pytest.raises(RuntimeError) as exc_info:
-            check_model_accessible_sync("test-model", logger)
+        env, endpoint = _skip_cheap_layers()
+        with env, endpoint, pytest.raises(RuntimeError) as exc_info:
+            check_model_accessible_sync("test-model", logger, strict=True)
 
         error_msg = str(exc_info.value)
         assert "API key authentication failed" in error_msg
@@ -58,12 +90,13 @@ def test_health_check_falls_back_to_str_when_no_message_attribute(caplog):
 
     with patch("exgentic.utils.sync.run_sync") as mock_run_sync:
         exc = ValueError("Standard error message")
-        mock_run_sync.side_effect = exc
+        mock_run_sync.side_effect = _raise_and_close(exc)
 
         logger = logging.getLogger("test")
 
-        with pytest.raises(RuntimeError) as exc_info:
-            check_model_accessible_sync("test-model", logger)
+        env, endpoint = _skip_cheap_layers()
+        with env, endpoint, pytest.raises(RuntimeError) as exc_info:
+            check_model_accessible_sync("test-model", logger, strict=True)
 
         error_msg = str(exc_info.value)
         assert "Standard error message" in error_msg
@@ -82,12 +115,13 @@ def test_health_check_uses_repr_as_last_resort(caplog):
 
     with patch("exgentic.utils.sync.run_sync") as mock_run_sync:
         exc = EmptyError("hidden")
-        mock_run_sync.side_effect = exc
+        mock_run_sync.side_effect = _raise_and_close(exc)
 
         logger = logging.getLogger("test")
 
-        with pytest.raises(RuntimeError) as exc_info:
-            check_model_accessible_sync("test-model", logger)
+        env, endpoint = _skip_cheap_layers()
+        with env, endpoint, pytest.raises(RuntimeError) as exc_info:
+            check_model_accessible_sync("test-model", logger, strict=True)
 
         error_msg = str(exc_info.value)
         assert "EmptyError" in error_msg
@@ -440,3 +474,164 @@ async def test_acheck_does_not_retry_not_found_error():
             await acheck_model_accessible("m")
 
     assert mock.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Layer 1: environment validation
+# ---------------------------------------------------------------------------
+
+
+def test_validate_model_environment_reports_missing_keys():
+    """Missing provider credentials are reported by name."""
+    env = {"keys_in_environment": False, "missing_keys": ["AZURE_API_KEY"]}
+    with patch("litellm.validate_environment", return_value=env):
+        assert validate_model_environment("azure/gpt-4.1") == ["AZURE_API_KEY"]
+
+
+def test_validate_model_environment_empty_when_complete():
+    """A fully configured environment reports nothing missing."""
+    with patch("litellm.validate_environment", return_value={"keys_in_environment": True, "missing_keys": []}):
+        assert validate_model_environment("gpt-4o") == []
+
+
+def test_validate_model_environment_tolerates_unknown_model():
+    """An unknown/aliased model reports nothing rather than raising."""
+    with patch("litellm.validate_environment", side_effect=Exception("unknown model")):
+        assert validate_model_environment("my-gateway-alias") == []
+
+
+def test_sync_check_fails_fast_on_missing_credentials():
+    """Layer 1 failure short-circuits before any network probe."""
+    logger = logging.getLogger("test")
+    with patch("exgentic.integrations.litellm.health.validate_model_environment", return_value=["OPENAI_API_KEY"]):
+        with patch("exgentic.integrations.litellm.health.check_models_endpoint") as probe:
+            with pytest.raises(HealthCheckError) as exc_info:
+                check_model_accessible_sync("gpt-4o", logger)
+    assert "OPENAI_API_KEY" in str(exc_info.value)
+    probe.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Layer 2: GET /v1/models reachability
+# ---------------------------------------------------------------------------
+
+
+def test_models_url_appends_v1_when_absent():
+    assert _models_url("https://gw.example.com") == "https://gw.example.com/v1/models"
+
+
+def test_models_url_reuses_existing_v1_suffix():
+    assert _models_url("https://gw.example.com/v1") == "https://gw.example.com/v1/models"
+    assert _models_url("https://gw.example.com/v1/") == "https://gw.example.com/v1/models"
+
+
+def test_served_model_ids_parses_openai_listing():
+    payload = {"data": [{"id": "gpt-4o"}, {"id": "gpt-5-mini"}, {"no_id": 1}]}
+    assert _served_model_ids(payload) == {"gpt-4o", "gpt-5-mini"}
+
+
+def test_served_model_ids_tolerates_unexpected_shapes():
+    assert _served_model_ids(None) == set()
+    assert _served_model_ids({"data": "nope"}) == set()
+    assert _served_model_ids([]) == set()
+
+
+def _patch_probe(status, payload=None, base="https://gw.example.com/v1"):
+    """Patch base-URL resolution and the HTTP fetch for endpoint tests."""
+    return (
+        patch("exgentic.integrations.litellm.health._resolve_api_base", return_value=base),
+        patch("exgentic.integrations.litellm.health._fetch_models", return_value=(status, payload)),
+    )
+
+
+def test_endpoint_check_passes_when_model_listed():
+    logger = logging.getLogger("test")
+    base, fetch = _patch_probe(200, {"data": [{"id": "gpt-4o"}]})
+    with base, fetch:
+        check_models_endpoint("gpt-4o", logger)  # no raise
+
+
+def test_endpoint_check_warns_when_model_absent_from_listing(caplog):
+    """A gateway may alias or hide names — warn, don't fail."""
+    caplog.set_level(logging.WARNING)
+    logger = logging.getLogger("test")
+    base, fetch = _patch_probe(200, {"data": [{"id": "some-other-model"}]})
+    with base, fetch:
+        check_models_endpoint("gpt-4o", logger)  # no raise
+    assert "not listed" in caplog.text
+
+
+def test_endpoint_check_treats_auth_rejection_as_reachable():
+    """401/403 means the endpoint is alive; auth surfaces on the real call."""
+    logger = logging.getLogger("test")
+    for status in (401, 403):
+        base, fetch = _patch_probe(status)
+        with base, fetch:
+            check_models_endpoint("gpt-4o", logger)  # no raise
+
+
+def test_endpoint_check_raises_on_server_error():
+    logger = logging.getLogger("test")
+    base, fetch = _patch_probe(503)
+    with base, fetch:
+        with pytest.raises(HealthCheckError) as exc_info:
+            check_models_endpoint("gpt-4o", logger)
+    assert "503" in str(exc_info.value)
+
+
+def test_endpoint_check_raises_when_unreachable():
+    """status=None means DNS/TCP/TLS failure, not an HTTP error."""
+    logger = logging.getLogger("test")
+    base, fetch = _patch_probe(None)
+    with base, fetch:
+        with pytest.raises(HealthCheckError) as exc_info:
+            check_models_endpoint("gpt-4o", logger)
+    assert "unreachable" in str(exc_info.value)
+
+
+def test_endpoint_check_tolerates_missing_models_route():
+    """Some gateways omit /v1/models; a 404 still proves the endpoint answered."""
+    logger = logging.getLogger("test")
+    base, fetch = _patch_probe(404)
+    with base, fetch:
+        check_models_endpoint("gpt-4o", logger)  # no raise
+
+
+def test_endpoint_check_skipped_when_no_base_url_discoverable():
+    """Guessing a base URL would cause false failures for self-hosted providers."""
+    logger = logging.getLogger("test")
+    with patch("exgentic.integrations.litellm.health._resolve_api_base", return_value=None):
+        with patch("exgentic.integrations.litellm.health._fetch_models") as fetch:
+            check_models_endpoint("some/self-hosted", logger)  # no raise
+    fetch.assert_not_called()
+
+
+def test_default_sync_check_issues_no_completion_call():
+    """The whole point: the default path must not bill a token."""
+    logger = logging.getLogger("test")
+    with patch("litellm.acompletion", new=AsyncMock()) as completion:
+        with patch("exgentic.integrations.litellm.health.validate_model_environment", return_value=[]):
+            base, fetch = _patch_probe(200, {"data": [{"id": "gpt-4o"}]})
+            with base, fetch:
+                check_model_accessible_sync("gpt-4o", logger)
+    completion.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_async_reachable_check_issues_no_completion_call():
+    logger = logging.getLogger("test")
+    with patch("litellm.acompletion", new=AsyncMock()) as completion:
+        with patch("exgentic.integrations.litellm.health.validate_model_environment", return_value=[]):
+            base, fetch = _patch_probe(200, {"data": [{"id": "gpt-4o"}]})
+            with base, fetch:
+                await acheck_model_reachable("gpt-4o", logger)
+    completion.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_async_reachable_check_raises_on_missing_credentials():
+    logger = logging.getLogger("test")
+    with patch("exgentic.integrations.litellm.health.validate_model_environment", return_value=["OPENAI_API_KEY"]):
+        with pytest.raises(HealthCheckError) as exc_info:
+            await acheck_model_reachable("gpt-4o", logger)
+    assert "OPENAI_API_KEY" in str(exc_info.value)
