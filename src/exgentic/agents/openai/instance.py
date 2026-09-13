@@ -18,7 +18,7 @@ from agents.usage import Usage
 
 from ...adapters.agents.mcp_agent import MCPAgentInstance
 from ...core.types import ModelSettings, RetryStrategy
-from ...integrations.litellm.health import acheck_model_accessible
+from ...integrations.litellm.health import acheck_model_reachable
 from ...observers.logging import (
     attach_library_logger_to_handler,
     restore_library_logger,
@@ -117,7 +117,7 @@ class OpenAIMCPAgentInstance(MCPAgentInstance):
         if self._model_access_checked or self.mcp_config.skip_health_check:
             return
         self.logger.info("Running LiteLLM model health check (model=%s)", self.model_id)
-        await acheck_model_accessible(self.model_id, model_settings=self.model_settings)
+        await acheck_model_reachable(self.model_id, self.logger)
         self._model_access_checked = True
 
     def _record_usage(self, usage: Usage | None) -> None:
