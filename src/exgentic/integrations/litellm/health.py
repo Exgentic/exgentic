@@ -176,6 +176,23 @@ class HealthCheckError(RuntimeError):
 # ---------------------------------------------------------------------------
 
 
+# Env vars consulted for a provider's base URL, in precedence order. Checked
+# per provider prefix (OPENAI_API_BASE, AZURE_API_BASE, ...) before falling
+# back to the generic names.
+_BASE_URL_SUFFIXES = ("_API_BASE", "_BASE_URL")
+
+
+def _is_openai_compatible_gateway() -> bool:
+    """True when requests are routed to an OpenAI-compatible gateway.
+
+    A gateway fronts many backends behind one OpenAI-compatible surface and
+    authenticates with a single key, so per-provider credentials are not needed
+    even for models whose *alias* carries a provider-shaped prefix.
+    """
+    has_base = any(os.environ.get(f"OPENAI{suffix}") for suffix in _BASE_URL_SUFFIXES)
+    return bool(has_base and os.environ.get("OPENAI_API_KEY"))
+
+
 def validate_model_environment(model: str) -> list[str]:
     """Return the credential env vars *model* needs but that are not set.
 
@@ -183,6 +200,14 @@ def validate_model_environment(model: str) -> list[str]:
     credential requirements. Costs nothing and touches no network, so it is the
     right first gate: a misconfigured run fails here with a precise message
     instead of surfacing as an opaque auth error mid-task.
+
+    Provider-prefixed names are ambiguous. ``azure/gpt-5-mini`` may be a real
+    Azure route needing ``AZURE_API_*``, or just a gateway's alias for a model
+    it serves over an OpenAI-compatible surface — a shape LiteLLM gateways use
+    routinely (``azure/``, ``aws/``, ``gcp/`` …). When an OpenAI-compatible
+    gateway is configured, requiring the prefix's provider credentials would
+    reject models the gateway actually serves, so the prefix is not treated as
+    a routing decision and validation is left to the endpoint check.
 
     Args:
         model: Model identifier, optionally provider-prefixed (``azure/gpt-4.1``).
@@ -201,18 +226,16 @@ def validate_model_environment(model: str) -> list[str]:
         # of information is not a failure — let the endpoint check decide.
         return []
 
-    missing = result.get("missing_keys") or []
-    return [str(key) for key in missing]
+    missing = [str(key) for key in result.get("missing_keys") or []]
+    if missing and missing != ["OPENAI_API_KEY"] and _is_openai_compatible_gateway():
+        # The prefix named a provider, but traffic goes to the gateway instead.
+        return []
+    return missing
 
 
 # ---------------------------------------------------------------------------
 # Layer 2: endpoint reachability via GET /v1/models (unbilled)
 # ---------------------------------------------------------------------------
-
-# Env vars consulted for a provider's base URL, in precedence order. Checked
-# per provider prefix (OPENAI_API_BASE, AZURE_API_BASE, ...) before falling
-# back to the generic names.
-_BASE_URL_SUFFIXES = ("_API_BASE", "_BASE_URL")
 
 # Providers whose public endpoint is OpenAI-compatible and needs no explicit
 # base URL to probe.
