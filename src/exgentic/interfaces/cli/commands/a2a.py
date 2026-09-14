@@ -86,6 +86,23 @@ def a2a_cmd(
     apply_debug_mode(debug)
     settings = get_settings()
 
+    # A2A agents are long-lived: one process serves many runs. LiteLLM response
+    # caching would then return a previous run's completion for a repeated task,
+    # which silently invalidates re-measurement. Default it off *for this
+    # command only* — every other entry point keeps the global default.
+    #
+    # model_fields_set records fields that came from the environment rather than
+    # a class default, so an explicit EXGENTIC_LITELLM_CACHING still wins.
+    if "litellm_caching" not in settings.model_fields_set:
+        settings.litellm_caching = False
+        logger.info(
+            "LiteLLM response caching disabled by default for a2a (set EXGENTIC_LITELLM_CACHING=true to enable)"
+        )
+    else:
+        logger.info(
+            "LiteLLM response caching %s via environment", "enabled" if settings.litellm_caching else "disabled"
+        )
+
     # Load agent class
     try:
         agent_cls = load_agent(agent)
