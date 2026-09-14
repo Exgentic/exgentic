@@ -93,15 +93,15 @@ def a2a_cmd(
     #
     # model_fields_set records fields that came from the environment rather than
     # a class default, so an explicit EXGENTIC_LITELLM_CACHING still wins.
+    #
+    # Reported with click.echo, not logger: the file logger is only configured
+    # further down (get_logger below), so a log record here goes nowhere.
     if "litellm_caching" not in settings.model_fields_set:
         settings.litellm_caching = False
-        logger.info(
-            "LiteLLM response caching disabled by default for a2a (set EXGENTIC_LITELLM_CACHING=true to enable)"
-        )
+        click.echo("✓ LiteLLM response caching disabled (default for a2a; set EXGENTIC_LITELLM_CACHING=true to enable)")
     else:
-        logger.info(
-            "LiteLLM response caching %s via environment", "enabled" if settings.litellm_caching else "disabled"
-        )
+        state = "enabled" if settings.litellm_caching else "disabled"
+        click.echo(f"✓ LiteLLM response caching {state} via EXGENTIC_LITELLM_CACHING")
 
     # Load agent class
     try:
