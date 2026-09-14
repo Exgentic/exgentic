@@ -186,7 +186,7 @@ class ExgenticAgentExecutor:
 
         from opentelemetry import trace as otel_trace
 
-        from ...core.context import Context, OtelContext, get_context, set_context
+        from ...core.context import Context, OtelContext, get_context, set_context, set_context_fallback
         from ...core.orchestrator.tracker import Tracker
         from ...utils.settings import get_settings
 
@@ -214,6 +214,12 @@ class ExgenticAgentExecutor:
             otel_context=parent_otel_context,
         )
         set_context(ctx)
+        # Also publish as the process-wide fallback: litellm dispatches
+        # cache-hit success callbacks on a bare thread-pool thread that inherits
+        # no ContextVar, so without this the TraceLogger sees no context at all
+        # and the LLM span is lost. Refreshed again once session_id/otel_context
+        # are known below.
+        set_context_fallback(ctx)
 
         # Default observers include OtelTracingObserver when otel_enabled
         tracker = Tracker()
@@ -362,6 +368,7 @@ class ExgenticAgentExecutor:
                         current_ctx = get_context()
                         updated_ctx = current_ctx.with_session(session_id).with_otel_context(otel_ctx)
                         set_context(updated_ctx)
+                        set_context_fallback(updated_ctx)
                         logger.info(
                             f"Updated Context: session_id={session_id}, trace_id={otel_ctx.trace_id}, "
                             f"span_id={otel_ctx.span_id}"
