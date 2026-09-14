@@ -88,3 +88,31 @@ def test_a2a_command_disables_caching_by_default(monkeypatch):
     finally:
         # Restore the global default so later tests in this process are unaffected.
         settings.litellm_caching = True
+
+
+def test_caching_state_is_reported_on_stdout(monkeypatch):
+    """The caching decision is echoed, not logged.
+
+    The file logger is configured later in a2a_cmd, so a log record emitted at
+    the caching decision goes nowhere — the operator needs to see this in the
+    container's startup output.
+    """
+    from click.testing import CliRunner
+    from exgentic.interfaces.cli.main import cli
+    from exgentic.utils.settings import get_settings
+
+    settings = get_settings()
+    monkeypatch.delenv("EXGENTIC_LITELLM_CACHING", raising=False)
+    try:
+        settings.litellm_caching = True
+        settings.model_fields_set.discard("litellm_caching")
+        out = CliRunner().invoke(cli, ["a2a", "--agent", "tool_calling", "--mcp", "http://127.0.0.1:1/mcp"]).output
+        assert "caching disabled" in out.lower()
+
+        # Explicit env-sourced value: set the value, then mark it as explicit.
+        settings.litellm_caching = True
+        settings.model_fields_set.add("litellm_caching")
+        out = CliRunner().invoke(cli, ["a2a", "--agent", "tool_calling", "--mcp", "http://127.0.0.1:1/mcp"]).output
+        assert "caching enabled via" in out.lower()
+    finally:
+        settings.litellm_caching = True

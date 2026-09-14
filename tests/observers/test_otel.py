@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import contextvars
 import json
+import tempfile
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -1903,6 +1904,25 @@ def _full_lifecycle_spans(
     return session_span, tool_spans, spans
 
 
+def _mock_context(session_id="sess-001", trace_id="0" * 31 + "1", span_id="0" * 15 + "1"):
+    """A MagicMock exgentic Context whose path attributes are real temp paths.
+
+    output_dir/run_id must be real strings: left as auto-generated MagicMock
+    attributes they stringify to "MagicMock/mock.output_dir/<id>", and code that
+    builds a session log path from them creates that tree under the *current
+    working directory* — littering the repo root with a MagicMock/ directory on
+    every test run.
+    """
+    ctx = MagicMock()
+    ctx.session_id = session_id
+    ctx.otel_context = MagicMock()
+    ctx.otel_context.trace_id = trace_id
+    ctx.otel_context.span_id = span_id
+    ctx.output_dir = tempfile.mkdtemp(prefix="exgentic-otel-test-")
+    ctx.run_id = "test-run"
+    return ctx
+
+
 def _invoke_write_otel(
     *,
     kwargs=None,
@@ -1925,11 +1945,7 @@ def _invoke_write_otel(
     logger._tracer = t
     logger._otel_logger = MagicMock()
 
-    mock_ctx = MagicMock()
-    mock_ctx.session_id = session_id
-    mock_ctx.otel_context = MagicMock()
-    mock_ctx.otel_context.trace_id = otel_trace_id
-    mock_ctx.otel_context.span_id = otel_span_id
+    mock_ctx = _mock_context(session_id, otel_trace_id, otel_span_id)
 
     if kwargs is None:
         kwargs = {
@@ -2627,11 +2643,7 @@ class TestTraceLoggerSilentFailure:
         tl._tracer.start_span.side_effect = RuntimeError("tracer broken")
         tl._otel_logger = MagicMock()
 
-        mock_ctx = MagicMock()
-        mock_ctx.session_id = "s"
-        mock_ctx.otel_context = MagicMock()
-        mock_ctx.otel_context.trace_id = "0" * 32
-        mock_ctx.otel_context.span_id = "0" * 16
+        mock_ctx = _mock_context(session_id="s", trace_id="0" * 32, span_id="0" * 16)
 
         with (
             patch(
