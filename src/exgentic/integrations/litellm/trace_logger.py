@@ -73,6 +73,10 @@ class TraceLogger(CustomLogger):
         self._file_path = file_path
         self._tracer = None
         self._otel_logger = None
+        # Session the cached _otel_logger belongs to. This logger is module-level
+        # and shared by every request a warm agent process serves, so the cached
+        # per-session logger must be rebound when the session changes.
+        self._otel_logger_session_id: str | None = None
 
     # -- Context resolution --------------------------------------------------
 
@@ -125,6 +129,7 @@ class TraceLogger(CustomLogger):
         if ctx is None or ctx.session_id is None or ctx.otel_context is None:
             logger.debug("No OTEL context for TraceLogger, skipping init. context=%s", ctx)
             return
+        self._otel_logger_session_id = ctx.session_id
 
         from opentelemetry import trace as trace_api
 
@@ -148,17 +153,33 @@ class TraceLogger(CustomLogger):
         )
 
     def _get_parent_context(self, kwargs) -> Any:
+        """Resolve the parent span context for an LLM span.
+
+        Falls back to the ambient OTEL context when the exgentic context is
+        absent or carries no ``otel_context``. Both happen routinely on a warm
+        agent process: the A2A executor calls ``set_context`` with a bare
+        Context at the start of each request and only attaches ``otel_context``
+        later, and litellm dispatches cache-hit callbacks on a plain thread-pool
+        thread that inherits no ContextVar. Raising here loses the whole span,
+        which is strictly worse than emitting one that may be unparented.
+        """
         from opentelemetry import context, trace
         from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
         ctx = self.get_context(kwargs)
-        trace_id_hex = ctx.otel_context.trace_id
-        span_id_hex = ctx.otel_context.span_id
+        otel_context = getattr(ctx, "otel_context", None)
+        if otel_context is None:
+            logger.debug("No otel_context for LLM span (context=%s); using ambient OTEL context", ctx)
+            return context.get_current()
+
+        trace_id_hex = otel_context.trace_id
+        span_id_hex = otel_context.span_id
 
         if not trace_id_hex or not span_id_hex:
             return context.get_current()
 
-        self._otel_logger.log_context_read(trace_id_hex, span_id_hex)
+        if self._otel_logger is not None:
+            self._otel_logger.log_context_read(trace_id_hex, span_id_hex)
         span_context = SpanContext(
             trace_id=int(trace_id_hex, 16),
             span_id=int(span_id_hex, 16),
@@ -220,9 +241,42 @@ class TraceLogger(CustomLogger):
         if self._tracer is None:
             return
         try:
+            # The tracer is process-global and survives across requests, but
+            # _otel_logger is per session. On a warm process serving a second
+            # run, the tracer is already set so _init_otel never runs again and
+            # the session logger stays bound to the first run's directory.
+            # Rebind it here, without touching the tracer. Inside the try so a
+            # failure is logged rather than losing the span.
+            self._refresh_session_logger(kwargs)
             self._emit_llm_span(kwargs, response_obj, status, start_time, end_time)
         except Exception:
             logger.warning("TraceLogger._write_otel failed", exc_info=True)
+
+    def _refresh_session_logger(self, kwargs) -> None:
+        """Rebind the per-session OTEL logger when the session has changed.
+
+        No-op when the session is unchanged, or when no session/OTEL context is
+        available (a bare per-request context, or a cache-hit callback running on
+        a thread with no context at all). In those cases the span is still
+        emitted; only the auxiliary per-session log file is skipped.
+        """
+        import threading
+
+        from ...utils.otel import get_session_logger
+
+        ctx = self.get_context(kwargs)
+        session_id = getattr(ctx, "session_id", None)
+        if session_id is None or session_id == self._otel_logger_session_id:
+            return
+        if getattr(ctx, "otel_context", None) is None:
+            return
+
+        session_root = Path(ctx.output_dir) / ctx.run_id / "sessions" / session_id
+        self._otel_logger = get_session_logger(
+            session_root,
+            f"{__name__} | pid={os.getpid()} tid={threading.get_native_id()}",
+        )
+        self._otel_logger_session_id = session_id
 
     def _emit_llm_span(self, kwargs, response_obj, status, start_time, end_time) -> None:
         from opentelemetry.trace import SpanKind, Status, StatusCode
@@ -244,13 +298,14 @@ class TraceLogger(CustomLogger):
 
         span_ctx = span.get_span_context()
         span_id = format(span_ctx.span_id, "016x")
-        self._otel_logger.log_span_start(
-            span_name=span_name,
-            span_id=span_id,
-            trace_id=format(span_ctx.trace_id, "032x"),
-            parent_span_id=ctx.otel_context.span_id if ctx and ctx.otel_context else None,
-            start_time=start_time,
-        )
+        if self._otel_logger is not None:
+            self._otel_logger.log_span_start(
+                span_name=span_name,
+                span_id=span_id,
+                trace_id=format(span_ctx.trace_id, "032x"),
+                parent_span_id=ctx.otel_context.span_id if ctx and ctx.otel_context else None,
+                start_time=start_time,
+            )
 
         # Status
         if status == "success":
@@ -265,9 +320,11 @@ class TraceLogger(CustomLogger):
             "gen_ai.operation.name": operation,
             "gen_ai.provider.name": _PROVIDER_MAP.get(provider.lower(), provider),
             "gen_ai.request.model": model,
-            "gen_ai.conversation.id": ctx.session_id,
-            "exgentic.session.id": ctx.session_id,
         }
+        session_id = getattr(ctx, "session_id", None)
+        if session_id is not None:
+            attrs["gen_ai.conversation.id"] = session_id
+            attrs["exgentic.session.id"] = session_id
         self._collect_request_attrs(attrs, optional_params)
         self._collect_response_attrs(attrs, response_obj)
 
@@ -281,7 +338,8 @@ class TraceLogger(CustomLogger):
         end_ns = int(end_time.timestamp() * 1_000_000_000) if end_time else None
         span.end(end_time=end_ns)
 
-        self._otel_logger.log_span_end(span_name=span_name, span_id=span_id, status=status, end_time=end_time)
+        if self._otel_logger is not None:
+            self._otel_logger.log_span_end(span_name=span_name, span_id=span_id, status=status, end_time=end_time)
 
     @staticmethod
     def _set_error_type(span, kwargs, response_obj) -> None:

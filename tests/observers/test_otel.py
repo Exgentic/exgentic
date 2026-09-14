@@ -12,6 +12,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import pytest
 from exgentic.core.context import (
@@ -3416,3 +3417,134 @@ class TestContentRecordingRobustness:
         result = _serialize_to_json(MyModel(name="test", count=5))
         parsed = json.loads(result)
         assert parsed == {"name": "test", "count": 5}
+
+
+# ===================================================================
+# Warm-process span loss (per-task max_tokens probe / cache-hit callbacks)
+# ===================================================================
+
+
+def _warm_logger_spans(contexts):
+    """Drive one TraceLogger through several per-request contexts.
+
+    Models a warm agent process serving more than one run: the module-level
+    TraceLogger is reused, so ``_tracer``/``_otel_logger`` persist across
+    requests. Returns ``(finished_spans, logger)``.
+    """
+    from exgentic.integrations.litellm.trace_logger import TraceLogger
+
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+    tl = TraceLogger()
+    tl._tracer = provider.get_tracer("test")
+    settings = MagicMock(otel_enabled=True, otel_record_content=False)
+
+    for index, ctx in enumerate(contexts):
+        kwargs = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "hi"}],
+            "optional_params": {},
+            "litellm_params": {"custom_llm_provider": "openai"},
+        }
+        response_obj = {
+            "id": f"chatcmpl-{index}",
+            "model": "gpt-4o",
+            "usage": {"prompt_tokens": 100 + index, "completion_tokens": 10 + index},
+            "choices": [{"finish_reason": "tool_calls", "message": {"role": "assistant", "content": "x"}}],
+        }
+        with (
+            patch("exgentic.integrations.litellm.trace_logger.get_settings", return_value=settings),
+            patch.object(tl, "get_context", return_value=ctx),
+        ):
+            tl._write_otel(kwargs, response_obj, "success")
+
+    return exporter.get_finished_spans(), tl
+
+
+def _req_ctx(tmp_path, run_id, session_id=None, with_otel=True):
+    otel = OtelContext(trace_id="1" * 32, span_id="2" * 16) if (with_otel and session_id) else None
+    return Context(
+        run_id=run_id,
+        output_dir=str(tmp_path),
+        cache_dir=str(tmp_path / "cache"),
+        session_id=session_id,
+        otel_context=otel,
+    )
+
+
+class TestWarmProcessSpanLoss:
+    """A warm TraceLogger must keep emitting LLM spans on later runs.
+
+    Regression tests for spans being dropped on every run after the first
+    against the same agent process. ``_get_parent_context`` dereferenced
+    ``ctx.otel_context`` unconditionally, so it raised ``AttributeError`` and
+    ``_write_otel`` swallowed it — losing the whole span, and with it the token
+    usage for that task.
+    """
+
+    def test_span_emitted_when_context_has_no_otel_context(self, tmp_path):
+        """A bare per-request context must not lose the span.
+
+        The A2A executor calls ``set_context`` with a Context carrying no
+        ``otel_context`` at the start of every request, attaching it only later.
+        """
+        spans, _ = _warm_logger_spans([_req_ctx(tmp_path, "runB", session_id=None)])
+        assert len(spans) == 1
+        assert spans[0].attributes["gen_ai.usage.input_tokens"] == 100
+
+    def test_span_emitted_when_context_is_missing_entirely(self, tmp_path):
+        """No context at all must not lose the span.
+
+        litellm dispatches cache-hit success callbacks via ``executor.submit``,
+        on a thread that inherits no ContextVar.
+        """
+        spans, _ = _warm_logger_spans([None])
+        assert len(spans) == 1
+        assert spans[0].attributes["gen_ai.usage.input_tokens"] == 100
+        assert "exgentic.session.id" not in spans[0].attributes
+
+    def test_second_run_on_warm_logger_keeps_emitting_spans(self, tmp_path):
+        """Every request of a two-run sequence emits its span.
+
+        Reproduces the reported sequence: run A (bare ctx, then real ctx), then
+        run B against the same process. Before the fix the run B spans were lost.
+        """
+        spans, _ = _warm_logger_spans(
+            [
+                _req_ctx(tmp_path, "runA", session_id=None),
+                _req_ctx(tmp_path, "runA", session_id="sA"),
+                _req_ctx(tmp_path, "runB", session_id=None),
+                _req_ctx(tmp_path, "runB", session_id="sB"),
+            ]
+        )
+        assert len(spans) == 4
+        assert [s.attributes["gen_ai.usage.input_tokens"] for s in spans] == [100, 101, 102, 103]
+
+    def test_session_logger_rebinds_on_new_session(self, tmp_path):
+        """The per-session OTEL logger follows the session across runs.
+
+        The tracer is process-global, so ``_init_otel`` does not run again on a
+        warm process; without an explicit rebind the session log stays pinned to
+        the first run's directory.
+
+        Session ids are unique per test run because ``get_logger`` caches
+        loggers by name process-wide and returns early when one already has
+        handlers, which would skip creating the file under this ``tmp_path``.
+        """
+        first, second = f"sA-{uuid4().hex[:8]}", f"sB-{uuid4().hex[:8]}"
+        _, tl = _warm_logger_spans(
+            [
+                _req_ctx(tmp_path, "runA", session_id=first),
+                _req_ctx(tmp_path, "runB", session_id=second),
+            ]
+        )
+        assert tl._otel_logger_session_id == second
+        assert (tmp_path / "runB" / "sessions" / second / "otel.log").exists()
+
+    def test_missing_context_does_not_rebind_session_logger(self, tmp_path):
+        """A context-less callback must not clobber the bound session logger."""
+        session = f"sA-{uuid4().hex[:8]}"
+        _, tl = _warm_logger_spans([_req_ctx(tmp_path, "runA", session_id=session), None])
+        assert tl._otel_logger_session_id == session
