@@ -183,6 +183,37 @@ View the package at: https://github.com/orgs/Exgentic/packages/container/package
 | `LOG_LEVEL` | No | INFO | Logging level (DEBUG, INFO, WARNING, ERROR) |
 | `AGENT_NAME` | No | (from build) | Agent name (set during build) |
 | `EXGENTIC_SET_*` | No | - | Runtime configuration parameters (see below) |
+| `EXGENTIC_LITELLM_CACHING` | No | `false` | Enable LiteLLM response caching (`true` to enable) |
+
+### LiteLLM Response Caching
+
+Response caching is **disabled by default in the A2A agent**, unlike other
+Exgentic entry points where it defaults to on.
+
+An A2A agent process is long-lived and serves many runs. With caching on, a
+repeated task returns the previous run's cached completion instead of calling
+the model, which silently invalidates re-measurement and makes a second run
+look different from the first for reasons unrelated to the agent.
+
+Enable it explicitly when you want it — for example to save tokens while
+iterating on prompts or tools:
+
+```bash
+docker run -d --name exgentic-agent -p 8000:8000 \
+  -e MCP_URL='http://host.docker.internal:8080/mcp' \
+  -e EXGENTIC_LITELLM_CACHING=true \
+  -e OPENAI_API_KEY \
+  exgentic-a2a-tool_calling:latest
+```
+
+An explicit value always wins, in both directions: `=true` enables caching,
+`=false` disables it. Only the *absence* of the variable applies the A2A
+default. Accepted false-y values are `false`, `0`, `no`, and `off`
+(case-insensitive).
+
+Note this is a plain settings variable, not an `EXGENTIC_SET_*` one — the `a2a`
+command accepts only `agent.*` values via `--set`, so `settings.*` overrides
+must be passed as environment variables.
 
 ### Runtime Configuration with --set Parameters
 
