@@ -17,6 +17,13 @@ Note that ``/v1/models`` validates the *serving* layer: a gateway can list a
 model whose backend is broken. Verifying inference itself requires a real
 completion call, which these checks deliberately avoid.
 
+The probe is a diagnostic, not a gate, and is scoped so it cannot cost more
+than it saves: a transport failure is retried (first contact on a cold path is
+systematically slower than its own retry), a success is memoised per process so
+it does not repeat for every task of a run, the caller's timeout is honoured
+rather than clamped, and ``EXGENTIC_SKIP_MODEL_PROBE=1`` turns it off for
+operators who have established reachability by other means.
+
 :func:`litellm.ahealth_check` is not used — it reaches into ``litellm.proxy``
 internals that require the optional ``backoff`` package (declared only under
 ``litellm[proxy]``) and raises ``ImportError`` at runtime without it. Its
@@ -29,6 +36,10 @@ import asyncio
 import json
 import logging
 import os
+import socket
+import ssl
+import threading
+import time
 import urllib.error
 import urllib.request
 from enum import Enum
@@ -243,7 +254,45 @@ _DEFAULT_BASE_URLS = {
     "openai": "https://api.openai.com/v1",
 }
 
+# Default probe budget. Callers may raise it: the value passed to
+# check_model_accessible_sync is honoured rather than clamped, since a caller
+# asking for longer has judged its own network path.
 _MODELS_PROBE_TIMEOUT = 10.0
+
+# A cold first contact is transient by construction — a stalled attempt is
+# routinely followed by a sub-second success on the same warmed path — so the
+# probe re-attempts once before failing a task over it.
+_MODELS_PROBE_ATTEMPTS = 2
+_MODELS_PROBE_RETRY_DELAY = 0.5
+
+_SKIP_PROBE_ENV = "EXGENTIC_SKIP_MODEL_PROBE"
+_PROBE_TIMEOUT_ENV = "EXGENTIC_MODEL_PROBE_TIMEOUT"
+
+_TRUTHY = frozenset({"1", "true", "yes", "on"})
+
+
+def _probe_disabled() -> bool:
+    """True when the operator has opted out of the reachability probe.
+
+    For operators who have established reachability by other means and would
+    rather fail on the real call than on a diagnostic.
+    """
+    return os.environ.get(_SKIP_PROBE_ENV, "").strip().lower() in _TRUTHY
+
+
+def _probe_timeout(timeout: float | None = None) -> float:
+    """Resolve the probe budget: explicit argument, else env, else default."""
+    if timeout is not None:
+        return timeout
+    raw = os.environ.get(_PROBE_TIMEOUT_ENV, "").strip()
+    if raw:
+        try:
+            parsed = float(raw)
+        except ValueError:
+            return _MODELS_PROBE_TIMEOUT
+        if parsed > 0:
+            return parsed
+    return _MODELS_PROBE_TIMEOUT
 
 
 def _resolve_api_base(provider: str) -> str | None:
@@ -287,11 +336,46 @@ def _models_url(api_base: str) -> str:
     return f"{base}/v1/models"
 
 
+def _describe_fetch_failure(exc: BaseException) -> str:
+    """Summarise why a probe never got an HTTP response.
+
+    Collapsing timeout, refusal, DNS and TLS failures into one "unreachable"
+    message asserts a conclusion the probe has not tested, and sends operators
+    hunting through routing and firewall rules for what may be a slow first
+    contact. Each cause gets its own wording, plus the exception text.
+    """
+    reason = str(exc) or type(exc).__name__
+
+    # urllib wraps transport failures in URLError; the cause carries the detail.
+    # (socket.timeout is an alias of TimeoutError, and gaierror of OSError, so
+    # the order of these checks matters: most specific first.)
+    cause = getattr(exc, "reason", None)
+    probe = cause if isinstance(cause, BaseException) else exc
+
+    if isinstance(probe, TimeoutError):
+        return f"timed out after {{timeout}}s (endpoint may be slow rather than down): {reason}"
+    if isinstance(probe, socket.gaierror):
+        return f"DNS resolution failed: {reason}"
+    if isinstance(probe, ssl.SSLError):
+        return f"TLS handshake failed: {reason}"
+    if isinstance(probe, ConnectionRefusedError):
+        return f"connection refused: {reason}"
+    if isinstance(probe, OSError):
+        return f"connection failed: {reason}"
+    return f"probe failed: {reason}"
+
+
 def _fetch_models(url: str, api_key: str | None, timeout: float) -> tuple[int | None, object]:
     """GET *url*, returning ``(status_code, parsed_body_or_None)``.
 
     A status of *None* means the endpoint could not be reached at all
-    (DNS/TCP/TLS failure or timeout) as opposed to responding with an error.
+    (DNS/TCP/TLS failure or timeout) as opposed to responding with an error;
+    the body slot then carries a :class:`str` describing the cause, so callers
+    can tell a timeout from a refusal.
+
+    Note that *timeout* does not bound name resolution: ``getaddrinfo`` runs
+    inside ``create_connection`` and takes no timeout, so a host with slow DNS
+    can exceed the nominal budget.
     """
     request = urllib.request.Request(url, method="GET")
     if api_key:
@@ -306,8 +390,8 @@ def _fetch_models(url: str, api_key: str | None, timeout: float) -> tuple[int | 
                 return status, None
     except urllib.error.HTTPError as err:
         return err.code, None
-    except Exception:
-        return None, None
+    except Exception as exc:
+        return None, _describe_fetch_failure(exc).format(timeout=f"{timeout:g}")
 
 
 def _served_model_ids(payload: object) -> set[str]:
@@ -323,7 +407,9 @@ def _served_model_ids(payload: object) -> set[str]:
 def check_models_endpoint(
     model: str,
     logger: logging.Logger,
-    timeout: float = _MODELS_PROBE_TIMEOUT,
+    timeout: float | None = None,
+    *,
+    attempts: int = _MODELS_PROBE_ATTEMPTS,
 ) -> None:
     """Verify the model endpoint is reachable via ``GET /v1/models``.
 
@@ -338,13 +424,31 @@ def check_models_endpoint(
       the first actual call with a far clearer message than a probe can give.
     - **unreachable / 5xx** — raised as :class:`HealthCheckError`.
 
+    A transport failure (timeout, refusal, DNS, TLS) is re-attempted up to
+    *attempts* times: first contact on a cold path is systematically slower
+    than its own retry, and failing a task over a single excursion turns a
+    slow probe into a lost task. An HTTP response — including 5xx — is not
+    retried, since the endpoint answered and the verdict will not change.
+
     Skipped silently when no base URL is discoverable, since guessing one would
-    produce false failures for self-hosted providers.
+    produce false failures for self-hosted providers, and when
+    ``EXGENTIC_SKIP_MODEL_PROBE`` is set.
+
+    Args:
+        model: The model identifier to check.
+        logger: Logger for debug/warning messages.
+        timeout: Per-attempt budget in seconds. Defaults to
+            ``EXGENTIC_MODEL_PROBE_TIMEOUT`` if set, else 10s.
+        attempts: Total transport attempts, including the first.
 
     Raises:
         HealthCheckError: If the endpoint cannot be reached or returns 5xx.
     """
     from litellm import get_llm_provider
+
+    if _probe_disabled():
+        logger.debug("%s is set; skipping endpoint check for %s", _SKIP_PROBE_ENV, model)
+        return
 
     try:
         resolved_model, provider, _, _ = get_llm_provider(model=model)
@@ -357,10 +461,30 @@ def check_models_endpoint(
         return
 
     url = _models_url(api_base)
-    status, payload = _fetch_models(url, _resolve_api_key(provider), timeout)
+    budget = _probe_timeout(timeout)
+    api_key = _resolve_api_key(provider)
+
+    detail: object = None
+    for attempt in range(1, max(attempts, 1) + 1):
+        status, payload = _fetch_models(url, api_key, budget)
+        if status is not None:
+            break
+        detail = payload
+        if attempt < max(attempts, 1):
+            logger.debug(
+                "Model endpoint probe for %s did not complete (attempt %d/%d): %s; retrying",
+                model,
+                attempt,
+                max(attempts, 1),
+                detail,
+            )
+            time.sleep(_MODELS_PROBE_RETRY_DELAY)
 
     if status is None:
-        raise HealthCheckError(f"Model endpoint for {model} is unreachable at {url}")
+        cause = detail if isinstance(detail, str) else "no response"
+        raise HealthCheckError(
+            f"Model endpoint for {model} did not respond at {url} after {max(attempts, 1)} attempt(s): {cause}"
+        )
 
     if status in (401, 403):
         logger.debug("Model endpoint %s is up but requires auth (HTTP %s)", url, status)
@@ -386,6 +510,30 @@ def check_models_endpoint(
         return
 
     logger.debug("Model endpoint check passed for %s at %s", model, url)
+
+
+# ---------------------------------------------------------------------------
+# Per-process probe memo
+# ---------------------------------------------------------------------------
+
+# The model endpoint does not change between tasks of one run, so a probe that
+# has already succeeded in this process need not run again. Agent instances are
+# constructed per task; without this the per-task placement turns a rare
+# first-contact stall into a recurring one, with exposure scaling in the length
+# of the run. Only successes are memoised — a failure is re-probed, so a
+# genuinely broken endpoint is still reported for every task.
+_probe_memo: set[tuple[str, str]] = set()
+_probe_memo_lock = threading.Lock()
+
+
+def _probe_memo_key(model: str) -> tuple[str, str]:
+    return (model, os.environ.get("OPENAI_API_BASE") or os.environ.get("OPENAI_BASE_URL") or "")
+
+
+def reset_probe_memo() -> None:
+    """Forget which endpoints have been probed in this process (for tests)."""
+    with _probe_memo_lock:
+        _probe_memo.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -466,7 +614,7 @@ async def acheck_model_accessible(
 async def acheck_model_reachable(
     model: str,
     logger: logging.Logger,
-    timeout: float = _MODELS_PROBE_TIMEOUT,
+    timeout: float | None = None,
 ) -> None:
     """Async form of the layered check: environment validation + ``/v1/models``.
 
@@ -483,16 +631,17 @@ async def acheck_model_reachable(
         logger.error("Model health check failed for %s: missing %s", model, joined)
         raise HealthCheckError(f"Model {model} is not accessible: missing environment variables: {joined}")
 
-    await asyncio.to_thread(check_models_endpoint, model, logger, timeout)
+    await asyncio.to_thread(check_models_endpoint, model, logger, _probe_timeout(timeout))
 
 
 def check_model_accessible_sync(
     model: str,
     logger: logging.Logger,
-    timeout: float = 30.0,
+    timeout: float | None = None,
     model_settings: ModelSettings | None = None,
     *,
     strict: bool = False,
+    force: bool = False,
 ) -> None:
     """Check a model is configured and its endpoint is reachable.
 
@@ -507,12 +656,19 @@ def check_model_accessible_sync(
     without verifying anything. Pass ``strict=True`` to add that call back when
     inference itself must be verified.
 
+    The endpoint probe runs at most once per process per (model, base URL): it
+    is a property of the deployment, not of the task. Pass ``force=True`` to
+    re-probe regardless. Set ``EXGENTIC_SKIP_MODEL_PROBE`` to skip it entirely.
+
     Args:
         model: The model identifier to check
         logger: Logger for info/error messages
-        timeout: Timeout in seconds for the endpoint probe (default: 30s)
+        timeout: Per-attempt timeout in seconds for the endpoint probe. Honoured
+            as given; defaults to ``EXGENTIC_MODEL_PROBE_TIMEOUT`` if set, else
+            10s. Also bounds the *strict* completion call.
         model_settings: Optional retry settings, used only when *strict*.
         strict: Also issue a real completion call to verify inference works.
+        force: Re-run the endpoint probe even if it already passed here.
 
     Raises:
         HealthCheckError: If the model is misconfigured or unreachable
@@ -525,8 +681,17 @@ def check_model_accessible_sync(
         logger.error("Model health check failed for %s: missing %s", model, joined)
         raise HealthCheckError(f"Model {model} is not accessible: missing environment variables: {joined}")
 
+    memo_key = _probe_memo_key(model)
+    with _probe_memo_lock:
+        already_probed = memo_key in _probe_memo
+
     try:
-        check_models_endpoint(model, logger, timeout=min(timeout, _MODELS_PROBE_TIMEOUT))
+        if already_probed and not force:
+            logger.debug("Endpoint for %s already verified in this process; skipping probe", model)
+        else:
+            check_models_endpoint(model, logger, timeout=_probe_timeout(timeout))
+            with _probe_memo_lock:
+                _probe_memo.add(memo_key)
     except HealthCheckError as exc:
         logger.error("Model health check failed for %s: %s", model, exc)
         raise
@@ -541,7 +706,7 @@ def check_model_accessible_sync(
         try:
             run_sync(
                 acheck_model_accessible(model, model_settings=model_settings),
-                timeout=timeout,
+                timeout=_probe_timeout(timeout),
             )
         except Exception as exc:
             error_msg = getattr(exc, "message", "") or str(exc) or repr(exc)

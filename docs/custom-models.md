@@ -237,6 +237,45 @@ export EXGENTIC_LITELLM_CACHE_DIR=/path/to/cache
 
 ---
 
+## Endpoint health check
+
+Before an agent runs, Exgentic validates the model configuration in two cheap
+layers: a free offline check that the required credentials are present, then an
+unbilled `GET /v1/models` probe confirming the endpoint is serving. Neither
+spends tokens. The probe exists to turn an opaque mid-task auth or routing
+error into a clear message up front.
+
+The probe is a diagnostic, not a gate. A transport failure (timeout, refused
+connection, DNS, TLS) is retried once, because first contact on a cold network
+path is routinely slower than the retry that follows it. A success is
+remembered for the rest of the process, so a long run probes once rather than
+once per task. An HTTP response — including `5xx` — is not retried, since the
+endpoint answered and a second look will not change the verdict.
+
+On a slow network path you can raise the per-attempt budget (default 10s):
+
+```bash
+export EXGENTIC_MODEL_PROBE_TIMEOUT=30
+```
+
+If you have established reachability by other means and would rather fail on
+the real call than on a diagnostic, skip the probe entirely:
+
+```bash
+export EXGENTIC_SKIP_MODEL_PROBE=1
+```
+
+Credential validation still runs when the probe is skipped — it costs nothing
+and catches a misconfigured run before it starts.
+
+Note that the timeout does not bound DNS resolution: `getaddrinfo` takes no
+timeout, so a host with slow name resolution can exceed the nominal budget.
+When the probe does fail, the error names the observed cause — a timeout, a
+refusal, a DNS failure and a TLS failure read differently — so you are not left
+guessing which layer to investigate.
+
+---
+
 ## Observability
 
 All LLM inference calls emit OpenTelemetry spans automatically when tracing is enabled. See [Observability Quick Start](./observability/quickstart.md) to set up tracing, and [Semantic Conventions](./observability/semantic-conventions.md) for the full attribute reference.

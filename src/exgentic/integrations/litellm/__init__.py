@@ -8,6 +8,7 @@ from .health import (
     acheck_model_reachable,
     check_model_accessible_sync,
     check_models_endpoint,
+    reset_probe_memo,
     validate_model_environment,
 )
 from .proxy import LitellmProxy
@@ -38,6 +39,7 @@ __all__ = [
     "check_model_accessible_sync",
     "check_models_endpoint",
     "load_trace_cost",
+    "reset_probe_memo",
     "trace_logger",
     "validate_model_environment",
 ]

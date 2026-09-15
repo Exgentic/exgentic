@@ -6,6 +6,9 @@
 from __future__ import annotations
 
 import logging
+import socket
+import ssl
+import urllib.error
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -14,17 +17,29 @@ from exgentic.integrations.litellm.health import (
     _HEALTH_MAX_RETRY_DELAY,
     _HEALTH_MIN_RETRIES,
     _HEALTH_MIN_RETRY_DELAY,
+    _MODELS_PROBE_TIMEOUT,
     ErrorCategory,
     HealthCheckError,
+    _describe_fetch_failure,
     _models_url,
+    _probe_timeout,
     _served_model_ids,
     acheck_model_accessible,
     acheck_model_reachable,
     check_model_accessible_sync,
     check_models_endpoint,
     classify_error,
+    reset_probe_memo,
     validate_model_environment,
 )
+
+
+@pytest.fixture(autouse=True)
+def _clear_probe_memo():
+    """The probe memo is process-global; keep it from leaking between tests."""
+    reset_probe_memo()
+    yield
+    reset_probe_memo()
 
 
 class MockLiteLLMError(Exception):
@@ -589,11 +604,14 @@ def test_endpoint_check_raises_on_server_error():
 def test_endpoint_check_raises_when_unreachable():
     """status=None means DNS/TCP/TLS failure, not an HTTP error."""
     logger = logging.getLogger("test")
-    base, fetch = _patch_probe(None)
+    base, fetch = _patch_probe(None, "connection refused: [Errno 111]")
     with base, fetch:
         with pytest.raises(HealthCheckError) as exc_info:
             check_models_endpoint("gpt-4o", logger)
-    assert "unreachable" in str(exc_info.value)
+    message = str(exc_info.value)
+    assert "did not respond" in message
+    # The reported cause must be the one observed, not a guess at "unreachable".
+    assert "connection refused" in message
 
 
 def test_endpoint_check_tolerates_missing_models_route():
@@ -690,3 +708,151 @@ def test_gateway_shortcut_requires_both_base_and_key(monkeypatch):
     env = {"keys_in_environment": False, "missing_keys": ["AZURE_API_KEY"]}
     with patch("litellm.validate_environment", return_value=env):
         assert validate_model_environment("azure/gpt-5-mini") == ["AZURE_API_KEY"]
+
+
+# ---------------------------------------------------------------------------
+# Probe resilience: retry, memo, timeout, opt-out, error detail
+#
+# Regression cover for the per-task probe failing whole tasks on a slow first
+# contact. Measured in the field: a 10.09 s stall whose immediate retry
+# returned in 0.18 s, and 7 of 7 slow attempts followed by a sub-quarter-second
+# success. The probe is a diagnostic and must not be the thing that fails a run.
+# ---------------------------------------------------------------------------
+
+
+def test_transport_failure_is_retried_and_recovers():
+    """A cold first contact must not fail the task when the retry succeeds."""
+    logger = logging.getLogger("test")
+    attempts = [(None, "timed out after 10s"), (200, {"data": [{"id": "gpt-4o"}]})]
+    with patch("exgentic.integrations.litellm.health._resolve_api_base", return_value="https://gw.example.com/v1"):
+        with patch("exgentic.integrations.litellm.health._fetch_models", side_effect=attempts) as fetch:
+            with patch("exgentic.integrations.litellm.health.time.sleep"):
+                check_models_endpoint("gpt-4o", logger)  # no raise
+    assert fetch.call_count == 2
+
+
+def test_transport_failure_raises_after_exhausting_attempts():
+    """A genuinely dead endpoint still fails, and says how many tries it got."""
+    logger = logging.getLogger("test")
+    base, fetch = _patch_probe(None, "connection refused: [Errno 111]")
+    with base, fetch, patch("exgentic.integrations.litellm.health.time.sleep"):
+        with pytest.raises(HealthCheckError) as exc_info:
+            check_models_endpoint("gpt-4o", logger)
+    assert "2 attempt(s)" in str(exc_info.value)
+
+
+def test_http_response_is_not_retried():
+    """5xx is an answer, not a stall: retrying cannot change the verdict."""
+    logger = logging.getLogger("test")
+    base, fetch = _patch_probe(503)
+    with base, fetch as fetch_mock:
+        with pytest.raises(HealthCheckError):
+            check_models_endpoint("gpt-4o", logger)
+    assert fetch_mock.call_count == 1
+
+
+def test_probe_runs_once_per_process_across_tasks():
+    """Agent instances are per task; the endpoint is not. Probe once."""
+    logger = logging.getLogger("test")
+    with patch("exgentic.integrations.litellm.health.validate_model_environment", return_value=[]):
+        with patch("exgentic.integrations.litellm.health.check_models_endpoint") as probe:
+            for _ in range(5):
+                check_model_accessible_sync("gpt-4o", logger)
+    assert probe.call_count == 1
+
+
+def test_probe_memo_can_be_forced():
+    """An explicit re-check must still be possible."""
+    logger = logging.getLogger("test")
+    with patch("exgentic.integrations.litellm.health.validate_model_environment", return_value=[]):
+        with patch("exgentic.integrations.litellm.health.check_models_endpoint") as probe:
+            check_model_accessible_sync("gpt-4o", logger)
+            check_model_accessible_sync("gpt-4o", logger, force=True)
+    assert probe.call_count == 2
+
+
+def test_probe_failure_is_not_memoised():
+    """A broken endpoint must be reported for every task, not just the first."""
+    logger = logging.getLogger("test")
+    with patch("exgentic.integrations.litellm.health.validate_model_environment", return_value=[]):
+        with patch(
+            "exgentic.integrations.litellm.health.check_models_endpoint",
+            side_effect=HealthCheckError("down"),
+        ) as probe:
+            for _ in range(3):
+                with pytest.raises(HealthCheckError):
+                    check_model_accessible_sync("gpt-4o", logger)
+    assert probe.call_count == 3
+
+
+def test_caller_timeout_is_honoured_not_clamped():
+    """A caller asking for 30s used to be silently reduced to 10s."""
+    logger = logging.getLogger("test")
+    with patch("exgentic.integrations.litellm.health.validate_model_environment", return_value=[]):
+        with patch("exgentic.integrations.litellm.health.check_models_endpoint") as probe:
+            check_model_accessible_sync("gpt-4o", logger, timeout=30.0)
+    assert probe.call_args.kwargs["timeout"] == 30.0
+
+
+def test_probe_timeout_reads_environment(monkeypatch):
+    monkeypatch.setenv("EXGENTIC_MODEL_PROBE_TIMEOUT", "45")
+    assert _probe_timeout() == 45.0
+    # An explicit argument still wins over the environment.
+    assert _probe_timeout(5.0) == 5.0
+
+
+@pytest.mark.parametrize("raw", ["", "garbage", "0", "-1"])
+def test_probe_timeout_falls_back_on_unusable_environment(monkeypatch, raw):
+    monkeypatch.setenv("EXGENTIC_MODEL_PROBE_TIMEOUT", raw)
+    assert _probe_timeout() == _MODELS_PROBE_TIMEOUT
+
+
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on"])
+def test_probe_can_be_disabled_by_environment(monkeypatch, value):
+    """Operators who verify reachability otherwise may skip the diagnostic."""
+    monkeypatch.setenv("EXGENTIC_SKIP_MODEL_PROBE", value)
+    logger = logging.getLogger("test")
+    with patch("exgentic.integrations.litellm.health._fetch_models") as fetch:
+        check_models_endpoint("gpt-4o", logger)  # no raise
+    fetch.assert_not_called()
+
+
+@pytest.mark.parametrize("value", ["0", "false", "no", ""])
+def test_probe_stays_enabled_for_non_truthy_values(monkeypatch, value):
+    monkeypatch.setenv("EXGENTIC_SKIP_MODEL_PROBE", value)
+    logger = logging.getLogger("test")
+    base, fetch = _patch_probe(200, {"data": [{"id": "gpt-4o"}]})
+    with base, fetch as fetch_mock:
+        check_models_endpoint("gpt-4o", logger)
+    assert fetch_mock.call_count == 1
+
+
+def test_missing_credentials_still_fail_before_any_probe(monkeypatch):
+    """Skipping the probe must not skip layer 1, which is free and offline."""
+    monkeypatch.setenv("EXGENTIC_SKIP_MODEL_PROBE", "1")
+    logger = logging.getLogger("test")
+    with patch("exgentic.integrations.litellm.health.validate_model_environment", return_value=["OPENAI_API_KEY"]):
+        with pytest.raises(HealthCheckError):
+            check_model_accessible_sync("gpt-4o", logger)
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        (TimeoutError("timed out"), "timed out"),
+        (urllib.error.URLError(TimeoutError("timed out")), "timed out"),
+        (urllib.error.URLError(socket.gaierror(-2, "Name or service not known")), "DNS resolution failed"),
+        (urllib.error.URLError(ssl.SSLError("bad handshake")), "TLS handshake failed"),
+        (urllib.error.URLError(ConnectionRefusedError(111, "refused")), "connection refused"),
+        (urllib.error.URLError(OSError("network unreachable")), "connection failed"),
+    ],
+)
+def test_fetch_failure_causes_are_distinguished(exc, expected):
+    """A timeout reported as "unreachable" asserts what the probe never tested."""
+    assert expected in _describe_fetch_failure(exc).format(timeout="10")
+
+
+def test_timeout_message_names_the_budget_that_expired():
+    """The operator needs the number to know the clamp is what bit them."""
+    described = _describe_fetch_failure(TimeoutError("timed out")).format(timeout="10")
+    assert "10s" in described
