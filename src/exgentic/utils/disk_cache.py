@@ -8,7 +8,7 @@ import threading
 from pathlib import Path
 from typing import Any, ClassVar, Optional
 
-from diskcache import Cache, JSONDisk
+from diskcache_community import Cache, SafeJSONDisk
 
 
 class DiskCacheSessionMixin:
@@ -61,7 +61,7 @@ class DiskCacheSessionMixin:
         cache = getattr(cls._cache_local, attr, None)
         if cache is None:
             Path(cls.CACHE_DIR).mkdir(parents=True, exist_ok=True)
-            cache = Cache(cls.CACHE_DIR, disk=JSONDisk)
+            cache = Cache(cls.CACHE_DIR, disk=SafeJSONDisk.with_options(on_error="miss"))
             setattr(cls._cache_local, attr, cache)
         return cache
 
