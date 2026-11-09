@@ -9,6 +9,7 @@ import json
 import time
 from typing import Any, Optional
 
+import diskcache_community
 from litellm.caching.caching import Cache
 from litellm.main import ModelResponse
 
@@ -318,8 +319,12 @@ class LLMCache(Cache):
 def build_litellm_cache(settings: Any) -> Cache:
     cache_dir = getattr(settings, "cache_dir", ".exgentic")
     litellm_cache_dir = getattr(settings, "litellm_cache_dir", "~/.cache/exgentic/litellm")
-    return LLMCache(
+    cache = LLMCache(
         type="disk",
         disk_cache_dir=resolve_cache_path(cache_dir, litellm_cache_dir),
         delete_time_from_messages=settings.litellm_delete_time_from_cache_key,
     )
+    cache.cache.disk_cache = diskcache_community.Cache(
+        cache.cache.disk_cache.directory, disk=diskcache_community.SafeDisk.with_options(on_error="miss")
+    )
+    return cache
